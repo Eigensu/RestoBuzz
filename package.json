@@ -2,15 +2,19 @@
   "name": "whatsapp-bulk-sender",
   "private": true,
   "scripts": {
-    "dev:frontend": "pnpm --filter frontend dev",
-    "build:frontend": "pnpm --filter frontend build",
-    "lint:frontend": "pnpm --filter frontend lint",
-    "dev:backend": "cd apps/backend && uvicorn app.main:app --reload --port 8000",
-    "dev:worker": "cd apps/backend && celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q utility,marketing",
-    "dev:beat": "cd apps/backend && celery -A app.workers.celery_app beat --loglevel=info",
-    "dev:flower": "cd apps/backend && celery -A app.workers.celery_app flower --port=5555",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "dev:backend": "dotenv -e .env -- sh -c 'cd apps/backend && uvicorn app.main:app --reload --port 8000'",
+    "dev:worker": "dotenv -e .env -- sh -c 'cd apps/backend && celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q utility,marketing'",
+    "dev:beat": "dotenv -e .env -- sh -c 'cd apps/backend && celery -A app.workers.celery_app beat --loglevel=info'",
+    "dev:flower": "dotenv -e .env -- sh -c 'cd apps/backend && celery -A app.workers.celery_app flower --port=5555'",
     "setup:backend": "cd apps/backend && python -m venv .venv && .venv/bin/pip install -r requirements.txt",
     "init:db": "cd apps/backend && python scripts/init_db.py"
+  },
+  "devDependencies": {
+    "turbo": "^2.8.20"
   },
   "engines": {
     "node": ">=22",

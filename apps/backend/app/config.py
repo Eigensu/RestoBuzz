@@ -1,9 +1,16 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import AnyUrl
+
+# Root .env is two levels above apps/backend/
+_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=str(_ROOT_ENV),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # MongoDB
     mongodb_url: str = "mongodb://localhost:27017/whatsapp_bulk"

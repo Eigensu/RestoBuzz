@@ -16,7 +16,7 @@ dist/
 build/
 .eggs/
 
-# Environment files
+# Environment — root .env is source of truth, never commit it
 .env
 .env.local
 .env.*.local
@@ -25,9 +25,8 @@ build/
 .next/
 out/
 
-# Build outputs
-dist/
-build/
+# Turbo
+.turbo/
 
 # Logs
 *.log
@@ -39,7 +38,6 @@ pnpm-debug.log*
 Thumbs.db
 
 # IDE
-.vscode/
 .idea/
 
 # Test coverage
