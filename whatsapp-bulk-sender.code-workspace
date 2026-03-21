@@ -2,16 +2,16 @@
   "folders": [
     {
       "name": "Root",
-      "path": "."
+      "path": ".",
     },
     {
       "name": "Frontend (Next.js)",
-      "path": "apps/frontend"
+      "path": "apps/frontend",
     },
     {
       "name": "Backend (FastAPI)",
-      "path": "apps/backend"
-    }
+      "path": "apps/backend",
+    },
   ],
   "settings": {
     "editor.formatOnSave": true,
@@ -22,37 +22,37 @@
       "**/.pytest_cache": true,
       "**/*.pyc": true,
       "**/node_modules": true,
-      "**/.next": true
+      "**/.next": true,
     },
     "search.exclude": {
       "**/node_modules": true,
       "**/.next": true,
       "**/.venv": true,
-      "**/__pycache__": true
+      "**/__pycache__": true,
     },
     // Python (backend)
     "python.defaultInterpreterPath": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
     "python.analysis.typeCheckingMode": "basic",
     "[python]": {
       "editor.defaultFormatter": "ms-python.black-formatter",
-      "editor.tabSize": 4
+      "editor.tabSize": 4,
     },
     // TypeScript (frontend)
     "typescript.tsdk": "apps/frontend/node_modules/typescript/lib",
     "[typescript]": {
-      "editor.defaultFormatter": "esbenp.prettier-vscode"
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
     },
     "[typescriptreact]": {
-      "editor.defaultFormatter": "esbenp.prettier-vscode"
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
     },
     // Tailwind
     "tailwindCSS.experimental.classRegex": [
-      ["cn\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"]
+      ["cn\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
     ],
     "tailwindCSS.includeLanguages": {
       "typescript": "javascript",
-      "typescriptreact": "javascript"
-    }
+      "typescriptreact": "javascript",
+    },
   },
   "extensions": {
     "recommendations": [
@@ -66,8 +66,8 @@
       "ms-vscode.vscode-typescript-next",
       "christian-kohler.path-intellisense",
       "mikestead.dotenv",
-      "redhat.vscode-yaml"
-    ]
+      "redhat.vscode-yaml",
+    ],
   },
   "launch": {
     "version": "0.2.0",
@@ -81,21 +81,28 @@
         "cwd": "${workspaceFolder:Backend (FastAPI)}",
         "python": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
         "env": {
-          "PYTHONPATH": "${workspaceFolder:Backend (FastAPI)}"
+          "PYTHONPATH": "${workspaceFolder:Backend (FastAPI)}",
         },
-        "console": "integratedTerminal"
+        "console": "integratedTerminal",
       },
       {
         "name": "Celery Worker",
         "type": "debugpy",
         "request": "launch",
         "module": "celery",
-        "args": ["-A", "app.workers.celery_app", "worker", "--loglevel=info", "-Q", "utility,marketing"],
+        "args": [
+          "-A",
+          "app.workers.celery_app",
+          "worker",
+          "--loglevel=info",
+          "-Q",
+          "utility,marketing",
+        ],
         "cwd": "${workspaceFolder:Backend (FastAPI)}",
         "python": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
-        "console": "integratedTerminal"
-      }
-    ]
+        "console": "integratedTerminal",
+      },
+    ],
   },
   "tasks": {
     "version": "2.0.0",
@@ -105,7 +112,7 @@
         "type": "shell",
         "command": "pnpm install",
         "group": "build",
-        "presentation": { "reveal": "always", "panel": "shared" }
+        "presentation": { "reveal": "always", "panel": "shared" },
       },
       {
         "label": "Setup Backend Venv",
@@ -113,14 +120,14 @@
         "command": "python -m venv .venv && .venv/bin/pip install -r requirements.txt",
         "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
         "group": "build",
-        "presentation": { "reveal": "always", "panel": "shared" }
+        "presentation": { "reveal": "always", "panel": "shared" },
       },
       {
         "label": "Init DB",
         "type": "shell",
         "command": ".venv/bin/python scripts/init_db.py",
         "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
-        "presentation": { "reveal": "always", "panel": "shared" }
+        "presentation": { "reveal": "always", "panel": "shared" },
       },
       {
         "label": "Run Frontend Dev",
@@ -129,7 +136,7 @@
         "options": { "cwd": "${workspaceFolder:Frontend (Next.js)}" },
         "group": "test",
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" }
+        "presentation": { "reveal": "always", "panel": "dedicated" },
       },
       {
         "label": "Run Backend Dev",
@@ -138,7 +145,7 @@
         "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
         "group": "test",
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" }
+        "presentation": { "reveal": "always", "panel": "dedicated" },
       },
       {
         "label": "Run Celery Worker",
@@ -146,7 +153,7 @@
         "command": ".venv/bin/celery -A app.workers.celery_app worker --loglevel=info -Q utility,marketing",
         "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" }
+        "presentation": { "reveal": "always", "panel": "dedicated" },
       },
       {
         "label": "Run Flower",
@@ -154,7 +161,7 @@
         "command": ".venv/bin/celery -A app.workers.celery_app flower --port=5555",
         "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" }
+        "presentation": { "reveal": "always", "panel": "dedicated" },
       },
       {
         "label": "Run Unit Tests",
@@ -162,8 +169,8 @@
         "command": ".venv/bin/pytest tests/unit -v",
         "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
         "group": { "kind": "test", "isDefault": true },
-        "presentation": { "reveal": "always", "panel": "shared" }
-      }
-    ]
-  }
+        "presentation": { "reveal": "always", "panel": "shared" },
+      },
+    ],
+  },
 }

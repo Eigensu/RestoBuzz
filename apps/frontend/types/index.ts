@@ -1,10 +1,70 @@
+export interface Restaurant {
+  id: string;
+  name: string;
+  location: string;
+  emoji: string;
+  color: string; // tailwind bg color class
+}
+
+export const RESTAURANTS: Restaurant[] = [
+  {
+    id: "r1",
+    name: "Downtown Grill",
+    location: "Downtown",
+    emoji: "🍔",
+    color: "bg-orange-500",
+  },
+  {
+    id: "r2",
+    name: "Sakura Garden",
+    location: "Midtown",
+    emoji: "🍣",
+    color: "bg-pink-500",
+  },
+  {
+    id: "r3",
+    name: "La Piazza",
+    location: "West End",
+    emoji: "🍕",
+    color: "bg-red-500",
+  },
+  {
+    id: "r4",
+    name: "Spice Route",
+    location: "East Side",
+    emoji: "🍛",
+    color: "bg-yellow-500",
+  },
+  {
+    id: "r5",
+    name: "The Green Bowl",
+    location: "Uptown",
+    emoji: "🥗",
+    color: "bg-green-500",
+  },
+  {
+    id: "r6",
+    name: "Harbor Catch",
+    location: "Waterfront",
+    emoji: "🦞",
+    color: "bg-blue-500",
+  },
+];
+
 export interface Campaign {
   id: string;
   name: string;
   template_id: string;
   template_name: string;
   priority: "MARKETING" | "UTILITY";
-  status: "draft" | "queued" | "running" | "paused" | "completed" | "failed" | "cancelled";
+  status:
+    | "draft"
+    | "queued"
+    | "running"
+    | "paused"
+    | "completed"
+    | "failed"
+    | "cancelled";
   total_count: number;
   sent_count: number;
   delivered_count: number;
@@ -48,7 +108,13 @@ export interface InboundMessage {
   wa_message_id: string;
   from_phone: string;
   sender_name: string | null;
-  message_type: "text" | "image" | "document" | "location" | "sticker" | "unknown";
+  message_type:
+    | "text"
+    | "image"
+    | "document"
+    | "location"
+    | "sticker"
+    | "unknown";
   body: string | null;
   media_url: string | null;
   media_mime_type: string | null;
@@ -62,8 +128,16 @@ export interface PreflightResult {
   invalid_count: number;
   duplicate_count: number;
   suppressed_count: number;
-  valid_rows: Array<{ name: string; phone: string; variables: Record<string, string> }>;
-  invalid_rows: Array<{ row_number: number; raw_phone: string; reason: string }>;
+  valid_rows: Array<{
+    name: string;
+    phone: string;
+    variables: Record<string, string>;
+  }>;
+  invalid_rows: Array<{
+    row_number: number;
+    raw_phone: string;
+    reason: string;
+  }>;
   file_ref: string;
 }
 
