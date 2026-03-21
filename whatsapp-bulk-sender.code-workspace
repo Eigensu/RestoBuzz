@@ -1,0 +1,169 @@
+{
+  "folders": [
+    {
+      "name": "Root",
+      "path": "."
+    },
+    {
+      "name": "Frontend (Next.js)",
+      "path": "apps/frontend"
+    },
+    {
+      "name": "Backend (FastAPI)",
+      "path": "apps/backend"
+    }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2,
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/*.pyc": true,
+      "**/node_modules": true,
+      "**/.next": true
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/.next": true,
+      "**/.venv": true,
+      "**/__pycache__": true
+    },
+    // Python (backend)
+    "python.defaultInterpreterPath": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
+    "python.analysis.typeCheckingMode": "basic",
+    "[python]": {
+      "editor.defaultFormatter": "ms-python.black-formatter",
+      "editor.tabSize": 4
+    },
+    // TypeScript (frontend)
+    "typescript.tsdk": "apps/frontend/node_modules/typescript/lib",
+    "[typescript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[typescriptreact]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    // Tailwind
+    "tailwindCSS.experimental.classRegex": [
+      ["cn\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"]
+    ],
+    "tailwindCSS.includeLanguages": {
+      "typescript": "javascript",
+      "typescriptreact": "javascript"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "esbenp.prettier-vscode",
+      "ms-python.python",
+      "ms-python.black-formatter",
+      "ms-python.pylint",
+      "bradlc.vscode-tailwindcss",
+      "dbaeumer.vscode-eslint",
+      "mongodb.mongodb-vscode",
+      "ms-vscode.vscode-typescript-next",
+      "christian-kohler.path-intellisense",
+      "mikestead.dotenv",
+      "redhat.vscode-yaml"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "FastAPI (uvicorn)",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn",
+        "args": ["app.main:app", "--reload", "--port", "8000"],
+        "cwd": "${workspaceFolder:Backend (FastAPI)}",
+        "python": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
+        "env": {
+          "PYTHONPATH": "${workspaceFolder:Backend (FastAPI)}"
+        },
+        "console": "integratedTerminal"
+      },
+      {
+        "name": "Celery Worker",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "celery",
+        "args": ["-A", "app.workers.celery_app", "worker", "--loglevel=info", "-Q", "utility,marketing"],
+        "cwd": "${workspaceFolder:Backend (FastAPI)}",
+        "python": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
+        "console": "integratedTerminal"
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Install Frontend Deps",
+        "type": "shell",
+        "command": "pnpm install",
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "shared" }
+      },
+      {
+        "label": "Setup Backend Venv",
+        "type": "shell",
+        "command": "python -m venv .venv && .venv/bin/pip install -r requirements.txt",
+        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "shared" }
+      },
+      {
+        "label": "Init DB",
+        "type": "shell",
+        "command": ".venv/bin/python scripts/init_db.py",
+        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "presentation": { "reveal": "always", "panel": "shared" }
+      },
+      {
+        "label": "Run Frontend Dev",
+        "type": "shell",
+        "command": "pnpm dev",
+        "options": { "cwd": "${workspaceFolder:Frontend (Next.js)}" },
+        "group": "test",
+        "isBackground": true,
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Run Backend Dev",
+        "type": "shell",
+        "command": ".venv/bin/uvicorn app.main:app --reload --port 8000",
+        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "group": "test",
+        "isBackground": true,
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Run Celery Worker",
+        "type": "shell",
+        "command": ".venv/bin/celery -A app.workers.celery_app worker --loglevel=info -Q utility,marketing",
+        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "isBackground": true,
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Run Flower",
+        "type": "shell",
+        "command": ".venv/bin/celery -A app.workers.celery_app flower --port=5555",
+        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "isBackground": true,
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Run Unit Tests",
+        "type": "shell",
+        "command": ".venv/bin/pytest tests/unit -v",
+        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "group": { "kind": "test", "isDefault": true },
+        "presentation": { "reveal": "always", "panel": "shared" }
+      }
+    ]
+  }
+}

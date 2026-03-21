@@ -1,0 +1,44 @@
+# Web framework
+fastapi[standard]==0.115.12
+uvicorn[standard]==0.34.3
+
+# Database
+motor==3.7.0
+pymongo==4.12.1
+
+# Task queue
+celery[redis]==5.5.3
+flower==2.0.1
+redis==5.2.1
+
+# Auth
+python-jose[cryptography]==3.5.0
+passlib==1.7.4
+bcrypt==4.0.1
+python-multipart==0.0.20
+
+# Validation
+pydantic==2.11.4
+pydantic-settings==2.9.1
+email-validator==2.2.0
+
+# Phone normalization
+phonenumbers==8.13.55
+
+# File parsing
+openpyxl==3.1.5
+xlrd==2.0.1
+
+# HTTP client
+httpx==0.28.1
+
+# Media upload
+cloudinary==1.44.0
+
+# Utilities
+python-dotenv==1.1.0
+structlog==25.3.0
+
+# Testing
+pytest==8.3.5
+pytest-asyncio==0.25.3
