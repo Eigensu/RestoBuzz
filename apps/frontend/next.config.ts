@@ -6,6 +6,9 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: path.resolve(__dirname, "../.."),
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "res.cloudinary.com" },

@@ -3,11 +3,10 @@ import type { NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login"];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) return NextResponse.next();
-
-  // Token check is client-side (localStorage); middleware just protects server routes
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p)))
+    return NextResponse.next();
   return NextResponse.next();
 }
 
