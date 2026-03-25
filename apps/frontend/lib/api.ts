@@ -7,12 +7,14 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// Attach access token from localStorage
+// Attach access token + ngrok bypass header
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("access_token");
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
+  // ngrok free tier shows a browser warning page — this header skips it
+  config.headers["ngrok-skip-browser-warning"] = "1";
   return config;
 });
 
@@ -40,5 +42,5 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(error);
-  }
+  },
 );

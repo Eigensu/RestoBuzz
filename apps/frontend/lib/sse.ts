@@ -10,8 +10,15 @@ export function useSSE<T>(path: string | null) {
 
   useEffect(() => {
     if (!path) return;
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    const url = `${API_URL}/api${path}${token ? `?token=${token}` : ""}`;
+    const token =
+      typeof window !== "undefined"
+        ? localStorage.getItem("access_token")
+        : null;
+    const params = new URLSearchParams();
+    if (token) params.set("token", token);
+    // ngrok free tier blocks requests without this header; query param works for EventSource
+    params.set("ngrok-skip-browser-warning", "1");
+    const url = `${API_URL}/api${path}?${params.toString()}`;
 
     const es = new EventSource(url);
     esRef.current = es;
