@@ -8,7 +8,11 @@ from bson import ObjectId
 from app.database import get_db
 from app.dependencies import require_role, get_current_user
 from app.models.campaign import CampaignCreate, CampaignResponse, CampaignListResponse
-from app.models.message import MessageLogListResponse, MessageLogResponse, StatusHistoryEntry
+from app.models.message import (
+    MessageLogListResponse,
+    MessageLogResponse,
+    StatusHistoryEntry,
+)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -44,9 +48,13 @@ async def list_campaigns(
 ):
     skip = (page - 1) * page_size
     total = await db.campaign_jobs.count_documents({})
-    cursor = db.campaign_jobs.find({}).sort("created_at", -1).skip(skip).limit(page_size)
+    cursor = (
+        db.campaign_jobs.find({}).sort("created_at", -1).skip(skip).limit(page_size)
+    )
     items = [_serialize_campaign(doc) async for doc in cursor]
-    return CampaignListResponse(items=items, total=total, page=page, page_size=page_size)
+    return CampaignListResponse(
+        items=items, total=total, page=page, page_size=page_size
+    )
 
 
 @router.post("/", response_model=CampaignResponse, status_code=201)
@@ -58,12 +66,15 @@ async def create_campaign(
     # Load contacts from Redis cache
     from redis.asyncio import from_url
     from app.config import settings
+
     redis = from_url(settings.redis_url, decode_responses=True)
     raw = await redis.get(f"file_ref:{body.contact_file_ref}")
     await redis.aclose()
 
     if not raw:
-        raise HTTPException(400, "Contact file reference expired or not found. Re-upload contacts.")
+        raise HTTPException(
+            400, "Contact file reference expired or not found. Re-upload contacts."
+        )
 
     contacts = json.loads(raw)
     now = datetime.now(timezone.utc)
@@ -151,6 +162,7 @@ async def start_campaign(
     )
 
     from app.workers.send_task import dispatch_campaign_task
+
     dispatch_campaign_task.delay(campaign_id)
 
     doc["status"] = "queued"
@@ -180,7 +192,10 @@ async def cancel_campaign(
     db=Depends(get_db),
 ):
     doc = await db.campaign_jobs.find_one_and_update(
-        {"_id": ObjectId(campaign_id), "status": {"$in": ["draft", "queued", "running", "paused"]}},
+        {
+            "_id": ObjectId(campaign_id),
+            "status": {"$in": ["draft", "queued", "running", "paused"]},
+        },
         {"$set": {"status": "cancelled"}},
         return_document=True,
     )
@@ -204,34 +219,75 @@ async def list_messages(
 
     skip = (page - 1) * page_size
     total = await db.message_logs.count_documents(query)
-    cursor = db.message_logs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
+    cursor = (
+        db.message_logs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
+    )
 
     items = []
     async for doc in cursor:
-        items.append(MessageLogResponse(
-            id=str(doc["_id"]),
-            job_id=str(doc["job_id"]),
-            recipient_phone=doc["recipient_phone"],
-            recipient_name=doc.get("recipient_name", ""),
-            wa_message_id=doc.get("wa_message_id"),
-            status=doc["status"],
-            status_history=[StatusHistoryEntry(**h) for h in doc.get("status_history", [])],
-            retry_count=doc.get("retry_count", 0),
-            endpoint_used=doc.get("endpoint_used"),
-            fallback_used=doc.get("fallback_used", False),
-            error_code=doc.get("error_code"),
-            error_message=doc.get("error_message"),
-            created_at=doc["created_at"],
-            updated_at=doc["updated_at"],
-        ))
+        items.append(
+            MessageLogResponse(
+                id=str(doc["_id"]),
+                job_id=str(doc["job_id"]),
+                recipient_phone=doc["recipient_phone"],
+                recipient_name=doc.get("recipient_name", ""),
+                wa_message_id=doc.get("wa_message_id"),
+                status=doc["status"],
+                status_history=[
+                    StatusHistoryEntry(**h) for h in doc.get("status_history", [])
+                ],
+                retry_count=doc.get("retry_count", 0),
+                endpoint_used=doc.get("endpoint_used"),
+                fallback_used=doc.get("fallback_used", False),
+                error_code=doc.get("error_code"),
+                error_message=doc.get("error_message"),
+                created_at=doc["created_at"],
+                updated_at=doc["updated_at"],
+            )
+        )
 
-    return MessageLogListResponse(items=items, total=total, page=page, page_size=page_size)
+    return MessageLogListResponse(
+        items=items, total=total, page=page, page_size=page_size
+    )
+
+
+@router.get("/{campaign_id}/failure-breakdown")
+async def failure_breakdown(
+    campaign_id: str,
+    current_user: dict = Depends(require_role("viewer")),
+    db=Depends(get_db),
+):
+    cursor = db.message_logs.aggregate(
+        [
+            {"$match": {"job_id": ObjectId(campaign_id), "status": "failed"}},
+            {"$group": {"_id": "$error_message", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 10},
+        ]
+    )
+    results = await cursor.to_list(10)
+    return [{"reason": r["_id"] or "Unknown", "count": r["count"]} for r in results]
+
+
+@router.delete("/{campaign_id}", status_code=204)
+async def delete_campaign(
+    campaign_id: str,
+    current_user: dict = Depends(require_role("admin")),
+    db=Depends(get_db),
+):
+    doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    if not doc:
+        raise HTTPException(404, "Campaign not found")
+    if doc["status"] == "running":
+        raise HTTPException(400, "Cannot delete a running campaign. Cancel it first.")
+    await db.message_logs.delete_many({"job_id": ObjectId(campaign_id)})
+    await db.campaign_jobs.delete_one({"_id": ObjectId(campaign_id)})
 
 
 @router.get("/{campaign_id}/export-failed")
 async def export_failed(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
     cursor = db.message_logs.find({"job_id": ObjectId(campaign_id), "status": "failed"})
@@ -245,13 +301,15 @@ async def export_failed(
         output.truncate(0)
 
         async for doc in cursor:
-            writer.writerow([
-                doc["recipient_phone"],
-                doc.get("recipient_name", ""),
-                doc.get("error_code", ""),
-                doc.get("error_message", ""),
-                doc.get("retry_count", 0),
-            ])
+            writer.writerow(
+                [
+                    doc["recipient_phone"],
+                    doc.get("recipient_name", ""),
+                    doc.get("error_code", ""),
+                    doc.get("error_message", ""),
+                    doc.get("retry_count", 0),
+                ]
+            )
             yield output.getvalue()
             output.seek(0)
             output.truncate(0)
@@ -259,5 +317,7 @@ async def export_failed(
     return StreamingResponse(
         generate(),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=failed_{campaign_id}.csv"},
+        headers={
+            "Content-Disposition": f"attachment; filename=failed_{campaign_id}.csv"
+        },
     )
