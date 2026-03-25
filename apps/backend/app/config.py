@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     # Meta Cloud API
     meta_api_version: str = "v21.0"
+    meta_waba_id: str = ""
     meta_primary_phone_id: str = ""
     meta_primary_access_token: str = ""
     meta_fallback_phone_id: str = ""
