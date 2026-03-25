@@ -4,16 +4,19 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { relativeIST } from "@/lib/date";
 
 export default function SuppressionPage() {
   const qc = useQueryClient();
   const [phone, setPhone] = useState("");
-  const [reason, setReason] = useState<"opt_out" | "blocked" | "bounce">("blocked");
+  const [reason, setReason] = useState<"opt_out" | "blocked" | "bounce">(
+    "blocked",
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ["suppression"],
-    queryFn: () => api.get("/settings/suppression?page=1&page_size=100").then((r) => r.data),
+    queryFn: () =>
+      api.get("/settings/suppression?page=1&page_size=100").then((r) => r.data),
   });
 
   const addMutation = useMutation({
@@ -23,11 +26,13 @@ export default function SuppressionPage() {
       setPhone("");
       qc.invalidateQueries({ queryKey: ["suppression"] });
     },
-    onError: (e: any) => toast.error(e.response?.data?.detail ?? "Failed to add"),
+    onError: (e: any) =>
+      toast.error(e.response?.data?.detail ?? "Failed to add"),
   });
 
   const removeMutation = useMutation({
-    mutationFn: (p: string) => api.delete(`/settings/suppression/${encodeURIComponent(p)}`),
+    mutationFn: (p: string) =>
+      api.delete(`/settings/suppression/${encodeURIComponent(p)}`),
     onSuccess: () => {
       toast.success("Removed from suppression list");
       qc.invalidateQueries({ queryKey: ["suppression"] });
@@ -75,21 +80,30 @@ export default function SuppressionPage() {
         {isLoading ? (
           <p className="text-sm text-gray-400 text-center py-8">Loading...</p>
         ) : items.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-8">No suppressed numbers</p>
+          <p className="text-sm text-gray-400 text-center py-8">
+            No suppressed numbers
+          </p>
         ) : (
           <div className="divide-y">
             {items.map((item: any) => (
-              <div key={item.id} className="flex items-center gap-3 px-4 py-2.5">
+              <div
+                key={item.id}
+                className="flex items-center gap-3 px-4 py-2.5"
+              >
                 <span className="font-mono text-sm flex-1">{item.phone}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  item.reason === "opt_out" ? "bg-yellow-100 text-yellow-700" :
-                  item.reason === "bounce" ? "bg-orange-100 text-orange-700" :
-                  "bg-red-100 text-red-700"
-                }`}>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full ${
+                    item.reason === "opt_out"
+                      ? "bg-yellow-100 text-yellow-700"
+                      : item.reason === "bounce"
+                        ? "bg-orange-100 text-orange-700"
+                        : "bg-red-100 text-red-700"
+                  }`}
+                >
                   {item.reason}
                 </span>
                 <span className="text-xs text-gray-400">
-                  {formatDistanceToNow(new Date(item.added_at), { addSuffix: true })}
+                  {relativeIST(item.added_at)}
                 </span>
                 <button
                   onClick={() => removeMutation.mutate(item.phone)}

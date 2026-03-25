@@ -3,17 +3,27 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Campaign } from "@/types";
 import { Send, CheckCheck, Eye, XCircle } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { relativeIST } from "@/lib/date";
 import Link from "next/link";
 
-function StatCard({ label, value, icon: Icon, color }: {
-  label: string; value: number; icon: React.ElementType; color: string;
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  color: string;
 }) {
   return (
     <div className="bg-white rounded-xl border p-5">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm text-gray-500">{label}</span>
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
+        <div
+          className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}
+        >
           <Icon className="w-4 h-4 text-white" />
         </div>
       </div>
@@ -46,7 +56,7 @@ export default function DashboardPage() {
       read: acc.read + c.read_count,
       failed: acc.failed + c.failed_count,
     }),
-    { sent: 0, delivered: 0, read: 0, failed: 0 }
+    { sent: 0, delivered: 0, read: 0, failed: 0 },
   );
 
   return (
@@ -62,32 +72,69 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Sent" value={totals.sent} icon={Send} color="bg-blue-500" />
-        <StatCard label="Delivered" value={totals.delivered} icon={CheckCheck} color="bg-green-500" />
-        <StatCard label="Read" value={totals.read} icon={Eye} color="bg-purple-500" />
-        <StatCard label="Failed" value={totals.failed} icon={XCircle} color="bg-red-500" />
+        <StatCard
+          label="Sent"
+          value={totals.sent}
+          icon={Send}
+          color="bg-blue-500"
+        />
+        <StatCard
+          label="Delivered"
+          value={totals.delivered}
+          icon={CheckCheck}
+          color="bg-green-500"
+        />
+        <StatCard
+          label="Read"
+          value={totals.read}
+          icon={Eye}
+          color="bg-purple-500"
+        />
+        <StatCard
+          label="Failed"
+          value={totals.failed}
+          icon={XCircle}
+          color="bg-red-500"
+        />
       </div>
 
       <div className="bg-white rounded-xl border">
         <div className="px-5 py-4 border-b flex items-center justify-between">
           <h2 className="font-medium">Recent Campaigns</h2>
-          <Link href="/campaigns" className="text-sm text-green-600 hover:underline">View all</Link>
+          <Link
+            href="/campaigns"
+            className="text-sm text-green-600 hover:underline"
+          >
+            View all
+          </Link>
         </div>
         <div className="divide-y">
           {campaigns.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-8">No campaigns yet</p>
+            <p className="text-sm text-gray-400 text-center py-8">
+              No campaigns yet
+            </p>
           )}
           {campaigns.map((c) => (
-            <Link key={c.id} href={`/campaigns/${c.id}`} className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 transition">
+            <Link
+              key={c.id}
+              href={`/campaigns/${c.id}`}
+              className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 transition"
+            >
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{c.name}</p>
-                <p className="text-xs text-gray-400">{formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}</p>
+                <p className="text-xs text-gray-400">
+                  {relativeIST(c.created_at)}
+                </p>
               </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[c.status]}`}>
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[c.status]}`}
+              >
                 {c.status}
               </span>
               <div className="text-xs text-gray-500 text-right">
-                <p>{c.sent_count}/{c.total_count} sent</p>
+                <p>
+                  {c.sent_count}/{c.total_count} sent
+                </p>
               </div>
             </Link>
           ))}
