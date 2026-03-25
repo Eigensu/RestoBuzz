@@ -93,6 +93,15 @@ export default function CampaignDetailPage() {
     },
   });
 
+  const retryMutation = useMutation({
+    mutationFn: () => api.post(`/campaigns/${id}/retry-failed`),
+    onSuccess: (res) => {
+      toast.success(`Retry started — ${res.data.total_count} messages queued`);
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+    },
+    onError: () => toast.error("No failed messages to retry"),
+  });
+
   const pct = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
   const logs: MessageLog[] = messages?.items ?? [];
 
@@ -132,6 +141,16 @@ export default function CampaignDetailPage() {
               <XCircle className="w-3.5 h-3.5" /> Cancel
             </button>
           )}
+          {(campaign?.failed_count ?? 0) > 0 &&
+            !["running", "queued"].includes(campaign?.status ?? "") && (
+              <button
+                onClick={() => retryMutation.mutate()}
+                disabled={retryMutation.isPending}
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm px-3 py-1.5 rounded-lg transition disabled:opacity-50"
+              >
+                <Play className="w-3.5 h-3.5" /> Retry Failed
+              </button>
+            )}
           <button
             onClick={async () => {
               try {

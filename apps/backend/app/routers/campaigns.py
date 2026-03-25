@@ -269,6 +269,79 @@ async def failure_breakdown(
     return [{"reason": r["_id"] or "Unknown", "count": r["count"]} for r in results]
 
 
+@router.post(
+    "/{campaign_id}/retry-failed", response_model=CampaignResponse, status_code=201
+)
+async def retry_failed(
+    campaign_id: str,
+    current_user: dict = Depends(require_role("admin")),
+    db=Depends(get_db),
+):
+    original = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    if not original:
+        raise HTTPException(404, "Campaign not found")
+
+    failed_logs = await db.message_logs.find(
+        {"job_id": ObjectId(campaign_id), "status": "failed"}
+    ).to_list(10000)
+
+    if not failed_logs:
+        raise HTTPException(400, "No failed messages to retry")
+
+    now = datetime.now(timezone.utc)
+    job_doc = {
+        "name": f"{original['name']} (retry)",
+        "template_id": original.get("template_id", ""),
+        "template_name": original["template_name"],
+        "priority": original["priority"],
+        "status": "queued",
+        "total_count": len(failed_logs),
+        "sent_count": 0,
+        "delivered_count": 0,
+        "read_count": 0,
+        "failed_count": 0,
+        "scheduled_at": None,
+        "started_at": None,
+        "completed_at": None,
+        "created_by": ObjectId(current_user["id"]),
+        "include_unsubscribe": original.get("include_unsubscribe", False),
+        "media_url": original.get("media_url"),
+        "created_at": now,
+    }
+    result = await db.campaign_jobs.insert_one(job_doc)
+    job_id = result.inserted_id
+
+    new_logs = [
+        {
+            "job_id": job_id,
+            "recipient_phone": log["recipient_phone"],
+            "recipient_name": log.get("recipient_name", ""),
+            "template_name": log["template_name"],
+            "template_variables": log.get("template_variables", {}),
+            "media_url": log.get("media_url"),
+            "status": "queued",
+            "retry_count": 0,
+            "endpoint_used": None,
+            "fallback_used": False,
+            "error_code": None,
+            "error_message": None,
+            "status_history": [],
+            "created_at": now,
+            "updated_at": now,
+            "locked_until": None,
+        }
+        for log in failed_logs
+    ]
+    await db.message_logs.insert_many(new_logs)
+
+    from app.workers.send_task import dispatch_campaign_task
+
+    dispatch_campaign_task.delay(str(job_id))
+
+    job_doc["_id"] = job_id
+    return _serialize_campaign(job_doc)
+
+
 @router.delete("/{campaign_id}", status_code=204)
 async def delete_campaign(
     campaign_id: str,
