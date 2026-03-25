@@ -1,7 +1,5 @@
 import asyncio
-import time
 import uuid
-from contextlib import asynccontextmanager
 from redis.asyncio import Redis
 
 
@@ -31,7 +29,6 @@ class RedLock:
     async def release(self) -> None:
         if not self._token:
             return
-        # Lua: only delete if we own the lock
         script = """
         if redis.call('get', KEYS[1]) == ARGV[1] then
             return redis.call('del', KEYS[1])
@@ -42,15 +39,11 @@ class RedLock:
         await self.redis.eval(script, 1, self.key, self._token)
         self._token = None
 
-    @asynccontextmanager
     async def __aenter__(self):
         acquired = await self.acquire()
         if not acquired:
             raise RedLockError(f"Could not acquire lock: {self.key}")
-        try:
-            yield self
-        finally:
-            await self.release()
+        return self
 
     async def __aexit__(self, *args):
-        pass
+        await self.release()

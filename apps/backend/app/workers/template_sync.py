@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 from app.workers.celery_app import celery_app
-from app.database import get_db
+from app.database import get_fresh_db
 from app.services.meta_api import fetch_templates
 from app.config import settings
 from app.core.logging import get_logger
@@ -15,10 +15,10 @@ def sync_templates_task() -> None:
 
 
 async def _sync() -> None:
-    db = get_db()
+    db = get_fresh_db()
     try:
         templates = await fetch_templates(
-            settings.meta_primary_phone_id,
+            settings.meta_waba_id,
             settings.meta_primary_access_token,
         )
         for t in templates:

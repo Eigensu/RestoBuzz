@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from bson import ObjectId
 from app.workers.celery_app import celery_app
-from app.database import get_db
+from app.database import get_fresh_db
 from app.core.logging import get_logger
 from app.services.deduplication import is_duplicate, mark_seen
 from app.services.suppression import add_suppression
@@ -19,7 +19,7 @@ def process_webhook_task(payload: dict) -> None:
 
 async def _process(payload: dict) -> None:
     redis = _get_async_redis()
-    db = get_db()
+    db = get_fresh_db()
     try:
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
@@ -45,11 +45,30 @@ async def _handle_statuses(db, redis, statuses: list) -> None:
         now = datetime.now(timezone.utc)
         result = await db.message_logs.find_one_and_update(
             {"wa_message_id": wa_id},
-            {"$set": {"status": status, "updated_at": now},
-             "$push": {"status_history": {"status": status, "timestamp": now, "meta": s}}},
+            {
+                "$set": {"status": status, "updated_at": now},
+                "$push": {
+                    "status_history": {"status": status, "timestamp": now, "meta": s}
+                },
+            },
             return_document=True,
         )
         if result:
+            # Extract and store error details from webhook payload
+            if status == "failed":
+                errors = s.get("errors", [])
+                if errors:
+                    err = errors[0]
+                    await db.message_logs.update_one(
+                        {"wa_message_id": wa_id},
+                        {
+                            "$set": {
+                                "error_code": str(err.get("code", "")),
+                                "error_message": err.get("title")
+                                or err.get("message", "Unknown"),
+                            }
+                        },
+                    )
             field = f"{status}_count"
             if field in ("delivered_count", "read_count", "failed_count"):
                 await db.campaign_jobs.update_one(
@@ -60,7 +79,9 @@ async def _handle_statuses(db, redis, statuses: list) -> None:
 
 async def _handle_messages(db, redis, value: dict) -> None:
     messages = value.get("messages", [])
-    contacts = {c["wa_id"]: c.get("profile", {}).get("name") for c in value.get("contacts", [])}
+    contacts = {
+        c["wa_id"]: c.get("profile", {}).get("name") for c in value.get("contacts", [])
+    }
 
     for msg in messages:
         wa_id = msg.get("id")
@@ -87,7 +108,11 @@ async def _handle_messages(db, redis, value: dict) -> None:
             body = media_obj.get("caption") or media_obj.get("filename")
         elif msg_type == "location":
             loc = msg.get("location", {})
-            location = {"lat": loc.get("latitude"), "lng": loc.get("longitude"), "name": loc.get("name")}
+            location = {
+                "lat": loc.get("latitude"),
+                "lng": loc.get("longitude"),
+                "name": loc.get("name"),
+            }
 
         doc = {
             "wa_message_id": wa_id,
@@ -117,4 +142,5 @@ async def _handle_messages(db, redis, value: dict) -> None:
 def _get_async_redis():
     from redis.asyncio import from_url
     from app.config import settings
+
     return from_url(settings.redis_url, decode_responses=True)
