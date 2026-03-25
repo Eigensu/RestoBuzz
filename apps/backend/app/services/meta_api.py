@@ -19,15 +19,17 @@ def _build_payload(
     template_name: str,
     variables: dict,
     media_url: str | None,
-    language: str = "en_US",
+    language: str = "en",
 ) -> dict:
     components = []
 
     if media_url:
-        components.append({
-            "type": "header",
-            "parameters": [{"type": "image", "image": {"link": media_url}}],
-        })
+        components.append(
+            {
+                "type": "header",
+                "parameters": [{"type": "image", "image": {"link": media_url}}],
+            }
+        )
 
     if variables:
         body_params = [{"type": "text", "text": v} for v in variables.values()]
@@ -50,11 +52,16 @@ async def send_template_message(
     template_name: str,
     variables: dict,
     media_url: str | None = None,
+    language: str = "en",
 ) -> tuple[str, str]:
     """Returns (wa_message_id, endpoint_used). Tries primary then fallback."""
     endpoints = [
         (settings.meta_primary_phone_id, settings.meta_primary_access_token, "primary"),
-        (settings.meta_fallback_phone_id, settings.meta_fallback_access_token, "fallback"),
+        (
+            settings.meta_fallback_phone_id,
+            settings.meta_fallback_access_token,
+            "fallback",
+        ),
     ]
 
     payload = _build_payload(to, template_name, variables, media_url)
@@ -78,7 +85,9 @@ async def send_template_message(
                     str(error.get("code", "unknown")),
                     error.get("message", "Unknown error"),
                 )
-                logger.warning("meta_send_failed", endpoint=label, error=str(last_error))
+                logger.warning(
+                    "meta_send_failed", endpoint=label, error=str(last_error)
+                )
             except httpx.RequestError as e:
                 last_error = MetaAPIError("network_error", str(e))
                 logger.error("meta_network_error", endpoint=label, error=str(e))
@@ -86,8 +95,8 @@ async def send_template_message(
     raise last_error or MetaAPIError("no_endpoint", "No valid WABA endpoint configured")
 
 
-async def fetch_templates(phone_id: str, token: str) -> list[dict]:
-    url = f"{META_BASE}/{phone_id}/message_templates"
+async def fetch_templates(waba_id: str, token: str) -> list[dict]:
+    url = f"{META_BASE}/{waba_id}/message_templates"
     params = {"limit": 100, "fields": "name,status,category,language,components"}
     headers = {"Authorization": f"Bearer {token}"}
     templates = []
@@ -96,9 +105,14 @@ async def fetch_templates(phone_id: str, token: str) -> list[dict]:
         while url:
             resp = await client.get(url, params=params, headers=headers)
             data = resp.json()
+            if resp.status_code != 200:
+                error = data.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")), error.get("message", str(data))
+                )
             templates.extend(data.get("data", []))
             url = data.get("paging", {}).get("next")
-            params = {}  # next URL already has params
+            params = {}
 
     return templates
 

@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends
+from datetime import datetime, timezone
 from app.database import get_db
 from app.dependencies import require_role
+from app.services.meta_api import fetch_templates
+from app.config import settings
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -14,10 +17,19 @@ async def list_templates(
     return [doc async for doc in cursor]
 
 
-@router.post("/sync", status_code=202)
+@router.post("/sync", status_code=200)
 async def sync_templates(
     current_user: dict = Depends(require_role("admin")),
+    db=Depends(get_db),
 ):
-    from app.workers.template_sync import sync_templates_task
-    sync_templates_task.delay()
-    return {"message": "Template sync queued"}
+    templates = await fetch_templates(
+        settings.meta_waba_id,
+        settings.meta_primary_access_token,
+    )
+    for t in templates:
+        await db.templates.update_one(
+            {"name": t["name"], "language": t.get("language")},
+            {"$set": {**t, "synced_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+    return {"synced": len(templates)}
