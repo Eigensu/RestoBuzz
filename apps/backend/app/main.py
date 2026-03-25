@@ -6,7 +6,17 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.database import init_indexes, close_db
 from app.core.logging import setup_logging, CorrelationIdMiddleware
-from app.routers import auth, campaigns, contacts, templates, webhooks, inbox, settings as settings_router, health
+from app.routers import (
+    auth,
+    campaigns,
+    contacts,
+    templates,
+    webhooks,
+    inbox,
+    settings as settings_router,
+    health,
+    members,
+)
 from app.sse.campaign_stream import router as sse_router
 
 
@@ -52,3 +62,4 @@ app.include_router(inbox.router, prefix="/api")
 app.include_router(settings_router.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(sse_router, prefix="/api")
+app.include_router(members.router, prefix="/api")
