@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSSE } from "@/lib/sse";
 import type { Conversation, InboundMessage } from "@/types";
-import { formatDistanceToNow } from "date-fns";
+import { relativeIST, absoluteIST } from "@/lib/date";
 import { Send, ArrowLeft, MapPin, FileText, Image } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,13 +16,17 @@ export default function InboxPage() {
 
   const { data: convsData } = useQuery({
     queryKey: ["conversations"],
-    queryFn: () => api.get("/inbox/conversations?page=1&page_size=50").then((r) => r.data),
+    queryFn: () =>
+      api.get("/inbox/conversations?page=1&page_size=50").then((r) => r.data),
     refetchInterval: 5000,
   });
 
   const { data: messages } = useQuery<InboundMessage[]>({
     queryKey: ["thread", selected],
-    queryFn: () => api.get(`/inbox/conversations/${selected}?page=1&page_size=100`).then((r) => r.data),
+    queryFn: () =>
+      api
+        .get(`/inbox/conversations/${selected}?page=1&page_size=100`)
+        .then((r) => r.data),
     enabled: !!selected,
   });
 
@@ -52,7 +56,8 @@ export default function InboxPage() {
   }, [messages]);
 
   const replyMutation = useMutation({
-    mutationFn: () => api.post(`/inbox/conversations/${selected}/reply`, { body: reply }),
+    mutationFn: () =>
+      api.post(`/inbox/conversations/${selected}/reply`, { body: reply }),
     onSuccess: () => {
       setReply("");
       qc.invalidateQueries({ queryKey: ["thread", selected] });
@@ -65,16 +70,20 @@ export default function InboxPage() {
   return (
     <div className="h-[calc(100vh-8rem)] flex rounded-xl border bg-white overflow-hidden">
       {/* Conversation list */}
-      <div className={cn(
-        "w-full sm:w-72 border-r flex flex-col flex-shrink-0",
-        selected ? "hidden sm:flex" : "flex"
-      )}>
+      <div
+        className={cn(
+          "w-full sm:w-72 border-r flex flex-col flex-shrink-0",
+          selected ? "hidden sm:flex" : "flex",
+        )}
+      >
         <div className="px-4 py-3 border-b">
           <h2 className="font-semibold text-sm">Inbox</h2>
         </div>
         <div className="flex-1 overflow-y-auto divide-y">
           {convs.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-8">No messages yet</p>
+            <p className="text-xs text-gray-400 text-center py-8">
+              No messages yet
+            </p>
           )}
           {convs.map((c) => (
             <button
@@ -82,17 +91,21 @@ export default function InboxPage() {
               onClick={() => setSelected(c.from_phone)}
               className={cn(
                 "w-full text-left px-4 py-3 hover:bg-gray-50 transition",
-                selected === c.from_phone && "bg-green-50"
+                selected === c.from_phone && "bg-green-50",
               )}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{c.sender_name || c.from_phone}</p>
-                  <p className="text-xs text-gray-400 truncate">{c.last_message || `[${c.last_message_type}]`}</p>
+                  <p className="text-sm font-medium truncate">
+                    {c.sender_name || c.from_phone}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {c.last_message || `[${c.last_message_type}]`}
+                  </p>
                 </div>
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
                   <span className="text-xs text-gray-400">
-                    {formatDistanceToNow(new Date(c.last_received_at), { addSuffix: false })}
+                    {relativeIST(c.last_received_at, false)}
                   </span>
                   {c.unread_count > 0 && (
                     <span className="w-5 h-5 bg-green-500 text-white text-xs rounded-full flex items-center justify-center">
@@ -107,10 +120,12 @@ export default function InboxPage() {
       </div>
 
       {/* Chat thread */}
-      <div className={cn(
-        "flex-1 flex flex-col",
-        !selected ? "hidden sm:flex" : "flex"
-      )}>
+      <div
+        className={cn(
+          "flex-1 flex flex-col",
+          !selected ? "hidden sm:flex" : "flex",
+        )}
+      >
         {!selected ? (
           <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
             Select a conversation
@@ -123,7 +138,8 @@ export default function InboxPage() {
               </button>
               <div>
                 <p className="text-sm font-medium">
-                  {convs.find((c) => c.from_phone === selected)?.sender_name || selected}
+                  {convs.find((c) => c.from_phone === selected)?.sender_name ||
+                    selected}
                 </p>
                 <p className="text-xs text-gray-400">{selected}</p>
               </div>
@@ -140,7 +156,17 @@ export default function InboxPage() {
               <input
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && reply.trim() && replyMutation.mutate()}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    reply.trim() &&
+                    !replyMutation.isPending
+                  ) {
+                    e.preventDefault();
+                    replyMutation.mutate();
+                  }
+                }}
                 placeholder="Type a message..."
                 className="flex-1 border rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
@@ -160,48 +186,82 @@ export default function InboxPage() {
 }
 
 function MessageBubble({ msg }: { msg: InboundMessage }) {
+  const isOutbound = msg.direction === "outbound";
   return (
-    <div className="flex justify-start">
-      <div className="max-w-xs lg:max-w-md bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5">
-        {msg.message_type === "text" && (
-          <p className="text-sm">{msg.body}</p>
+    <div className={cn("flex", isOutbound ? "justify-end" : "justify-start")}>
+      <div
+        className={cn(
+          "max-w-xs lg:max-w-md rounded-2xl px-4 py-2.5",
+          isOutbound
+            ? "bg-green-500 text-white rounded-tr-sm"
+            : "bg-gray-100 text-gray-900 rounded-tl-sm",
         )}
+      >
+        {msg.message_type === "text" && <p className="text-sm">{msg.body}</p>}
         {msg.message_type === "image" && (
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm">
             <Image className="w-4 h-4" />
             {msg.body || "Image"}
             {msg.media_url && (
-              <a href={msg.media_url} target="_blank" rel="noreferrer" className="text-green-600 underline text-xs">View</a>
+              <a
+                href={msg.media_url}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  "underline text-xs",
+                  isOutbound ? "text-green-100" : "text-green-600",
+                )}
+              >
+                View
+              </a>
             )}
           </div>
         )}
         {msg.message_type === "document" && (
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm">
             <FileText className="w-4 h-4" />
             {msg.body || "Document"}
             {msg.media_url && (
-              <a href={msg.media_url} target="_blank" rel="noreferrer" className="text-green-600 underline text-xs">Download</a>
+              <a
+                href={msg.media_url}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  "underline text-xs",
+                  isOutbound ? "text-green-100" : "text-green-600",
+                )}
+              >
+                Download
+              </a>
             )}
           </div>
         )}
         {msg.message_type === "location" && msg.location && (
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <MapPin className="w-4 h-4 text-red-500" />
+          <div className="flex items-center gap-2 text-sm">
+            <MapPin className="w-4 h-4" />
             <a
               href={`https://maps.google.com/?q=${msg.location.lat},${msg.location.lng}`}
               target="_blank"
               rel="noreferrer"
-              className="text-green-600 underline"
+              className={cn(
+                "underline",
+                isOutbound ? "text-green-100" : "text-green-600",
+              )}
             >
               {msg.location.name || `${msg.location.lat}, ${msg.location.lng}`}
             </a>
           </div>
         )}
-        {!["text", "image", "document", "location"].includes(msg.message_type) && (
-          <p className="text-sm text-gray-400 italic">[{msg.message_type}]</p>
-        )}
-        <p className="text-xs text-gray-400 mt-1">
-          {formatDistanceToNow(new Date(msg.received_at), { addSuffix: true })}
+        {!["text", "image", "document", "location"].includes(
+          msg.message_type,
+        ) && <p className="text-sm italic opacity-70">[{msg.message_type}]</p>}
+        <p
+          className={cn(
+            "text-xs mt-1",
+            isOutbound ? "text-green-100" : "text-gray-400",
+          )}
+        >
+          {absoluteIST(msg.received_at)}
         </p>
       </div>
     </div>

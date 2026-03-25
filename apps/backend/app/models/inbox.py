@@ -4,6 +4,7 @@ from datetime import datetime
 
 
 MessageType = Literal["text", "image", "document", "location", "sticker", "unknown"]
+Direction = Literal["inbound", "outbound"]
 
 
 class LocationData(BaseModel):
@@ -24,6 +25,7 @@ class InboundMessageResponse(BaseModel):
     location: LocationData | None
     is_read: bool
     received_at: datetime
+    direction: Direction = "inbound"
 
 
 class ConversationResponse(BaseModel):

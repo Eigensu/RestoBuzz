@@ -121,6 +121,7 @@ export interface InboundMessage {
   location: { lat: number; lng: number; name?: string } | null;
   is_read: boolean;
   received_at: string;
+  direction?: "inbound" | "outbound";
 }
 
 export interface PreflightResult {
@@ -161,4 +162,28 @@ export interface CampaignProgress {
   read: number;
   failed: number;
   total: number;
+}
+
+export interface Member {
+  id: string;
+  restaurant_id: string;
+  type: "nfc" | "ecard";
+  name: string;
+  phone: string;
+  email: string | null;
+  card_uid: string | null;
+  ecard_code: string | null;
+  tags: string[];
+  notes: string | null;
+  visit_count: number;
+  last_visit: string | null;
+  is_active: boolean;
+  joined_at: string;
+}
+
+export interface MemberListResponse {
+  items: Member[];
+  total: number;
+  page: number;
+  page_size: number;
 }
