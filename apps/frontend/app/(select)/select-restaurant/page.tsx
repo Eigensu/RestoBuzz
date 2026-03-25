@@ -9,16 +9,17 @@ import { cn } from "@/lib/utils";
 
 export default function SelectRestaurantPage() {
   const router = useRouter();
-  const { user, setUser, setRestaurant } = useAuthStore();
+  const { user, setUser, setRestaurant, _hydrated } = useAuthStore();
 
   useEffect(() => {
+    if (!_hydrated) return;
     if (!user) {
       getMe().then((u) => {
         if (!u) router.push("/login");
         else setUser(u);
       });
     }
-  }, [user, router, setUser]);
+  }, [_hydrated, user, router, setUser]);
 
   const handleSelect = (r: (typeof RESTAURANTS)[number]) => {
     setRestaurant(r);
