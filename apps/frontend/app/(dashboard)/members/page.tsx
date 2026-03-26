@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
@@ -15,6 +15,7 @@ import {
   Wifi,
   X,
   CheckCircle2,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -219,6 +220,26 @@ export default function MembersPage() {
   const [modal, setModal] = useState<{ open: boolean; editing: Member | null }>(
     { open: false, editing: null },
   );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const importMutation = useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return api.post(
+        `/members/import?restaurant_id=${restaurant!.id}&type=${tab === "all" ? "ecard" : tab}`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+    },
+    onSuccess: (res) => {
+      toast.success(
+        `Imported ${res.data.inserted} members, skipped ${res.data.skipped}`,
+      );
+      qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
+    },
+    onError: () => toast.error("Import failed"),
+  });
 
   const { data, isLoading } = useQuery<MemberListResponse>({
     queryKey: ["members", restaurant?.id, tab, search],
@@ -274,12 +295,33 @@ export default function MembersPage() {
             {restaurant.emoji} {restaurant.name}
           </p>
         </div>
-        <button
-          onClick={() => setModal({ open: true, editing: null })}
-          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
-        >
-          <Plus className="w-4 h-4" /> Add Member
-        </button>
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importMutation.mutate(file);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importMutation.isPending}
+            className="flex items-center gap-2 border text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition disabled:opacity-50"
+          >
+            <Upload className="w-4 h-4" />
+            {importMutation.isPending ? "Importing..." : "Import Excel"}
+          </button>
+          <button
+            onClick={() => setModal({ open: true, editing: null })}
+            className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
+          >
+            <Plus className="w-4 h-4" /> Add Member
+          </button>
+        </div>
       </div>
 
       {/* Tabs + Search */}

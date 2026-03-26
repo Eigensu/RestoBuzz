@@ -1,4 +1,5 @@
 """Run once to create indexes and seed a default super_admin user."""
+
 import asyncio
 import os
 from datetime import datetime, timezone
@@ -18,33 +19,46 @@ async def main():
 
     # Create indexes
     from pymongo import ASCENDING, DESCENDING, IndexModel
+
     await db.users.create_index("email", unique=True)
-    await db.campaign_jobs.create_indexes([
-        IndexModel([("status", ASCENDING)]),
-        IndexModel([("created_by", ASCENDING)]),
-    ])
-    await db.message_logs.create_indexes([
-        IndexModel([("job_id", ASCENDING), ("status", ASCENDING)]),
-        IndexModel([("wa_message_id", ASCENDING)], unique=True, sparse=True),
-        IndexModel([("locked_until", ASCENDING)]),
-    ])
-    await db.inbound_messages.create_indexes([
-        IndexModel([("wa_message_id", ASCENDING)], unique=True),
-        IndexModel([("from_phone", ASCENDING), ("received_at", DESCENDING)]),
-    ])
+    await db.campaign_jobs.create_indexes(
+        [
+            IndexModel([("status", ASCENDING)]),
+            IndexModel([("created_by", ASCENDING)]),
+        ]
+    )
+    await db.message_logs.create_indexes(
+        [
+            IndexModel([("job_id", ASCENDING), ("status", ASCENDING)]),
+            IndexModel(
+                [("wa_message_id", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"wa_message_id": {"$type": "string"}},
+            ),
+            IndexModel([("locked_until", ASCENDING)]),
+        ]
+    )
+    await db.inbound_messages.create_indexes(
+        [
+            IndexModel([("wa_message_id", ASCENDING)], unique=True),
+            IndexModel([("from_phone", ASCENDING), ("received_at", DESCENDING)]),
+        ]
+    )
     await db.suppression_list.create_index("phone", unique=True)
 
     # Seed super_admin
     existing = await db.users.find_one({"email": ADMIN_EMAIL})
     if not existing:
-        await db.users.insert_one({
-            "email": ADMIN_EMAIL,
-            "hashed_password": pwd_context.hash(ADMIN_PASSWORD),
-            "role": "super_admin",
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc),
-            "last_login": None,
-        })
+        await db.users.insert_one(
+            {
+                "email": ADMIN_EMAIL,
+                "hashed_password": pwd_context.hash(ADMIN_PASSWORD),
+                "role": "super_admin",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc),
+                "last_login": None,
+            }
+        )
         print(f"Created super_admin: {ADMIN_EMAIL}")
     else:
         print(f"User {ADMIN_EMAIL} already exists")

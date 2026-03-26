@@ -45,7 +45,11 @@ async def init_indexes() -> None:
     await db.message_logs.create_indexes(
         [
             IndexModel([("job_id", ASCENDING), ("status", ASCENDING)]),
-            IndexModel([("wa_message_id", ASCENDING)], unique=True, sparse=True),
+            IndexModel(
+                [("wa_message_id", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"wa_message_id": {"$type": "string"}},
+            ),
             IndexModel([("locked_until", ASCENDING)]),
             IndexModel([("job_id", ASCENDING), ("created_at", DESCENDING)]),
         ]
@@ -75,6 +79,14 @@ async def init_indexes() -> None:
 
     # suppression_list
     await db.suppression_list.create_index("phone", unique=True)
+
+    # contact_files
+    await db.contact_files.create_indexes(
+        [
+            IndexModel([("filename", ASCENDING), ("hash", ASCENDING)], unique=True),
+            IndexModel([("uploaded_at", DESCENDING)]),
+        ]
+    )
 
     # audit_logs
     await db.audit_logs.create_indexes(

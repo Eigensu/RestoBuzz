@@ -3,7 +3,8 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSSE } from "@/lib/sse";
-import type { Campaign, MessageLog, CampaignProgress } from "@/types";
+import type { Campaign, CampaignProgress } from "@/types";
+import { MessageLogsTable } from "./MessageLogsTable";
 import { toast } from "sonner";
 import { Download, Play, Pause, XCircle } from "lucide-react";
 import {
@@ -33,14 +34,6 @@ export default function CampaignDetailPage() {
   const { data: campaign } = useQuery<Campaign>({
     queryKey: ["campaign", id],
     queryFn: () => api.get(`/campaigns/${id}`).then((r) => r.data),
-  });
-
-  const { data: messages } = useQuery({
-    queryKey: ["campaign-messages", id],
-    queryFn: () =>
-      api
-        .get(`/campaigns/${id}/messages?page=1&page_size=50`)
-        .then((r) => r.data),
   });
 
   const { data: failureBreakdown } = useQuery<
@@ -103,7 +96,6 @@ export default function CampaignDetailPage() {
   });
 
   const pct = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
-  const logs: MessageLog[] = messages?.items ?? [];
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -213,55 +205,7 @@ export default function CampaignDetailPage() {
       )}
 
       {/* Message logs */}
-      <div className="bg-white rounded-xl border overflow-hidden">
-        <div className="px-5 py-4 border-b">
-          <h2 className="font-medium text-sm">Message Logs</h2>
-        </div>
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-                Phone
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-                Name
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-                Status
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-                Retries
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-                Error
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {logs.map((m) => (
-              <tr key={m.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2.5 font-mono text-xs">
-                  {m.recipient_phone}
-                </td>
-                <td className="px-4 py-2.5 text-gray-600">
-                  {m.recipient_name || "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[m.status] ?? "bg-gray-100 text-gray-600"}`}
-                  >
-                    {m.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-gray-400">{m.retry_count}</td>
-                <td className="px-4 py-2.5 text-red-500 text-xs">
-                  {m.error_code ? `${m.error_code}: ${m.error_message}` : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <MessageLogsTable campaignId={id} />
     </div>
   );
 }
