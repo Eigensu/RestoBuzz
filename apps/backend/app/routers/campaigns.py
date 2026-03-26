@@ -63,34 +63,6 @@ async def create_campaign(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    import traceback as _tb
-    import sys
-
-    try:
-        return await _create_campaign_impl(body, current_user, db)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        tb_str = _tb.format_exc()
-        print("=== CAMPAIGN CREATE ERROR ===", file=sys.stderr, flush=True)
-        print(tb_str, file=sys.stderr, flush=True)
-        print("============================", file=sys.stderr, flush=True)
-        raise HTTPException(500, f"{type(exc).__name__}: {exc}") from exc
-
-
-async def _create_campaign_impl(
-    body: CampaignCreate,
-    current_user: dict,
-    db,
-):
-    import sys
-
-    print(
-        f"[campaign] step=redis_get file_ref={body.contact_file_ref!r}",
-        file=sys.stderr,
-        flush=True,
-    )
-
     # Load contacts from Redis cache
     from redis.asyncio import from_url
     from app.config import settings
@@ -102,12 +74,6 @@ async def _create_campaign_impl(
     except Exception as e:
         raise HTTPException(500, f"Redis error: {e}") from e
 
-    print(
-        f"[campaign] step=redis_done raw_len={len(raw) if raw else None}",
-        file=sys.stderr,
-        flush=True,
-    )
-
     if not raw:
         raise HTTPException(
             400, "Contact file reference expired or not found. Re-upload contacts."
@@ -115,11 +81,6 @@ async def _create_campaign_impl(
 
     contacts = json.loads(raw)
     now = datetime.now(timezone.utc)
-    print(
-        f"[campaign] step=contacts_parsed count={len(contacts)}",
-        file=sys.stderr,
-        flush=True,
-    )
 
     job_doc = {
         "name": body.name,
@@ -143,7 +104,6 @@ async def _create_campaign_impl(
     }
     result = await db.campaign_jobs.insert_one(job_doc)
     job_id = result.inserted_id
-    print(f"[campaign] step=job_inserted id={job_id}", file=sys.stderr, flush=True)
 
     # Bulk insert message logs — roll back campaign if this fails
     message_docs = [
@@ -171,21 +131,10 @@ async def _create_campaign_impl(
     if message_docs:
         try:
             await db.message_logs.insert_many(message_docs)
-            print(
-                f"[campaign] step=messages_inserted count={len(message_docs)}",
-                file=sys.stderr,
-                flush=True,
-            )
         except Exception as e:
-            print(
-                f"[campaign] step=messages_FAILED err={e!r}",
-                file=sys.stderr,
-                flush=True,
-            )
             await db.campaign_jobs.delete_one({"_id": job_id})
             raise HTTPException(500, f"Failed to create message logs: {e}") from e
 
-    print(f"[campaign] step=serialize", file=sys.stderr, flush=True)
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
 

@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import init_indexes, close_db
-from app.core.logging import setup_logging, CorrelationIdMiddleware, get_logger
+from app.core.logging import setup_logging, CorrelationIdMiddleware
 from app.routers import (
     auth,
     campaigns,
@@ -47,19 +47,9 @@ app.add_middleware(CorrelationIdMiddleware)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger = get_logger("global")
-    import traceback
-
-    logger.error(
-        "unhandled_exception",
-        path=str(request.url),
-        type=type(exc).__name__,
-        detail=str(exc),
-        traceback=traceback.format_exc(),
-    )
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc), "type": type(exc).__name__},
+        content={"detail": "Internal server error", "type": type(exc).__name__},
     )
 
 
