@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from app.database import init_indexes, close_db
 from app.core.logging import setup_logging, CorrelationIdMiddleware
 from app.core.errors import AppError
+from app.config import settings
 from app.routers import (
     auth,
     campaigns,
@@ -37,7 +38,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
