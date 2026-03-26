@@ -1,10 +1,11 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.database import get_db as _get_db
 from app.core.security import decode_token
 from app.core.rbac import check_role
+from app.core.errors import InvalidTokenError, UserNotFoundError
 
 bearer = HTTPBearer()
 
@@ -20,14 +21,14 @@ async def get_current_user(
     try:
         payload = decode_token(credentials.credentials)
     except ValueError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        raise InvalidTokenError("Invalid or expired token")
 
     if payload.get("type") != "access":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not an access token")
+        raise InvalidTokenError("Not an access token")
 
     user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
     if not user or not user.get("is_active"):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise UserNotFoundError("User not found or inactive")
 
     user["id"] = str(user["_id"])
     return user
@@ -37,4 +38,5 @@ def require_role(minimum_role: str):
     async def dependency(current_user: dict = Depends(get_current_user)):
         check_role(current_user["role"], minimum_role)
         return current_user
+
     return dependency

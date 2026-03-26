@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 import { Plus, Trash2 } from "lucide-react";
 import { relativeIST } from "@/lib/date";
 
@@ -26,8 +27,7 @@ export default function SuppressionPage() {
       setPhone("");
       qc.invalidateQueries({ queryKey: ["suppression"] });
     },
-    onError: (e: any) =>
-      toast.error(e.response?.data?.detail ?? "Failed to add"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const removeMutation = useMutation({

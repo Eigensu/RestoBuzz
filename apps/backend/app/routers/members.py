@@ -1,10 +1,16 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, Query, UploadFile, File
 from bson import ObjectId
 import io
 import openpyxl
 from app.database import get_db
 from app.dependencies import require_role
+from app.core.errors import (
+    NotFoundError,
+    ConflictError,
+    ValidationError,
+    InvalidFileFormatError,
+)
 from app.models.member import (
     MemberCreate,
     MemberUpdate,
@@ -67,19 +73,17 @@ async def create_member(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    # Validate type-specific fields
     if body.type == "nfc" and not body.card_uid:
-        raise HTTPException(400, "card_uid is required for NFC members")
+        raise ValidationError("card_uid is required for NFC members")
     if body.type == "ecard" and not body.ecard_code:
-        raise HTTPException(400, "ecard_code is required for e-card members")
+        raise ValidationError("ecard_code is required for e-card members")
 
-    # Check duplicate phone within restaurant
     existing = await db.members.find_one(
         {"restaurant_id": body.restaurant_id, "phone": body.phone}
     )
     if existing:
-        raise HTTPException(
-            409, "A member with this phone number already exists in this restaurant"
+        raise ConflictError(
+            "A member with this phone number already exists in this restaurant"
         )
 
     now = datetime.now(timezone.utc)
@@ -111,7 +115,7 @@ async def get_member(
 ):
     doc = await db.members.find_one({"_id": ObjectId(member_id)})
     if not doc:
-        raise HTTPException(404, "Member not found")
+        raise NotFoundError(f"Member '{member_id}' not found")
     return _serialize(doc)
 
 
@@ -124,7 +128,7 @@ async def update_member(
 ):
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
-        raise HTTPException(400, "No fields to update")
+        raise ValidationError("No fields provided to update")
 
     doc = await db.members.find_one_and_update(
         {"_id": ObjectId(member_id)},
@@ -132,7 +136,7 @@ async def update_member(
         return_document=True,
     )
     if not doc:
-        raise HTTPException(404, "Member not found")
+        raise NotFoundError(f"Member '{member_id}' not found")
     return _serialize(doc)
 
 
@@ -144,7 +148,7 @@ async def delete_member(
 ):
     result = await db.members.delete_one({"_id": ObjectId(member_id)})
     if result.deleted_count == 0:
-        raise HTTPException(404, "Member not found")
+        raise NotFoundError(f"Member '{member_id}' not found")
 
 
 @router.post("/{member_id}/visit", response_model=MemberResponse)
@@ -160,7 +164,7 @@ async def record_visit(
         return_document=True,
     )
     if not doc:
-        raise HTTPException(404, "Member not found")
+        raise NotFoundError(f"Member '{member_id}' not found")
     return _serialize(doc)
 
 
@@ -176,7 +180,6 @@ async def import_members(
     wb = openpyxl.load_workbook(io.BytesIO(contents))
     ws = wb.active
 
-    # Normalize headers
     raw_headers = [str(c.value).strip().lower() if c.value else "" for c in ws[1]]
 
     def find_col(names):
@@ -192,8 +195,8 @@ async def import_members(
     email_idx = find_col(["email", "email address"])
 
     if name_idx is None or phone_idx is None:
-        raise HTTPException(
-            400, "Excel must have 'Name' and 'Phone'/'Contact Number' columns"
+        raise InvalidFileFormatError(
+            "Excel must have 'Name' and 'Phone'/'Contact Number' columns"
         )
 
     now = datetime.now(timezone.utc)
@@ -212,7 +215,6 @@ async def import_members(
             skipped += 1
             continue
 
-        # Normalize phone
         phone = phone.replace(" ", "").replace("+", "").replace("-", "")
         if not phone.startswith("91"):
             phone = "91" + phone.lstrip("0")

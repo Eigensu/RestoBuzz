@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     )
 
     # MongoDB
-    mongodb_url: str = "mongodb://localhost:27017/whatsapp_bulk"
+    mongodb_url: str = "mongodb://localhost:27017/restobuzz"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

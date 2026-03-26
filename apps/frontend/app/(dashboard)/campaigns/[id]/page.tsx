@@ -6,6 +6,7 @@ import { useSSE } from "@/lib/sse";
 import type { Campaign, CampaignProgress } from "@/types";
 import { MessageLogsTable } from "./MessageLogsTable";
 import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 import { Download, Play, Pause, XCircle } from "lucide-react";
 import {
   BarChart,
@@ -67,7 +68,7 @@ export default function CampaignDetailPage() {
       toast.success("Campaign started");
       qc.invalidateQueries({ queryKey: ["campaign", id] });
     },
-    onError: () => toast.error("Failed to start campaign"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const pauseMutation = useMutation({
@@ -92,7 +93,7 @@ export default function CampaignDetailPage() {
       toast.success(`Retry started — ${res.data.total_count} messages queued`);
       qc.invalidateQueries({ queryKey: ["campaigns"] });
     },
-    onError: () => toast.error("No failed messages to retry"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const pct = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
@@ -155,8 +156,8 @@ export default function CampaignDetailPage() {
                 a.download = `failed_${id}.csv`;
                 a.click();
                 URL.revokeObjectURL(url);
-              } catch {
-                toast.error("Export failed");
+              } catch (e) {
+                toast.error(parseApiError(e).message);
               }
             }}
             className="flex items-center gap-1.5 border text-gray-600 hover:bg-gray-50 text-sm px-3 py-1.5 rounded-lg transition"

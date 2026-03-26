@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/auth";
 import type { Member, MemberListResponse } from "@/types";
 import { relativeIST } from "@/lib/date";
 import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 import {
   Plus,
   Search,
@@ -69,8 +70,7 @@ function MemberModal({
       qc.invalidateQueries({ queryKey: ["members", restaurantId] });
       onClose();
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      toast.error(e.response?.data?.detail ?? "Failed to save member"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   return (
@@ -238,7 +238,7 @@ export default function MembersPage() {
       );
       qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
     },
-    onError: () => toast.error("Import failed"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const { data, isLoading } = useQuery<MemberListResponse>({
@@ -262,7 +262,7 @@ export default function MembersPage() {
       toast.success("Member removed");
       qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
     },
-    onError: () => toast.error("Failed to delete member"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const members = data?.items ?? [];

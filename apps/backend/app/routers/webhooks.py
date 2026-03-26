@@ -2,10 +2,11 @@ import hashlib
 import hmac
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Request, Response, HTTPException, Query
+from fastapi import APIRouter, Depends, Request, Response, Query
 from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
+from app.core.errors import WebhookSignatureError
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -36,18 +37,17 @@ async def verify_webhook(
         and hub_verify_token == settings.meta_webhook_verify_token
     ):
         return Response(content=hub_challenge, media_type="text/plain")
-    raise HTTPException(403, "Verification failed")
+    raise WebhookSignatureError("Webhook verification failed")
 
 
 @router.post("/meta", status_code=200)
 async def receive_webhook(request: Request, db=Depends(get_db)):
-    # Read body once — reuse for both signature check and JSON parse
     body = await request.body()
     sig = request.headers.get("X-Hub-Signature-256", "")
 
     if not _verify_signature(body, sig):
         logger.warning("webhook_invalid_signature")
-        raise HTTPException(403, "Invalid signature")
+        raise WebhookSignatureError("Invalid webhook signature")
 
     try:
         payload = json.loads(body)
@@ -65,12 +65,10 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
 
     logger.info("webhook_received", entry_count=len(payload.get("entry", [])))
 
-    # Process inline — don't rely on Celery being up for inbound messages
     try:
         await _process_payload(db, payload)
     except Exception as e:
         logger.error("webhook_process_error", error=str(e))
-        # Still return 200 so Meta doesn't retry endlessly
         await db.webhook_errors.insert_one(
             {
                 "raw_body": body.decode("utf-8", errors="replace"),
@@ -80,13 +78,12 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
             }
         )
 
-    # Also dispatch to Celery for status updates (delivery receipts)
     try:
         from app.workers.webhook_task import process_webhook_task
 
         process_webhook_task.delay(payload)
     except Exception:
-        pass  # Celery optional — inline processing already handled messages
+        pass
 
     return {"status": "ok"}
 
@@ -95,7 +92,6 @@ STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
 
 async def _process_payload(db, payload: dict) -> None:
-    """Process inbound messages inline without requiring Celery."""
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
@@ -170,7 +166,6 @@ async def _process_payload(db, payload: dict) -> None:
                         wa_id=wa_id,
                     )
 
-                    # Auto-suppress on STOP keywords
                     if body_text and body_text.strip().lower() in STOP_KEYWORDS:
                         await db.suppression_list.update_one(
                             {"phone": from_phone},

@@ -3,9 +3,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.config import settings
 from app.database import init_indexes, close_db
 from app.core.logging import setup_logging, CorrelationIdMiddleware
+from app.core.errors import AppError
 from app.routers import (
     auth,
     campaigns,
@@ -45,11 +45,16 @@ app.add_middleware(
 app.add_middleware(CorrelationIdMiddleware)
 
 
+@app.exception_handler(AppError)
+async def app_error_handler(_request: Request, exc: AppError):
+    return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
+
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(_request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error", "type": type(exc).__name__},
+        content={"detail": "Internal server error", "type": "server_error"},
     )
 
 

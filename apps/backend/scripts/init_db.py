@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/whatsapp_bulk")
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/restobuzz")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme123")
 

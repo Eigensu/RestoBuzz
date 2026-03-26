@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { login } from "@/lib/auth";
+import { parseApiError } from "@/lib/errors";
 import { useAuthStore } from "@/store/auth";
 import { toast } from "sonner";
 import { MessageSquare } from "lucide-react";
@@ -34,8 +35,8 @@ export default function LoginPage() {
       const user = await login(data.email, data.password);
       setUser(user);
       router.push("/select-restaurant");
-    } catch {
-      toast.error("Invalid email or password");
+    } catch (e) {
+      toast.error(parseApiError(e).message);
     } finally {
       setLoading(false);
     }

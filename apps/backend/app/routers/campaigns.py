@@ -2,11 +2,18 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from app.database import get_db
 from app.dependencies import require_role, get_current_user
+from app.core.errors import (
+    CampaignNotFoundError,
+    ContactFileExpiredError,
+    RedisError,
+    ServerError,
+    ValidationError,
+)
 from app.models.campaign import CampaignCreate, CampaignResponse, CampaignListResponse
 from app.models.message import (
     MessageLogListResponse,
@@ -63,7 +70,6 @@ async def create_campaign(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    # Load contacts from Redis cache
     from redis.asyncio import from_url
     from app.config import settings
 
@@ -72,11 +78,11 @@ async def create_campaign(
         raw = await redis.get(f"file_ref:{body.contact_file_ref}")
         await redis.aclose()
     except Exception as e:
-        raise HTTPException(500, f"Redis error: {e}") from e
+        raise RedisError(f"Failed to connect to cache: {e}") from e
 
     if not raw:
-        raise HTTPException(
-            400, "Contact file reference expired or not found. Re-upload contacts."
+        raise ContactFileExpiredError(
+            "Contact file reference expired or not found. Please re-upload your contacts."
         )
 
     contacts = json.loads(raw)
@@ -105,7 +111,6 @@ async def create_campaign(
     result = await db.campaign_jobs.insert_one(job_doc)
     job_id = result.inserted_id
 
-    # Bulk insert message logs — roll back campaign if this fails
     message_docs = [
         {
             "job_id": job_id,
@@ -133,7 +138,7 @@ async def create_campaign(
             await db.message_logs.insert_many(message_docs)
         except Exception as e:
             await db.campaign_jobs.delete_one({"_id": job_id})
-            raise HTTPException(500, f"Failed to create message logs: {e}") from e
+            raise ServerError(f"Failed to create message logs: {e}") from e
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
@@ -147,7 +152,7 @@ async def get_campaign(
 ):
     doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
     if not doc:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
     return _serialize_campaign(doc)
 
 
@@ -159,13 +164,12 @@ async def start_campaign(
 ):
     doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
     if not doc:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
     if doc["status"] not in ("draft", "paused"):
-        raise HTTPException(400, f"Cannot start campaign in '{doc['status']}' status")
+        raise ValidationError(f"Cannot start a campaign with status '{doc['status']}'")
 
     await db.campaign_jobs.update_one(
-        {"_id": ObjectId(campaign_id)},
-        {"$set": {"status": "queued"}},
+        {"_id": ObjectId(campaign_id)}, {"$set": {"status": "queued"}}
     )
 
     from app.workers.send_task import dispatch_campaign_task
@@ -188,7 +192,7 @@ async def pause_campaign(
         return_document=True,
     )
     if not doc:
-        raise HTTPException(400, "Campaign is not running")
+        raise ValidationError("Campaign is not currently running")
     return _serialize_campaign(doc)
 
 
@@ -207,7 +211,7 @@ async def cancel_campaign(
         return_document=True,
     )
     if not doc:
-        raise HTTPException(400, "Campaign cannot be cancelled")
+        raise ValidationError("Campaign cannot be cancelled in its current state")
     return _serialize_campaign(doc)
 
 
@@ -286,14 +290,14 @@ async def retry_failed(
 ):
     original = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
     if not original:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
 
     failed_logs = await db.message_logs.find(
         {"job_id": ObjectId(campaign_id), "status": "failed"}
     ).to_list(10000)
 
     if not failed_logs:
-        raise HTTPException(400, "No failed messages to retry")
+        raise ValidationError("No failed messages to retry")
 
     now = datetime.now(timezone.utc)
     job_doc = {
@@ -357,9 +361,9 @@ async def delete_campaign(
 ):
     doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
     if not doc:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
     if doc["status"] == "running":
-        raise HTTPException(400, "Cannot delete a running campaign. Cancel it first.")
+        raise ValidationError("Cannot delete a running campaign — cancel it first")
     await db.message_logs.delete_many({"job_id": ObjectId(campaign_id)})
     await db.campaign_jobs.delete_one({"_id": ObjectId(campaign_id)})
 

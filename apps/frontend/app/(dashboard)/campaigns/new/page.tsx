@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 import type { PreflightResult, Template } from "@/types";
 import { useDropzone } from "react-dropzone";
 import {
@@ -72,8 +73,8 @@ export default function NewCampaignPage() {
       const { data } = await api.post(`/contacts/files/${fileRef}/use`);
       setPreflight(data);
       setStep(1);
-    } catch {
-      toast.error("Failed to load saved file");
+    } catch (e) {
+      toast.error(parseApiError(e).message);
     } finally {
       setReusingFile(false);
     }
@@ -101,8 +102,8 @@ export default function NewCampaignPage() {
       });
       setPreflight(data);
       setStep(1);
-    } catch {
-      toast.error("Failed to parse file");
+    } catch (e) {
+      toast.error(parseApiError(e).message);
     } finally {
       setUploading(false);
     }
@@ -124,7 +125,7 @@ export default function NewCampaignPage() {
       toast.success("Campaign created");
       router.push(`/campaigns/${res.data.id}`);
     },
-    onError: () => toast.error("Failed to create campaign"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   // Extract body variables from template
@@ -410,8 +411,8 @@ export default function NewCampaignPage() {
                             },
                           );
                           setMediaUrl(data.url);
-                        } catch {
-                          toast.error("Image upload failed");
+                        } catch (e) {
+                          toast.error(parseApiError(e).message);
                         } finally {
                           setUploadingMedia(false);
                         }

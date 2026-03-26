@@ -5,7 +5,7 @@ import type { Campaign } from "@/types";
 import Link from "next/link";
 import { relativeIST } from "@/lib/date";
 import { Plus, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
@@ -32,10 +32,7 @@ export default function CampaignsPage() {
       toast.success("Campaign deleted");
     },
     onError: (e: unknown) => {
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Delete failed";
-      toast.error(msg);
+      toast.error(parseApiError(e).message);
     },
   });
 
