@@ -96,9 +96,14 @@ function MemberModal({
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition",
                     form.type === t
-                      ? "bg-green-500 text-white"
-                      : "text-gray-500 hover:bg-gray-50",
+                      ? "text-white"
+                      : "text-[#24422e] hover:bg-[#24422e]/10",
                   )}
+                  style={
+                    form.type === t
+                      ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
+                      : undefined
+                  }
                 >
                   {t === "nfc" ? (
                     <Wifi className="w-4 h-4" />
@@ -197,7 +202,8 @@ function MemberModal({
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || !form.name || !form.phone}
-            className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-lg py-2 text-sm font-medium transition disabled:opacity-50"
+            className="flex-1 text-white rounded-lg py-2 text-sm font-medium transition disabled:opacity-50 hover:opacity-90"
+            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
           >
             {mutation.isPending
               ? "Saving..."
@@ -292,7 +298,7 @@ export default function MembersPage() {
         <div>
           <h1 className="text-xl font-semibold">Members</h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            {restaurant.emoji} {restaurant.name}
+            {restaurant.name} · {restaurant.location}
           </p>
         </div>
         <div className="flex gap-2">
@@ -310,14 +316,18 @@ export default function MembersPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importMutation.isPending}
-            className="flex items-center gap-2 border text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition disabled:opacity-50"
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition disabled:opacity-50 hover:opacity-90"
+            style={{ transition: "background 0.2s" }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "linear-gradient(135deg, #24422e, #3a6b47)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
           >
             <Upload className="w-4 h-4" />
             {importMutation.isPending ? "Importing..." : "Import Excel"}
           </button>
           <button
             onClick={() => setModal({ open: true, editing: null })}
-            className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
+            className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition hover:opacity-90"
+            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
           >
             <Plus className="w-4 h-4" /> Add Member
           </button>
@@ -334,9 +344,14 @@ export default function MembersPage() {
               className={cn(
                 "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition",
                 tab === key
-                  ? "bg-green-500 text-white"
-                  : "text-gray-500 hover:bg-gray-50",
+                  ? "text-white"
+                  : "text-[#24422e] hover:bg-[#24422e]/10",
               )}
+              style={
+                tab === key
+                  ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
+                  : undefined
+              }
             >
               <Icon className="w-3.5 h-3.5" />
               {label}
@@ -363,7 +378,7 @@ export default function MembersPage() {
             <p className="text-gray-400 text-sm">No members found.</p>
             <button
               onClick={() => setModal({ open: true, editing: null })}
-              className="mt-3 text-green-600 text-sm hover:underline"
+              className="mt-3 text-sm font-medium text-[#24422e] hover:underline"
             >
               Add the first member
             </button>

@@ -18,7 +18,10 @@ import {
   ImageIcon,
   X,
   FileSpreadsheet,
+  Smartphone,
+  ExternalLink,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface SavedFile {
   id: string;
@@ -29,67 +32,306 @@ interface SavedFile {
   uploaded_at: string;
 }
 
-const STEPS = ["Upload", "Preflight", "Template", "Schedule", "Review"];
+/* ─── Mock templates ────────────────────────────────── */
 
+const MOCK_TEMPLATES: Template[] = [
+  {
+    name: "reservation_confirmation",
+    status: "APPROVED",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      { type: "HEADER", format: "TEXT", text: "Table Confirmed ✅" },
+      {
+        type: "BODY",
+        text: "Hi {{1}}, your table at *{{2}}* is confirmed for *{{3}}* at {{4}}.\n\nWe look forward to welcoming you!\n\nPlease reply CANCEL if your plans change.",
+      },
+      { type: "FOOTER", text: "RestoBuzz · Restaurant Management" },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "URL", text: "View Reservation" },
+          { type: "QUICK_REPLY", text: "Cancel Reservation" },
+        ],
+      } as unknown as Template["components"][number],
+    ],
+  },
+  {
+    name: "summer_promo_2026",
+    status: "APPROVED",
+    category: "MARKETING",
+    language: "en",
+    components: [
+      { type: "HEADER", format: "IMAGE" },
+      {
+        type: "BODY",
+        text: "Hey {{1}} 🌟\n\nSummer is here and so is our exclusive *Sunset Tasting Menu* — available only through June 30.\n\nEnjoy 5 courses with wine pairing, crafted by Chef Marco, for just ₹2,500 per person.\n\n📌 *{{2}}*\n🕒 7 PM onwards",
+      },
+      { type: "FOOTER", text: "Reply STOP to unsubscribe" },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "URL", text: "Book a Table" },
+          { type: "URL", text: "View Menu" },
+        ],
+      } as unknown as Template["components"][number],
+    ],
+  },
+  {
+    name: "loyalty_points_update",
+    status: "APPROVED",
+    category: "MARKETING",
+    language: "en",
+    components: [
+      { type: "HEADER", format: "TEXT", text: "🌟 Your Points Balance" },
+      {
+        type: "BODY",
+        text: "Hi {{1}},\n\nYou now have *{{2}} loyalty points* at {{3}}!\n\nYou’re just {{4}} points away from your next reward.\n\nCome visit us again soon — we miss you! 🙏",
+      },
+      { type: "FOOTER", text: "Powered by RestoBuzz Loyalty" },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Redeem Points" },
+        ],
+      } as unknown as Template["components"][number],
+    ],
+  },
+  {
+    name: "feedback_request",
+    status: "APPROVED",
+    category: "UTILITY",
+    language: "en",
+    components: [
+      { type: "HEADER", format: "TEXT", text: "How was your experience?" },
+      {
+        type: "BODY",
+        text: "Hi {{1}},\n\nThank you for dining with us at *{{2}}* on {{3}}!\n\nWe’d love to hear your feedback. It only takes 30 seconds and helps us improve. 😊",
+      },
+      { type: "FOOTER", text: "Your feedback matters to us" },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "URL", text: "⭐ Leave a Review" },
+          { type: "QUICK_REPLY", text: "All Good!" },
+          { type: "QUICK_REPLY", text: "Had an Issue" },
+        ],
+      } as unknown as Template["components"][number],
+    ],
+  },
+];
+
+/* ─── Step config ────────────────────────────────────────── */
+const STEPS = ["Template", "Upload", "Preflight", "Schedule & Review"];
+
+/* ─── Gradient button helper ─────────────────────────────── */
+const GradBtn = ({
+  children,
+  onClick,
+  disabled,
+  className = "",
+  type = "button",
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  className?: string;
+  type?: "button" | "submit";
+}) => (
+  <button
+    type={type}
+    onClick={onClick}
+    disabled={disabled}
+    className={cn(
+      "flex items-center justify-center gap-1.5 text-white font-medium rounded-lg transition disabled:opacity-50 hover:opacity-90",
+      className
+    )}
+    style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+  >
+    {children}
+  </button>
+);
+
+/* ─── Template preview ───────────────────────────────────── */
+function TemplatePreview({
+  template,
+  variables,
+  mediaUrl,
+}: {
+  template: Template | null;
+  variables: Record<string, string>;
+  mediaUrl: string;
+}) {
+  if (!template) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">
+        <Smartphone className="w-10 h-10 opacity-30" />
+        <p className="text-sm">Select a template to preview</p>
+      </div>
+    );
+  }
+
+  const header = template.components.find((c) => c.type === "HEADER");
+  const body = template.components.find((c) => c.type === "BODY");
+  const footer = template.components.find((c) => c.type === "FOOTER");
+  const buttons = template.components.find((c) => c.type === "BUTTONS") as
+    | { type: string; buttons?: { type: string; text: string }[] }
+    | undefined;
+
+  const resolveBody = (text: string) =>
+    text.replace(/\{\{(\d+)\}\}/g, (_, k) => variables[k] || `{{${k}}}`);
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full px-4">
+      <p className="text-xs text-gray-400 mb-3 font-medium tracking-wide uppercase">
+        WhatsApp Preview
+      </p>
+      {/* Phone frame */}
+      <div className="w-64 bg-[#e5ddd5] rounded-2xl overflow-hidden shadow-xl border border-gray-200">
+        {/* Status bar */}
+        <div
+          className="h-8 flex items-center px-4 gap-2"
+          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+        >
+          <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
+            <span className="text-white text-[8px] font-bold">R</span>
+          </div>
+          <span className="text-white text-[10px] font-medium flex-1">
+            RestoBuzz
+          </span>
+        </div>
+
+        {/* Chat area */}
+        <div className="p-3">
+          <div className="bg-white rounded-xl rounded-tl-sm shadow-sm overflow-hidden max-w-[85%]">
+            {/* Header */}
+            {header?.format === "IMAGE" && (
+              <div className="bg-gray-100 h-28 flex items-center justify-center">
+                {mediaUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={mediaUrl}
+                    alt="header"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <ImageIcon className="w-8 h-8 text-gray-300" />
+                )}
+              </div>
+            )}
+            {header?.text && (
+              <div className="px-3 pt-2.5">
+                <p className="text-xs font-bold text-gray-900">{header.text}</p>
+              </div>
+            )}
+
+            {/* Body */}
+            {body?.text && (
+              <div className="px-3 py-2">
+                <p className="text-xs text-gray-800 leading-relaxed whitespace-pre-wrap">
+                  {resolveBody(body.text)}
+                </p>
+              </div>
+            )}
+
+            {/* Footer */}
+            {footer?.text && (
+              <div className="px-3 pb-2">
+                <p className="text-[10px] text-gray-400">{footer.text}</p>
+              </div>
+            )}
+
+            {/* Timestamp */}
+            <div className="px-3 pb-1.5 flex justify-end">
+              <span className="text-[9px] text-gray-400">10:30 AM ✓✓</span>
+            </div>
+
+            {/* Buttons */}
+            {buttons?.buttons && buttons.buttons.length > 0 && (
+              <div className="border-t divide-y">
+                {buttons.buttons.map((btn, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium"
+                    style={{ color: "#24422e" }}
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    {btn.text}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main page ──────────────────────────────────────────── */
 export default function NewCampaignPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [file, setFile] = useState<File | null>(null);
-  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
-    null,
-  );
+
+  // Step 0: Template
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [mediaUrl, setMediaUrl] = useState("");
-  const [priority, setPriority] = useState<"MARKETING" | "UTILITY">(
-    "MARKETING",
-  );
-  const [includeUnsub, setIncludeUnsub] = useState(true);
-  const [campaignName, setCampaignName] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
+  // Step 1: Upload
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [reusingFile, setReusingFile] = useState(false);
+
+  // Step 2: Preflight
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+
+  // Step 3: Schedule & Review
+  const [campaignName, setCampaignName] = useState("");
+  const [priority, setPriority] = useState<"MARKETING" | "UTILITY">("MARKETING");
+  const [includeUnsub, setIncludeUnsub] = useState(true);
+
   const {
-    data: templates,
+    data: apiTemplates,
     refetch: refetchTemplates,
     isFetching: fetchingTemplates,
   } = useQuery<Template[]>({
     queryKey: ["templates"],
     queryFn: () => api.get("/templates").then((r) => r.data),
-    enabled: step === 2,
+    enabled: step === 0,
   });
+
+  // Use API templates when available, fall back to mocks
+  const templates = (apiTemplates && apiTemplates.length > 0) ? apiTemplates : MOCK_TEMPLATES;
 
   const { data: savedFiles } = useQuery<SavedFile[]>({
     queryKey: ["contact-files"],
     queryFn: () => api.get("/contacts/files").then((r) => r.data),
-    enabled: step === 0,
+    enabled: step === 1,
   });
 
-  const [reusingFile, setReusingFile] = useState(false);
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    accept: {
+      "text/csv": [".csv"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+    },
+    maxFiles: 1,
+    onDrop: (files) => setFile(files[0] ?? null),
+  });
 
   const reuseFile = async (fileRef: string) => {
     setReusingFile(true);
     try {
       const { data } = await api.post(`/contacts/files/${fileRef}/use`);
       setPreflight(data);
-      setStep(1);
+      setStep(2);
     } catch (e) {
       toast.error(parseApiError(e).message);
     } finally {
       setReusingFile(false);
     }
   };
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    accept: {
-      "text/csv": [".csv"],
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
-        ".xlsx",
-      ],
-    },
-    maxFiles: 1,
-    onDrop: (files) => setFile(files[0] ?? null),
-  });
 
   const uploadFile = async () => {
     if (!file) return;
@@ -101,7 +343,7 @@ export default function NewCampaignPage() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setPreflight(data);
-      setStep(1);
+      setStep(2);
     } catch (e) {
       toast.error(parseApiError(e).message);
     } finally {
@@ -128,79 +370,209 @@ export default function NewCampaignPage() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
-  // Extract body variables from template
   const bodyVars =
     selectedTemplate?.components
       .find((c) => c.type === "BODY")
       ?.text?.match(/\{\{(\d+)\}\}/g)
       ?.map((v) => v.replace(/[{}]/g, "")) ?? [];
 
+  const canNext =
+    step === 0 ? !!selectedTemplate :
+    step === 1 ? !!preflight :
+    step === 2 ? (preflight?.valid_count ?? 0) > 0 :
+    !!campaignName;
+
   return (
-    <div className="max-w-2xl space-y-6">
-      <h1 className="text-xl font-semibold">New Campaign</h1>
+    <div className="max-w-4xl space-y-6">
+      <h1 className="text-xl font-semibold text-[#24422e]">New Campaign</h1>
 
       {/* Step indicator */}
       <div className="flex items-center gap-1">
         {STEPS.map((s, i) => (
           <div key={s} className="flex items-center gap-1">
             <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition ${
+              className={cn(
+                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition",
+                i < step ? "text-white" : i === step ? "border-2 text-[#24422e]" : "bg-gray-100 text-gray-400"
+              )}
+              style={
                 i < step
-                  ? "bg-green-500 text-white"
+                  ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
                   : i === step
-                    ? "bg-green-100 text-green-700 border-2 border-green-500"
-                    : "bg-gray-100 text-gray-400"
-              }`}
+                  ? { borderColor: "#24422e", background: "#24422e14" }
+                  : undefined
+              }
             >
               {i < step ? <CheckCircle className="w-4 h-4" /> : i + 1}
             </div>
             <span
-              className={`text-xs hidden sm:block ${i === step ? "text-green-700 font-medium" : "text-gray-400"}`}
+              className={cn("text-xs hidden sm:block", i === step ? "font-medium" : "text-gray-400")}
+              style={i === step ? { color: "#24422e" } : undefined}
             >
               {s}
             </span>
-            {i < STEPS.length - 1 && (
-              <div className="w-6 h-px bg-gray-200 mx-1" />
-            )}
+            {i < STEPS.length - 1 && <div className="w-6 h-px bg-gray-200 mx-1" />}
           </div>
         ))}
       </div>
 
+      {/* Step content */}
       <div className="bg-white rounded-xl border p-6">
-        {/* Step 0: Upload */}
+
+        {/* ── Step 0: Template ── */}
         {step === 0 && (
+          <div className="flex gap-6">
+            {/* Left: template list */}
+            <div className="flex-1 min-w-0 space-y-3 overflow-y-auto max-h-[65vh] pr-1">
+              <div className="flex items-center justify-between">
+                <h2 className="font-medium">Select Template</h2>
+                <button
+                  onClick={() => refetchTemplates()}
+                  disabled={fetchingTemplates}
+                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#24422e] disabled:opacity-50 transition"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5", fetchingTemplates && "animate-spin")} />
+                  Refresh
+                </button>
+              </div>
+              <div className="grid gap-2 max-h-64 overflow-y-auto pr-1">
+                {(templates ?? []).map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() => { setSelectedTemplate(t); setVariables({}); }}
+                    className={cn(
+                      "text-left border rounded-lg px-4 py-3 transition",
+                      selectedTemplate?.name === t.name
+                        ? "border-[#24422e] bg-[#24422e]/5"
+                        : "hover:border-[#24422e]/30"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">{t.name}</span>
+                      <span className={cn(
+                        "text-xs px-2 py-0.5 rounded-full",
+                        t.category === "UTILITY" ? "bg-[#24422e]/10 text-[#24422e]" : "bg-[#3a6b47]/10 text-[#3a6b47]"
+                      )}>
+                        {t.category}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">{t.language} · {t.status}</p>
+                  </button>
+                ))}
+              </div>
+
+              {/* Variables */}
+              {selectedTemplate && bodyVars.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Template Variables</p>
+                  {bodyVars.map((v) => (
+                    <div key={v}>
+                      <label className="text-xs text-gray-500 mb-0.5 block">{`{{${v}}}`}</label>
+                      <input
+                        value={variables[v] ?? ""}
+                        onChange={(e) => setVariables((prev) => ({ ...prev, [v]: e.target.value }))}
+                        className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30"
+                        placeholder={`Value for {{${v}}}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Media upload */}
+              {selectedTemplate && (
+                <div className="space-y-1.5">
+                  <label className="text-xs text-gray-500 block">Media Image (optional)</label>
+                  {mediaUrl ? (
+                    <div className="relative w-full rounded-lg overflow-hidden border">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={mediaUrl} alt="media preview" className="w-full max-h-36 object-cover" />
+                      <button
+                        onClick={() => setMediaUrl("")}
+                        className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className={cn(
+                      "flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 cursor-pointer transition",
+                      uploadingMedia ? "opacity-50 pointer-events-none" : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5"
+                    )}>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="sr-only"
+                        onChange={async (e) => {
+                          const img = e.target.files?.[0];
+                          if (!img) return;
+                          setUploadingMedia(true);
+                          try {
+                            const form = new FormData();
+                            form.append("file", img);
+                            const { data } = await api.post("/media/upload", form, {
+                              headers: { "Content-Type": "multipart/form-data" },
+                            });
+                            setMediaUrl(data.url);
+                          } catch (e) {
+                            toast.error(parseApiError(e).message);
+                          } finally {
+                            setUploadingMedia(false);
+                          }
+                        }}
+                      />
+                      {uploadingMedia
+                        ? <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
+                        : <ImageIcon className="w-5 h-5 text-gray-300" />}
+                      <span className="text-xs text-gray-400">
+                        {uploadingMedia ? "Uploading…" : "Click to upload · JPG, PNG, WEBP · max 5MB"}
+                      </span>
+                    </label>
+                  )}
+                  <input
+                    value={mediaUrl}
+                    onChange={(e) => setMediaUrl(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30"
+                    placeholder="Or paste a URL directly…"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Right: live preview — sticky so it stays at top */}
+            <div className="hidden lg:flex w-72 border-l pl-6 flex-col sticky top-0 self-start">
+              <TemplatePreview template={selectedTemplate} variables={variables} mediaUrl={mediaUrl} />
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 1: Upload ── */}
+        {step === 1 && (
           <div className="space-y-4">
             <h2 className="font-medium">Upload Contacts</h2>
             <div
               {...getRootProps()}
-              className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition ${
-                isDragActive
-                  ? "border-green-400 bg-green-50"
-                  : "border-gray-200 hover:border-gray-300"
-              }`}
+              className={cn(
+                "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition",
+                isDragActive ? "border-[#24422e]/60 bg-[#24422e]/5" : "border-gray-200 hover:border-[#24422e]/40"
+              )}
             >
               <input {...getInputProps()} />
               <Upload className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">
-                Drop a CSV or XLSX file here, or click to browse
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                Max 50MB · First row must be headers
-              </p>
+              <p className="text-sm text-gray-500">Drop a CSV or XLSX file here, or click to browse</p>
+              <p className="text-xs text-gray-400 mt-1">Max 50MB · First row must be headers</p>
             </div>
+
             {file && (
-              <div className="flex items-center gap-2 text-sm bg-green-50 text-green-700 px-3 py-2 rounded-lg">
+              <div className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg" style={{ background: "#24422e14", color: "#24422e" }}>
                 <CheckCircle className="w-4 h-4" />
                 {file.name} ({(file.size / 1024).toFixed(1)} KB)
               </div>
             )}
-            <button
-              onClick={uploadFile}
-              disabled={!file || uploading}
-              className="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 rounded-lg transition disabled:opacity-50"
-            >
+
+            <GradBtn onClick={uploadFile} disabled={!file || uploading} className="w-full py-2">
               {uploading ? "Parsing..." : "Parse & Continue"}
-            </button>
+            </GradBtn>
 
             {savedFiles && savedFiles.length > 0 && (
               <>
@@ -209,9 +581,7 @@ export default function NewCampaignPage() {
                     <div className="w-full border-t border-gray-200" />
                   </div>
                   <div className="relative flex justify-center text-xs">
-                    <span className="bg-white px-2 text-gray-400">
-                      Or use a previously parsed file
-                    </span>
+                    <span className="bg-white px-2 text-gray-400">Or use a previously parsed file</span>
                   </div>
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2">
@@ -220,16 +590,13 @@ export default function NewCampaignPage() {
                       key={f.id}
                       onClick={() => reuseFile(f.file_ref)}
                       disabled={reusingFile}
-                      className="w-full flex items-center gap-3 p-3 border rounded-lg hover:border-green-400 hover:bg-green-50 transition text-left disabled:opacity-50"
+                      className="w-full flex items-center gap-3 p-3 border rounded-lg hover:border-[#24422e]/40 hover:bg-[#24422e]/5 transition text-left disabled:opacity-50"
                     >
                       <FileSpreadsheet className="w-5 h-5 text-gray-400 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {f.filename}
-                        </p>
+                        <p className="text-sm font-medium truncate">{f.filename}</p>
                         <p className="text-xs text-gray-400">
-                          {f.valid_count} valid ·{" "}
-                          {new Date(f.uploaded_at).toLocaleDateString()}
+                          {f.valid_count} valid · {new Date(f.uploaded_at).toLocaleDateString()}
                         </p>
                       </div>
                     </button>
@@ -240,33 +607,25 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {/* Step 1: Preflight */}
-        {step === 1 && preflight && (
+        {/* ── Step 2: Preflight ── */}
+        {step === 2 && preflight && (
           <div className="space-y-4">
             <h2 className="font-medium">Pre-flight Check</h2>
             <div className="grid grid-cols-2 gap-3">
-              <div className="bg-green-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-green-600">
-                  {preflight.valid_count}
-                </p>
-                <p className="text-xs text-green-600">Valid</p>
+              <div className="rounded-lg p-3 text-center" style={{ background: "#24422e14" }}>
+                <p className="text-2xl font-bold" style={{ color: "#24422e" }}>{preflight.valid_count}</p>
+                <p className="text-xs" style={{ color: "#24422e" }}>Valid</p>
               </div>
               <div className="bg-red-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-red-500">
-                  {preflight.invalid_count}
-                </p>
+                <p className="text-2xl font-bold text-red-500">{preflight.invalid_count}</p>
                 <p className="text-xs text-red-500">Invalid</p>
               </div>
-              <div className="bg-yellow-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-yellow-600">
-                  {preflight.duplicate_count}
-                </p>
-                <p className="text-xs text-yellow-600">Duplicates</p>
+              <div className="bg-amber-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-amber-600">{preflight.duplicate_count}</p>
+                <p className="text-xs text-amber-600">Duplicates</p>
               </div>
               <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-gray-500">
-                  {preflight.suppressed_count}
-                </p>
+                <p className="text-2xl font-bold text-gray-500">{preflight.suppressed_count}</p>
                 <p className="text-xs text-gray-500">Suppressed</p>
               </div>
             </div>
@@ -277,14 +636,9 @@ export default function NewCampaignPage() {
                 </div>
                 <div className="max-h-40 overflow-y-auto divide-y">
                   {preflight.invalid_rows.slice(0, 20).map((r) => (
-                    <div
-                      key={r.row_number}
-                      className="px-3 py-1.5 text-xs flex gap-3"
-                    >
+                    <div key={r.row_number} className="px-3 py-1.5 text-xs flex gap-3">
                       <span className="text-gray-400">Row {r.row_number}</span>
-                      <span className="font-mono">
-                        {r.raw_phone || "(empty)"}
-                      </span>
+                      <span className="font-mono">{r.raw_phone || "(empty)"}</span>
                       <span className="text-red-500">{r.reason}</span>
                     </div>
                   ))}
@@ -293,221 +647,80 @@ export default function NewCampaignPage() {
             )}
             {preflight.valid_count === 0 && (
               <div className="flex items-center gap-2 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">
-                <AlertCircle className="w-4 h-4" /> No valid contacts found.
-                Please fix your file.
+                <AlertCircle className="w-4 h-4" /> No valid contacts found. Please fix your file.
               </div>
             )}
           </div>
         )}
 
-        {/* Step 2: Template */}
-        {step === 2 && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-medium">Select Template</h2>
-              <button
-                onClick={() => refetchTemplates()}
-                disabled={fetchingTemplates}
-                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50 transition"
-              >
-                <RefreshCw
-                  className={`w-3.5 h-3.5 ${fetchingTemplates ? "animate-spin" : ""}`}
-                />
-                Refresh
-              </button>
-            </div>
-            <div className="grid gap-2 max-h-60 overflow-y-auto">
-              {(templates ?? []).map((t) => (
-                <button
-                  key={t.name}
-                  onClick={() => {
-                    setSelectedTemplate(t);
-                    setVariables({});
-                  }}
-                  className={`text-left border rounded-lg px-4 py-3 transition ${
-                    selectedTemplate?.name === t.name
-                      ? "border-green-500 bg-green-50"
-                      : "hover:border-gray-300"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{t.name}</span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${t.category === "UTILITY" ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"}`}
-                    >
-                      {t.category}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {t.language} · {t.status}
-                  </p>
-                </button>
-              ))}
-            </div>
-            {selectedTemplate && bodyVars.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Template Variables</p>
-                {bodyVars.map((v) => (
-                  <div key={v}>
-                    <label className="text-xs text-gray-500 mb-0.5 block">{`{{${v}}}`}</label>
-                    <input
-                      value={variables[v] ?? ""}
-                      onChange={(e) =>
-                        setVariables((prev) => ({
-                          ...prev,
-                          [v]: e.target.value,
-                        }))
-                      }
-                      className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                      placeholder={`Value for {{${v}}}`}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-            {selectedTemplate && (
-              <div className="space-y-1.5">
-                <label className="text-xs text-gray-500 block">
-                  Media Image (optional)
-                </label>
-                {mediaUrl ? (
-                  <div className="relative w-full rounded-lg overflow-hidden border">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={mediaUrl}
-                      alt="media preview"
-                      className="w-full max-h-48 object-cover"
-                    />
-                    <button
-                      onClick={() => setMediaUrl("")}
-                      className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
-                      aria-label="Remove image"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <label
-                    className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-6 cursor-pointer transition ${uploadingMedia ? "opacity-50 pointer-events-none" : "hover:border-green-400 hover:bg-green-50"}`}
-                  >
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
-                      className="sr-only"
-                      onChange={async (e) => {
-                        const img = e.target.files?.[0];
-                        if (!img) return;
-                        setUploadingMedia(true);
-                        try {
-                          const form = new FormData();
-                          form.append("file", img);
-                          const { data } = await api.post(
-                            "/media/upload",
-                            form,
-                            {
-                              headers: {
-                                "Content-Type": "multipart/form-data",
-                              },
-                            },
-                          );
-                          setMediaUrl(data.url);
-                        } catch (e) {
-                          toast.error(parseApiError(e).message);
-                        } finally {
-                          setUploadingMedia(false);
-                        }
-                      }}
-                    />
-                    {uploadingMedia ? (
-                      <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
-                    ) : (
-                      <ImageIcon className="w-5 h-5 text-gray-300" />
-                    )}
-                    <span className="text-xs text-gray-400">
-                      {uploadingMedia
-                        ? "Uploading…"
-                        : "Click to upload · JPG, PNG, WEBP, GIF · max 5 MB"}
-                    </span>
-                  </label>
-                )}
-                <input
-                  value={mediaUrl}
-                  onChange={(e) => setMediaUrl(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="Or paste a URL directly…"
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step 3: Schedule */}
+        {/* ── Step 3: Schedule & Review ── */}
         {step === 3 && (
-          <div className="space-y-4">
-            <h2 className="font-medium">Campaign Settings</h2>
-            <div>
-              <label className="text-sm font-medium mb-1 block">
-                Campaign Name
-              </label>
-              <input
-                value={campaignName}
-                onChange={(e) => setCampaignName(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="e.g. Summer Promo 2026"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1 block">Priority</label>
-              <div className="flex gap-2">
-                {(["MARKETING", "UTILITY"] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPriority(p)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium border transition ${
-                      priority === p
-                        ? "border-green-500 bg-green-50 text-green-700"
-                        : "border-gray-200 text-gray-500 hover:border-gray-300"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
+          <div className="space-y-5">
+            <h2 className="font-medium">Schedule & Review</h2>
+
+            {/* Settings */}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Campaign Name</label>
+                <input
+                  value={campaignName}
+                  onChange={(e) => setCampaignName(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30"
+                  placeholder="e.g. Summer Promo 2026"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Priority</label>
+                <div className="flex gap-2">
+                  {(["MARKETING", "UTILITY"] as const).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPriority(p)}
+                      className={cn(
+                        "flex-1 py-2 rounded-lg text-sm font-medium border transition",
+                        priority === p
+                          ? "text-[#24422e] border-[#24422e] bg-[#24422e]/5"
+                          : "border-gray-200 text-gray-500 hover:border-[#24422e]/30"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+
             {priority === "MARKETING" && (
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={includeUnsub}
                   onChange={(e) => setIncludeUnsub(e.target.checked)}
-                  className="w-4 h-4 accent-green-500"
+                  className="w-4 h-4 accent-[#24422e] cursor-pointer"
                 />
                 <span className="text-sm">Include unsubscribe footer</span>
               </label>
             )}
-          </div>
-        )}
 
-        {/* Step 4: Review */}
-        {step === 4 && (
-          <div className="space-y-4">
-            <h2 className="font-medium">Review & Launch</h2>
-            <div className="space-y-2 text-sm">
-              {[
-                ["Campaign Name", campaignName],
-                ["Template", selectedTemplate?.name],
-                ["Priority", priority],
-                ["Recipients", `${preflight?.valid_count} contacts`],
-                ["Unsubscribe Footer", includeUnsub ? "Yes" : "No"],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex justify-between py-2 border-b last:border-0"
-                >
-                  <span className="text-gray-500">{label}</span>
-                  <span className="font-medium">{value}</span>
-                </div>
-              ))}
+            {/* Review summary */}
+            <div className="border rounded-xl overflow-hidden">
+              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b bg-gray-50">
+                Summary
+              </div>
+              <div className="divide-y text-sm">
+                {[
+                  ["Campaign Name", campaignName || "—"],
+                  ["Template", selectedTemplate?.name ?? "—"],
+                  ["Priority", priority],
+                  ["Recipients", preflight ? `${preflight.valid_count} contacts` : "—"],
+                  ["Unsubscribe Footer", includeUnsub ? "Yes" : "No"],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between px-4 py-2.5">
+                    <span className="text-gray-500">{label}</span>
+                    <span className="font-medium">{value}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -517,32 +730,23 @@ export default function NewCampaignPage() {
           <button
             onClick={() => setStep((s) => s - 1)}
             disabled={step === 0}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-30 transition"
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#24422e] disabled:opacity-30 transition"
           >
             <ChevronLeft className="w-4 h-4" /> Back
           </button>
 
-          {step < 4 ? (
-            <button
-              onClick={() => setStep((s) => s + 1)}
-              disabled={
-                (step === 0 && !preflight) ||
-                (step === 1 && (preflight?.valid_count ?? 0) === 0) ||
-                (step === 2 && !selectedTemplate) ||
-                (step === 3 && !campaignName)
-              }
-              className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition disabled:opacity-50"
-            >
+          {step < 3 ? (
+            <GradBtn onClick={() => setStep((s) => s + 1)} disabled={!canNext} className="px-4 py-2 text-sm">
               Next <ChevronRight className="w-4 h-4" />
-            </button>
+            </GradBtn>
           ) : (
-            <button
+            <GradBtn
               onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending}
-              className="bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-6 py-2 rounded-lg transition disabled:opacity-50"
+              disabled={createMutation.isPending || !campaignName}
+              className="px-6 py-2 text-sm"
             >
-              {createMutation.isPending ? "Creating..." : "Launch Campaign"}
-            </button>
+              {createMutation.isPending ? "Creating..." : "🚀 Launch Campaign"}
+            </GradBtn>
           )}
         </div>
       </div>
