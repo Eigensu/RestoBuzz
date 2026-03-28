@@ -27,6 +27,7 @@ router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 def _serialize_campaign(doc: dict) -> CampaignResponse:
     return CampaignResponse(
         id=str(doc["_id"]),
+        restaurant_id=doc.get("restaurant_id", ""),
         name=doc["name"],
         template_id=doc["template_id"],
         template_name=doc["template_name"],
@@ -48,15 +49,17 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
 
 @router.get("/", response_model=CampaignListResponse)
 async def list_campaigns(
+    restaurant_id: str = Query(...),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
     skip = (page - 1) * page_size
-    total = await db.campaign_jobs.count_documents({})
+    query = {"restaurant_id": restaurant_id}
+    total = await db.campaign_jobs.count_documents(query)
     cursor = (
-        db.campaign_jobs.find({}).sort("created_at", -1).skip(skip).limit(page_size)
+        db.campaign_jobs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
     )
     items = [_serialize_campaign(doc) async for doc in cursor]
     return CampaignListResponse(
@@ -89,6 +92,7 @@ async def create_campaign(
     now = datetime.now(timezone.utc)
 
     job_doc = {
+        "restaurant_id": body.restaurant_id,
         "name": body.name,
         "template_id": body.template_id,
         "template_name": body.template_name,
@@ -301,6 +305,7 @@ async def retry_failed(
 
     now = datetime.now(timezone.utc)
     job_doc = {
+        "restaurant_id": original.get("restaurant_id", ""),
         "name": f"{original['name']} (retry)",
         "template_id": original.get("template_id", ""),
         "template_name": original["template_name"],

@@ -8,6 +8,7 @@ Priority = Literal["MARKETING", "UTILITY"]
 
 
 class CampaignCreate(BaseModel):
+    restaurant_id: str
     name: str = Field(min_length=1, max_length=200)
     template_id: str
     template_name: str
@@ -21,6 +22,7 @@ class CampaignCreate(BaseModel):
 
 class CampaignResponse(BaseModel):
     id: str
+    restaurant_id: str
     name: str
     template_id: str
     template_name: str
