@@ -13,17 +13,15 @@ def get_client() -> AsyncIOMotorClient:
 
 
 def get_db() -> AsyncIOMotorDatabase:
-    return get_client().get_default_database()
+    return get_client().get_default_database(settings.mongodb_db_name)
 
 
 def get_fresh_db() -> AsyncIOMotorDatabase:
     """Create a brand-new Motor client for use inside Celery worker tasks.
     Celery forks processes and the parent's event loop is closed in the child,
     so we must never reuse the global _client across fork boundaries."""
-    from app.config import settings
-
     client = AsyncIOMotorClient(settings.mongodb_url)
-    return client.get_default_database()
+    return client.get_default_database(settings.mongodb_db_name)
 
 
 async def init_indexes() -> None:

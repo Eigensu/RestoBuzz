@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 from app.database import get_db
 from app.dependencies import require_role
 from app.core.errors import ValidationError, ConflictError, NotFoundError
@@ -45,8 +46,8 @@ async def add_suppression(
     try:
         parsed = phonenumbers.parse(body.phone, None)
         phone = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-    except Exception:
-        raise ValidationError(f"'{body.phone}' is not a valid phone number")
+    except Exception as exc:
+        raise ValidationError(f"'{body.phone}' is not a valid phone number") from exc
 
     now = datetime.now(timezone.utc)
     doc = {
@@ -57,14 +58,14 @@ async def add_suppression(
     }
     try:
         result = await db.suppression_list.insert_one(doc)
-    except Exception:
+    except DuplicateKeyError as exc:
         raise ConflictError(
             f"Phone number '{phone}' is already in the suppression list"
-        )
+        ) from exc
 
     return SuppressionResponse(
         id=str(result.inserted_id),
-        **{k: v for k, v in doc.items() if k != "_id"},
+        **{k: v for k, v in doc.items() if k not in ("_id", "added_by")},
         added_by=current_user["id"],
     )
 
