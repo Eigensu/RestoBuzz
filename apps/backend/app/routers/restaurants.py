@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
-from bson import ObjectId
+from fastapi import APIRouter, Depends
+from bson import ObjectId, errors
 from app.database import get_db
-from app.dependencies import require_role, get_current_user, get_user_restaurant_ids
+from app.dependencies import require_role, get_user_restaurant_ids
 from app.models.restaurant import RestaurantResponse
 from app.models.user_restaurant import AssignUserRequest, UserRestaurantRole
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/restaurants", tags=["restaurants"])
 
@@ -44,12 +44,17 @@ async def assign_user(
         raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
 
     # Check user exists
-    target_user = await db.users.find_one({"_id": ObjectId(body.user_id)})
+    try:
+        user_oid = ObjectId(body.user_id)
+    except errors.InvalidId:
+        raise ValidationError(f"Invalid user_id format: '{body.user_id}'")
+
+    target_user = await db.users.find_one({"_id": user_oid})
     if not target_user:
         raise NotFoundError(f"User '{body.user_id}' not found")
 
     await db.user_restaurant_roles.update_one(
-        {"user_id": ObjectId(body.user_id), "restaurant_id": restaurant_id},
+        {"user_id": user_oid, "restaurant_id": restaurant_id},
         {"$set": {"role": body.role}},
         upsert=True,
     )
@@ -64,8 +69,13 @@ async def unassign_user(
     db=Depends(get_db),
 ):
     """super_admin removes a user's access to a restaurant."""
+    try:
+        user_oid = ObjectId(user_id)
+    except errors.InvalidId:
+        raise ValidationError(f"Invalid user_id format: '{user_id}'")
+
     result = await db.user_restaurant_roles.delete_one(
-        {"user_id": ObjectId(user_id), "restaurant_id": restaurant_id}
+        {"user_id": user_oid, "restaurant_id": restaurant_id}
     )
     if result.deleted_count == 0:
         raise NotFoundError(f"No assignment found for user '{user_id}' at restaurant '{restaurant_id}'")

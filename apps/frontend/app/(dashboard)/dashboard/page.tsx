@@ -135,6 +135,7 @@ export default function DashboardPage() {
     const dateLabel = createdAt.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
+      timeZone: "UTC",
     });
     if (!acc[dateKey]) {
       acc[dateKey] = {

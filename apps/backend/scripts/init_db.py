@@ -17,34 +17,10 @@ async def main():
     client = AsyncIOMotorClient(MONGODB_URL)
     db = client.get_default_database()
 
-    # Create indexes
-    from pymongo import ASCENDING, DESCENDING, IndexModel
-
-    await db.users.create_index("email", unique=True)
-    await db.campaign_jobs.create_indexes(
-        [
-            IndexModel([("status", ASCENDING)]),
-            IndexModel([("created_by", ASCENDING)]),
-        ]
-    )
-    await db.message_logs.create_indexes(
-        [
-            IndexModel([("job_id", ASCENDING), ("status", ASCENDING)]),
-            IndexModel(
-                [("wa_message_id", ASCENDING)],
-                unique=True,
-                partialFilterExpression={"wa_message_id": {"$type": "string"}},
-            ),
-            IndexModel([("locked_until", ASCENDING)]),
-        ]
-    )
-    await db.inbound_messages.create_indexes(
-        [
-            IndexModel([("wa_message_id", ASCENDING)], unique=True),
-            IndexModel([("from_phone", ASCENDING), ("received_at", DESCENDING)]),
-        ]
-    )
-    await db.suppression_list.create_index("phone", unique=True)
+    # Create indexes via central database module
+    from app.database import init_indexes
+    await init_indexes()
+    print("Database indexes initialized")
 
     # Seed super_admin
     existing = await db.users.find_one({"email": ADMIN_EMAIL})

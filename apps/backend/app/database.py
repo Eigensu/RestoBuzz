@@ -39,6 +39,9 @@ async def init_indexes() -> None:
             IndexModel([("created_by", ASCENDING)]),
             IndexModel([("scheduled_at", ASCENDING)]),
             IndexModel([("restaurant_id", ASCENDING)]),  # tenant scoping
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("created_at", DESCENDING)]
+            ),  # dashboard list sorting
         ]
     )
 

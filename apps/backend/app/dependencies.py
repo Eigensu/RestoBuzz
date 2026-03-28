@@ -5,7 +5,7 @@ from bson import ObjectId
 from app.database import get_db as _get_db
 from app.core.security import decode_token
 from app.core.rbac import check_role
-from app.core.errors import InvalidTokenError, UserNotFoundError
+from app.core.errors import ForbiddenError, InvalidTokenError, UserNotFoundError
 
 bearer = HTTPBearer()
 
@@ -59,7 +59,26 @@ async def get_user_restaurant_ids(
     return {doc["restaurant_id"] async for doc in cursor}
 
 
-def require_restaurant_access(restaurant_id_param: str = "restaurant_id"):
+async def validate_restaurant_access(
+    current_user: dict, restaurant_id: str, db: AsyncIOMotorDatabase
+) -> str:
+    """Helper to validate access. Raises ForbiddenError if denied.
+    Returns the restaurant_id if access is granted."""
+    if current_user.get("role") == "super_admin":
+        return restaurant_id
+
+    assignment = await db.user_restaurant_roles.find_one(
+        {
+            "user_id": ObjectId(current_user["_id"]),
+            "restaurant_id": restaurant_id,
+        }
+    )
+    if not assignment:
+        raise ForbiddenError(f"Access denied to restaurant '{restaurant_id}'")
+    return restaurant_id
+
+
+def require_restaurant_access():
     """Dependency factory. Use as: Depends(require_restaurant_access())
     Validates that the current user has access to the restaurant_id in the request.
     Returns the validated restaurant_id string on success."""
@@ -69,20 +88,6 @@ def require_restaurant_access(restaurant_id_param: str = "restaurant_id"):
         current_user: dict = Depends(get_current_user),
         db: AsyncIOMotorDatabase = Depends(get_db),
     ) -> str:
-        if current_user.get("role") == "super_admin":
-            return restaurant_id
-
-        assignment = await db.user_restaurant_roles.find_one(
-            {
-                "user_id": ObjectId(current_user["_id"]),
-                "restaurant_id": restaurant_id,
-            }
-        )
-        if not assignment:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Access denied to restaurant '{restaurant_id}'",
-            )
-        return restaurant_id
+        return await validate_restaurant_access(current_user, restaurant_id, db)
 
     return dependency

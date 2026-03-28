@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from app.database import get_db
-from app.dependencies import require_role, get_current_user, require_restaurant_access
+from app.dependencies import (
+    require_role,
+    get_current_user,
+    require_restaurant_access,
+    validate_restaurant_access,
+)
 from app.core.errors import (
     CampaignNotFoundError,
     ContactFileExpiredError,
@@ -72,9 +77,10 @@ async def list_campaigns(
 async def create_campaign(
     body: CampaignCreate,
     current_user: dict = Depends(require_role("admin")),
-    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
+    # Validate access manually since it's in the body
+    await validate_restaurant_access(current_user, body.restaurant_id, db)
     from redis.asyncio import from_url
     from app.config import settings
 
@@ -94,7 +100,7 @@ async def create_campaign(
     now = datetime.now(timezone.utc)
 
     job_doc = {
-        "restaurant_id": validated_rid,
+        "restaurant_id": body.restaurant_id,
         "name": body.name,
         "template_id": body.template_id,
         "template_name": body.template_name,
@@ -311,14 +317,11 @@ async def retry_failed(
         raise ValidationError("Original campaign has no restaurant_id and cannot be retried")
 
     # Access check for retry
-    from app.dependencies import get_user_restaurant_ids
-    allowed_ids = await get_user_restaurant_ids(current_user, db)
-    if retry_restaurant_id not in allowed_ids:
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=403,
-            detail=f"Access denied to restaurant '{retry_restaurant_id}'",
-        )
+    from app.core.errors import ForbiddenError
+    try:
+        await validate_restaurant_access(current_user, retry_restaurant_id, db)
+    except ForbiddenError:
+        raise ForbiddenError(f"Access denied to restaurant '{retry_restaurant_id}'")
 
     job_doc = {
         "restaurant_id": retry_restaurant_id,
