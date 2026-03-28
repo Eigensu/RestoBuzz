@@ -44,11 +44,23 @@ const fieldLabel = "block text-[10px] text-gray-400 font-medium mb-0.5";
 const fieldInput =
   "w-full bg-transparent outline-none text-sm text-[#24422e] placeholder-gray-400";
 
+/* ─── Logo ────────────────────────────────────────────────── */
+function Logo() {
+  return (
+    <div className="flex items-center gap-2 mb-5">
+      <div className="w-8 h-8 bg-[#24422e] rounded flex items-center justify-center shrink-0">
+        <Utensils className="w-4 h-4 text-white" />
+      </div>
+      <span className="text-lg font-semibold text-[#24422e]">RestoBuzz</span>
+    </div>
+  );
+}
+
 /* ─── Component ───────────────────────────────────────────── */
 export default function AuthLayout({
   initialMode,
 }: {
-  initialMode: "login" | "register";
+  readonly initialMode: "login" | "register";
 }) {
   const router = useRouter();
   const setUser = useAuthStore((s) => s.setUser);
@@ -62,9 +74,6 @@ export default function AuthLayout({
 
   const toggle = (m: "login" | "register") => {
     setMode(m);
-    if (typeof window !== "undefined") {
-      window.history.pushState(null, "", `/${m}`);
-    }
   };
 
   const loginForm = useForm<LoginFormData>({
@@ -100,16 +109,6 @@ export default function AuthLayout({
     }
   };
 
-  /* ─── Shared logo ─────────────────────────────────────────── */
-  const Logo = () => (
-    <div className="flex items-center gap-2 mb-5">
-      <div className="w-8 h-8 bg-[#24422e] rounded flex items-center justify-center shrink-0">
-        <Utensils className="w-4 h-4 text-white" />
-      </div>
-      <span className="text-lg font-semibold text-[#24422e]">RestoBuzz</span>
-    </div>
-  );
-
   /* ─── Render ───────────────────────────────────────────────── */
   return (
     /*
@@ -121,9 +120,7 @@ export default function AuthLayout({
        * White card – capped at 1200 px wide, 95 vh tall.
        * overflow-hidden keeps the sliding image inside.
        */}
-      <div
-        className="relative bg-white w-full h-full max-w-[1200px] max-h-[95vh] rounded-2xl overflow-hidden shadow-2xl flex"
-      >
+      <div className="relative bg-white w-full h-full max-w-[1200px] max-h-[95vh] rounded-2xl overflow-hidden shadow-2xl flex">
         {/* ── LOGIN PANEL (left half on desktop) ──────────────── */}
         <div
           className={[
@@ -151,9 +148,12 @@ export default function AuthLayout({
             {/* Email */}
             <div>
               <div className={fieldWrap}>
-                <label className={fieldLabel}>Email Address</label>
+                <label htmlFor="login-email" className={fieldLabel}>
+                  Email Address
+                </label>
                 <input
                   {...loginForm.register("email")}
+                  id="login-email"
                   type="email"
                   placeholder="admin@example.com"
                   className={fieldInput}
@@ -170,9 +170,12 @@ export default function AuthLayout({
             <div>
               <div className={`${fieldWrap} flex items-center gap-2`}>
                 <div className="flex-1">
-                  <label className={fieldLabel}>Password</label>
+                  <label htmlFor="login-password" className={fieldLabel}>
+                    Password
+                  </label>
                   <input
                     {...loginForm.register("password")}
+                    id="login-password"
                     type={showLoginPw ? "text" : "password"}
                     placeholder="••••••••••••••••"
                     className={fieldInput}
@@ -249,9 +252,12 @@ export default function AuthLayout({
             <div className="flex gap-3">
               <div className="flex-1">
                 <div className={fieldWrap}>
-                  <label className={fieldLabel}>First Name</label>
+                  <label htmlFor="reg-firstName" className={fieldLabel}>
+                    First Name
+                  </label>
                   <input
                     {...registerForm.register("firstName")}
+                    id="reg-firstName"
                     type="text"
                     placeholder="John"
                     className={fieldInput}
@@ -265,9 +271,12 @@ export default function AuthLayout({
               </div>
               <div className="flex-1">
                 <div className={fieldWrap}>
-                  <label className={fieldLabel}>Last Name</label>
+                  <label htmlFor="reg-lastName" className={fieldLabel}>
+                    Last Name
+                  </label>
                   <input
                     {...registerForm.register("lastName")}
+                    id="reg-lastName"
                     type="text"
                     placeholder="Doe"
                     className={fieldInput}
@@ -285,9 +294,12 @@ export default function AuthLayout({
             <div className="flex gap-3">
               <div className="flex-1">
                 <div className={fieldWrap}>
-                  <label className={fieldLabel}>Email Address</label>
+                  <label htmlFor="reg-email" className={fieldLabel}>
+                    Email Address
+                  </label>
                   <input
                     {...registerForm.register("email")}
+                    id="reg-email"
                     type="email"
                     placeholder="admin@example.com"
                     className={fieldInput}
@@ -301,9 +313,12 @@ export default function AuthLayout({
               </div>
               <div className="flex-1">
                 <div className={fieldWrap}>
-                  <label className={fieldLabel}>Phone Number</label>
+                  <label htmlFor="reg-phone" className={fieldLabel}>
+                    Phone Number
+                  </label>
                   <input
                     {...registerForm.register("phone")}
+                    id="reg-phone"
                     type="tel"
                     placeholder="0123456789"
                     className={fieldInput}
@@ -321,9 +336,12 @@ export default function AuthLayout({
             <div>
               <div className={`${fieldWrap} flex items-center gap-2`}>
                 <div className="flex-1">
-                  <label className={fieldLabel}>Password</label>
+                  <label htmlFor="reg-password" className={fieldLabel}>
+                    Password
+                  </label>
                   <input
                     {...registerForm.register("password")}
+                    id="reg-password"
                     type={showRegPw ? "text" : "password"}
                     placeholder="••••••••••••••••"
                     className={fieldInput}
@@ -352,9 +370,12 @@ export default function AuthLayout({
             <div>
               <div className={`${fieldWrap} flex items-center gap-2`}>
                 <div className="flex-1">
-                  <label className={fieldLabel}>Confirm Password</label>
+                  <label htmlFor="reg-confirmPassword" className={fieldLabel}>
+                    Confirm Password
+                  </label>
                   <input
                     {...registerForm.register("confirmPassword")}
+                    id="reg-confirmPassword"
                     type={showRegCf ? "text" : "password"}
                     placeholder="••••••••••••••••"
                     className={fieldInput}

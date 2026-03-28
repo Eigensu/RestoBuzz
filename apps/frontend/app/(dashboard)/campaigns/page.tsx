@@ -24,19 +24,16 @@ export default function CampaignsPage() {
   const { restaurant } = useAuthStore();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["campaigns", restaurant?.id],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: "1", page_size: "50" });
-      if (restaurant?.id) params.set("restaurant_id", restaurant.id);
-      return api.get(`/campaigns?${params}`).then((r) => r.data);
-    },
+    queryKey: ["campaigns"],
+    queryFn: () =>
+      api.get("/campaigns?page=1&page_size=50").then((r) => r.data),
     enabled: !!restaurant,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/campaigns/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["campaigns", restaurant?.id] });
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
       toast.success("Campaign deleted");
     },
     onError: (e: unknown) => {

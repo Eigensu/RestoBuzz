@@ -101,7 +101,10 @@ function MemberModal({
                   )}
                   style={
                     form.type === t
-                      ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
+                      ? {
+                          background:
+                            "linear-gradient(135deg, #24422e, #3a6b47)",
+                        }
                       : undefined
                   }
                 >
@@ -316,10 +319,7 @@ export default function MembersPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importMutation.isPending}
-            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:text-white text-sm font-medium px-4 py-2 rounded-lg transition disabled:opacity-50 hover:opacity-90"
-            style={{ transition: "background 0.2s" }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "linear-gradient(135deg, #24422e, #3a6b47)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 transition-colors duration-200 hover:bg-[linear-gradient(135deg,#24422e,#3a6b47)]"
           >
             <Upload className="w-4 h-4" />
             {importMutation.isPending ? "Importing..." : "Import Excel"}

@@ -4,20 +4,33 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
 import { getMe } from "@/lib/auth";
 import { RESTAURANTS } from "@/types";
-import { MessageSquare, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-import { Store, Utensils, ChefHat, Pizza, Coffee, Salad, Wine } from "lucide-react";
+import {
+  Store,
+  Utensils,
+  ChefHat,
+  Pizza,
+  Coffee,
+  Salad,
+  Wine,
+  ChevronRight,
+} from "lucide-react";
 
 const getIcon = (id: string) => {
   switch (id) {
-    case "r1": return <Utensils className="w-6 h-6" />;
-    case "r2": return <ChefHat className="w-6 h-6" />;
-    case "r3": return <Pizza className="w-6 h-6" />;
-    case "r4": return <Coffee className="w-6 h-6" />;
-    case "r5": return <Salad className="w-6 h-6" />;
-    case "r6": return <Wine className="w-6 h-6" />;
-    default: return <Store className="w-6 h-6" />;
+    case "r1":
+      return <Utensils className="w-6 h-6" />;
+    case "r2":
+      return <ChefHat className="w-6 h-6" />;
+    case "r3":
+      return <Pizza className="w-6 h-6" />;
+    case "r4":
+      return <Coffee className="w-6 h-6" />;
+    case "r5":
+      return <Salad className="w-6 h-6" />;
+    case "r6":
+      return <Wine className="w-6 h-6" />;
+    default:
+      return <Store className="w-6 h-6" />;
   }
 };
 
@@ -43,17 +56,20 @@ export default function SelectRestaurantPage() {
   return (
     <div className="min-h-screen bg-[#24422e] flex flex-col items-center justify-center p-6 md:p-12">
       <div className="bg-white w-full max-w-6xl rounded-xl shadow-2xl overflow-hidden flex flex-col">
-        
         {/* Header inside the modal */}
         <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-[#24422e] flex items-center justify-center">
               <Utensils className="w-4 h-4 text-white" />
             </div>
-            <span className="text-lg font-semibold text-[#24422e]">RestoBuzz</span>
+            <span className="text-lg font-semibold text-[#24422e]">
+              RestoBuzz
+            </span>
           </div>
           {user && (
-            <span className="text-xs text-gray-400 font-medium">{user.email}</span>
+            <span className="text-xs text-gray-400 font-medium">
+              {user.email}
+            </span>
           )}
         </div>
 

@@ -23,6 +23,31 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/* ─── Shared constants ───────────────────────────────────── */
+const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
+const INPUT_CLS =
+  "w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30";
+
+/* ─── Stat card ──────────────────────────────────────────── */
+function StatCard({
+  value,
+  label,
+  colorCls,
+  bgCls,
+}: {
+  value: number;
+  label: string;
+  colorCls: string;
+  bgCls: string;
+}) {
+  return (
+    <div className={cn("rounded-lg p-3 text-center", bgCls)}>
+      <p className={cn("text-2xl font-bold", colorCls)}>{value}</p>
+      <p className={cn("text-xs", colorCls)}>{label}</p>
+    </div>
+  );
+}
+
 interface SavedFile {
   id: string;
   filename: string;
@@ -31,95 +56,6 @@ interface SavedFile {
   file_ref: string;
   uploaded_at: string;
 }
-
-/* ─── Mock templates ────────────────────────────────── */
-
-const MOCK_TEMPLATES: Template[] = [
-  {
-    name: "reservation_confirmation",
-    status: "APPROVED",
-    category: "UTILITY",
-    language: "en",
-    components: [
-      { type: "HEADER", format: "TEXT", text: "Table Confirmed ✅" },
-      {
-        type: "BODY",
-        text: "Hi {{1}}, your table at *{{2}}* is confirmed for *{{3}}* at {{4}}.\n\nWe look forward to welcoming you!\n\nPlease reply CANCEL if your plans change.",
-      },
-      { type: "FOOTER", text: "RestoBuzz · Restaurant Management" },
-      {
-        type: "BUTTONS",
-        buttons: [
-          { type: "URL", text: "View Reservation" },
-          { type: "QUICK_REPLY", text: "Cancel Reservation" },
-        ],
-      } as unknown as Template["components"][number],
-    ],
-  },
-  {
-    name: "summer_promo_2026",
-    status: "APPROVED",
-    category: "MARKETING",
-    language: "en",
-    components: [
-      { type: "HEADER", format: "IMAGE" },
-      {
-        type: "BODY",
-        text: "Hey {{1}} 🌟\n\nSummer is here and so is our exclusive *Sunset Tasting Menu* — available only through June 30.\n\nEnjoy 5 courses with wine pairing, crafted by Chef Marco, for just ₹2,500 per person.\n\n📌 *{{2}}*\n🕒 7 PM onwards",
-      },
-      { type: "FOOTER", text: "Reply STOP to unsubscribe" },
-      {
-        type: "BUTTONS",
-        buttons: [
-          { type: "URL", text: "Book a Table" },
-          { type: "URL", text: "View Menu" },
-        ],
-      } as unknown as Template["components"][number],
-    ],
-  },
-  {
-    name: "loyalty_points_update",
-    status: "APPROVED",
-    category: "MARKETING",
-    language: "en",
-    components: [
-      { type: "HEADER", format: "TEXT", text: "🌟 Your Points Balance" },
-      {
-        type: "BODY",
-        text: "Hi {{1}},\n\nYou now have *{{2}} loyalty points* at {{3}}!\n\nYou’re just {{4}} points away from your next reward.\n\nCome visit us again soon — we miss you! 🙏",
-      },
-      { type: "FOOTER", text: "Powered by RestoBuzz Loyalty" },
-      {
-        type: "BUTTONS",
-        buttons: [
-          { type: "QUICK_REPLY", text: "Redeem Points" },
-        ],
-      } as unknown as Template["components"][number],
-    ],
-  },
-  {
-    name: "feedback_request",
-    status: "APPROVED",
-    category: "UTILITY",
-    language: "en",
-    components: [
-      { type: "HEADER", format: "TEXT", text: "How was your experience?" },
-      {
-        type: "BODY",
-        text: "Hi {{1}},\n\nThank you for dining with us at *{{2}}* on {{3}}!\n\nWe’d love to hear your feedback. It only takes 30 seconds and helps us improve. 😊",
-      },
-      { type: "FOOTER", text: "Your feedback matters to us" },
-      {
-        type: "BUTTONS",
-        buttons: [
-          { type: "URL", text: "⭐ Leave a Review" },
-          { type: "QUICK_REPLY", text: "All Good!" },
-          { type: "QUICK_REPLY", text: "Had an Issue" },
-        ],
-      } as unknown as Template["components"][number],
-    ],
-  },
-];
 
 /* ─── Step config ────────────────────────────────────────── */
 const STEPS = ["Template", "Upload", "Preflight", "Schedule & Review"];
@@ -144,9 +80,9 @@ const GradBtn = ({
     disabled={disabled}
     className={cn(
       "flex items-center justify-center gap-1.5 text-white font-medium rounded-lg transition disabled:opacity-50 hover:opacity-90",
-      className
+      className,
     )}
-    style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+    style={{ background: BRAND_GRADIENT }}
   >
     {children}
   </button>
@@ -158,9 +94,9 @@ function TemplatePreview({
   variables,
   mediaUrl,
 }: {
-  template: Template | null;
-  variables: Record<string, string>;
-  mediaUrl: string;
+  readonly template: Template | null;
+  readonly variables: Record<string, string>;
+  readonly mediaUrl: string;
 }) {
   if (!template) {
     return (
@@ -191,7 +127,7 @@ function TemplatePreview({
         {/* Status bar */}
         <div
           className="h-8 flex items-center px-4 gap-2"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
             <span className="text-white text-[8px] font-bold">R</span>
@@ -249,9 +185,9 @@ function TemplatePreview({
             {/* Buttons */}
             {buttons?.buttons && buttons.buttons.length > 0 && (
               <div className="border-t divide-y">
-                {buttons.buttons.map((btn, i) => (
+                {buttons.buttons.map((btn) => (
                   <div
-                    key={i}
+                    key={btn.text}
                     className="flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium"
                     style={{ color: "#24422e" }}
                   >
@@ -269,12 +205,30 @@ function TemplatePreview({
 }
 
 /* ─── Main page ──────────────────────────────────────────── */
+
+function stepCircleClass(i: number, step: number) {
+  if (i < step) return "text-white";
+  if (i === step) return "border-2 text-[#24422e]";
+  return "bg-gray-100 text-gray-400";
+}
+
+function stepCircleStyle(
+  i: number,
+  step: number,
+): React.CSSProperties | undefined {
+  if (i < step) return { background: BRAND_GRADIENT };
+  if (i === step) return { borderColor: "#24422e", background: "#24422e14" };
+  return undefined;
+}
+
 export default function NewCampaignPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
 
   // Step 0: Template
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
+    null,
+  );
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [mediaUrl, setMediaUrl] = useState("");
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -289,7 +243,9 @@ export default function NewCampaignPage() {
 
   // Step 3: Schedule & Review
   const [campaignName, setCampaignName] = useState("");
-  const [priority, setPriority] = useState<"MARKETING" | "UTILITY">("MARKETING");
+  const [priority, setPriority] = useState<"MARKETING" | "UTILITY">(
+    "MARKETING",
+  );
   const [includeUnsub, setIncludeUnsub] = useState(true);
 
   const {
@@ -302,8 +258,7 @@ export default function NewCampaignPage() {
     enabled: step === 0,
   });
 
-  // Use API templates when available, fall back to mocks
-  const templates = (apiTemplates && apiTemplates.length > 0) ? apiTemplates : MOCK_TEMPLATES;
+  const templates = apiTemplates ?? [];
 
   const { data: savedFiles } = useQuery<SavedFile[]>({
     queryKey: ["contact-files"],
@@ -314,7 +269,9 @@ export default function NewCampaignPage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
       "text/csv": [".csv"],
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
+        ".xlsx",
+      ],
     },
     maxFiles: 1,
     onDrop: (files) => setFile(files[0] ?? null),
@@ -377,10 +334,13 @@ export default function NewCampaignPage() {
       ?.map((v) => v.replace(/[{}]/g, "")) ?? [];
 
   const canNext =
-    step === 0 ? !!selectedTemplate :
-    step === 1 ? !!preflight :
-    step === 2 ? (preflight?.valid_count ?? 0) > 0 :
-    !!campaignName;
+    step === 0
+      ? !!selectedTemplate
+      : step === 1
+        ? !!preflight
+        : step === 2
+          ? (preflight?.valid_count ?? 0) > 0
+          : !!campaignName;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -393,32 +353,30 @@ export default function NewCampaignPage() {
             <div
               className={cn(
                 "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition",
-                i < step ? "text-white" : i === step ? "border-2 text-[#24422e]" : "bg-gray-100 text-gray-400"
+                stepCircleClass(i, step),
               )}
-              style={
-                i < step
-                  ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
-                  : i === step
-                  ? { borderColor: "#24422e", background: "#24422e14" }
-                  : undefined
-              }
+              style={stepCircleStyle(i, step)}
             >
               {i < step ? <CheckCircle className="w-4 h-4" /> : i + 1}
             </div>
             <span
-              className={cn("text-xs hidden sm:block", i === step ? "font-medium" : "text-gray-400")}
+              className={cn(
+                "text-xs hidden sm:block",
+                i === step ? "font-medium" : "text-gray-400",
+              )}
               style={i === step ? { color: "#24422e" } : undefined}
             >
               {s}
             </span>
-            {i < STEPS.length - 1 && <div className="w-6 h-px bg-gray-200 mx-1" />}
+            {i < STEPS.length - 1 && (
+              <div className="w-6 h-px bg-gray-200 mx-1" />
+            )}
           </div>
         ))}
       </div>
 
       {/* Step content */}
       <div className="bg-white rounded-xl border p-6">
-
         {/* ── Step 0: Template ── */}
         {step === 0 && (
           <div className="flex gap-6">
@@ -431,7 +389,12 @@ export default function NewCampaignPage() {
                   disabled={fetchingTemplates}
                   className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#24422e] disabled:opacity-50 transition"
                 >
-                  <RefreshCw className={cn("w-3.5 h-3.5", fetchingTemplates && "animate-spin")} />
+                  <RefreshCw
+                    className={cn(
+                      "w-3.5 h-3.5",
+                      fetchingTemplates && "animate-spin",
+                    )}
+                  />
                   Refresh
                 </button>
               </div>
@@ -439,24 +402,33 @@ export default function NewCampaignPage() {
                 {(templates ?? []).map((t) => (
                   <button
                     key={t.name}
-                    onClick={() => { setSelectedTemplate(t); setVariables({}); }}
+                    onClick={() => {
+                      setSelectedTemplate(t);
+                      setVariables({});
+                    }}
                     className={cn(
                       "text-left border rounded-lg px-4 py-3 transition",
                       selectedTemplate?.name === t.name
                         ? "border-[#24422e] bg-[#24422e]/5"
-                        : "hover:border-[#24422e]/30"
+                        : "hover:border-[#24422e]/30",
                     )}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{t.name}</span>
-                      <span className={cn(
-                        "text-xs px-2 py-0.5 rounded-full",
-                        t.category === "UTILITY" ? "bg-[#24422e]/10 text-[#24422e]" : "bg-[#3a6b47]/10 text-[#3a6b47]"
-                      )}>
+                      <span
+                        className={cn(
+                          "text-xs px-2 py-0.5 rounded-full",
+                          t.category === "UTILITY"
+                            ? "bg-[#24422e]/10 text-[#24422e]"
+                            : "bg-[#3a6b47]/10 text-[#3a6b47]",
+                        )}
+                      >
                         {t.category}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-0.5">{t.language} · {t.status}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {t.language} · {t.status}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -470,8 +442,13 @@ export default function NewCampaignPage() {
                       <label className="text-xs text-gray-500 mb-0.5 block">{`{{${v}}}`}</label>
                       <input
                         value={variables[v] ?? ""}
-                        onChange={(e) => setVariables((prev) => ({ ...prev, [v]: e.target.value }))}
-                        className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30"
+                        onChange={(e) =>
+                          setVariables((prev) => ({
+                            ...prev,
+                            [v]: e.target.value,
+                          }))
+                        }
+                        className={INPUT_CLS}
                         placeholder={`Value for {{${v}}}`}
                       />
                     </div>
@@ -482,11 +459,17 @@ export default function NewCampaignPage() {
               {/* Media upload */}
               {selectedTemplate && (
                 <div className="space-y-1.5">
-                  <label className="text-xs text-gray-500 block">Media Image (optional)</label>
+                  <label className="text-xs text-gray-500 block">
+                    Media Image (optional)
+                  </label>
                   {mediaUrl ? (
                     <div className="relative w-full rounded-lg overflow-hidden border">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={mediaUrl} alt="media preview" className="w-full max-h-36 object-cover" />
+                      <img
+                        src={mediaUrl}
+                        alt="media preview"
+                        className="w-full max-h-36 object-cover"
+                      />
                       <button
                         onClick={() => setMediaUrl("")}
                         className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
@@ -495,10 +478,14 @@ export default function NewCampaignPage() {
                       </button>
                     </div>
                   ) : (
-                    <label className={cn(
-                      "flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 cursor-pointer transition",
-                      uploadingMedia ? "opacity-50 pointer-events-none" : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5"
-                    )}>
+                    <label
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 cursor-pointer transition",
+                        uploadingMedia
+                          ? "opacity-50 pointer-events-none"
+                          : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5",
+                      )}
+                    >
                       <input
                         type="file"
                         accept="image/jpeg,image/png,image/webp,image/gif"
@@ -510,9 +497,15 @@ export default function NewCampaignPage() {
                           try {
                             const form = new FormData();
                             form.append("file", img);
-                            const { data } = await api.post("/media/upload", form, {
-                              headers: { "Content-Type": "multipart/form-data" },
-                            });
+                            const { data } = await api.post(
+                              "/media/upload",
+                              form,
+                              {
+                                headers: {
+                                  "Content-Type": "multipart/form-data",
+                                },
+                              },
+                            );
                             setMediaUrl(data.url);
                           } catch (e) {
                             toast.error(parseApiError(e).message);
@@ -521,18 +514,22 @@ export default function NewCampaignPage() {
                           }
                         }}
                       />
-                      {uploadingMedia
-                        ? <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
-                        : <ImageIcon className="w-5 h-5 text-gray-300" />}
+                      {uploadingMedia ? (
+                        <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
+                      ) : (
+                        <ImageIcon className="w-5 h-5 text-gray-300" />
+                      )}
                       <span className="text-xs text-gray-400">
-                        {uploadingMedia ? "Uploading…" : "Click to upload · JPG, PNG, WEBP · max 5MB"}
+                        {uploadingMedia
+                          ? "Uploading…"
+                          : "Click to upload · JPG, PNG, WEBP · max 5MB"}
                       </span>
                     </label>
                   )}
                   <input
                     value={mediaUrl}
                     onChange={(e) => setMediaUrl(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30"
+                    className={INPUT_CLS}
                     placeholder="Or paste a URL directly…"
                   />
                 </div>
@@ -541,7 +538,11 @@ export default function NewCampaignPage() {
 
             {/* Right: live preview — sticky so it stays at top */}
             <div className="hidden lg:flex w-72 border-l pl-6 flex-col sticky top-0 self-start">
-              <TemplatePreview template={selectedTemplate} variables={variables} mediaUrl={mediaUrl} />
+              <TemplatePreview
+                template={selectedTemplate}
+                variables={variables}
+                mediaUrl={mediaUrl}
+              />
             </div>
           </div>
         )}
@@ -554,23 +555,36 @@ export default function NewCampaignPage() {
               {...getRootProps()}
               className={cn(
                 "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition",
-                isDragActive ? "border-[#24422e]/60 bg-[#24422e]/5" : "border-gray-200 hover:border-[#24422e]/40"
+                isDragActive
+                  ? "border-[#24422e]/60 bg-[#24422e]/5"
+                  : "border-gray-200 hover:border-[#24422e]/40",
               )}
             >
               <input {...getInputProps()} />
               <Upload className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">Drop a CSV or XLSX file here, or click to browse</p>
-              <p className="text-xs text-gray-400 mt-1">Max 50MB · First row must be headers</p>
+              <p className="text-sm text-gray-500">
+                Drop a CSV or XLSX file here, or click to browse
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                Max 50MB · First row must be headers
+              </p>
             </div>
 
             {file && (
-              <div className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg" style={{ background: "#24422e14", color: "#24422e" }}>
+              <div
+                className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg"
+                style={{ background: "#24422e14", color: "#24422e" }}
+              >
                 <CheckCircle className="w-4 h-4" />
                 {file.name} ({(file.size / 1024).toFixed(1)} KB)
               </div>
             )}
 
-            <GradBtn onClick={uploadFile} disabled={!file || uploading} className="w-full py-2">
+            <GradBtn
+              onClick={uploadFile}
+              disabled={!file || uploading}
+              className="w-full py-2"
+            >
               {uploading ? "Parsing..." : "Parse & Continue"}
             </GradBtn>
 
@@ -581,7 +595,9 @@ export default function NewCampaignPage() {
                     <div className="w-full border-t border-gray-200" />
                   </div>
                   <div className="relative flex justify-center text-xs">
-                    <span className="bg-white px-2 text-gray-400">Or use a previously parsed file</span>
+                    <span className="bg-white px-2 text-gray-400">
+                      Or use a previously parsed file
+                    </span>
                   </div>
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2">
@@ -594,9 +610,12 @@ export default function NewCampaignPage() {
                     >
                       <FileSpreadsheet className="w-5 h-5 text-gray-400 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{f.filename}</p>
+                        <p className="text-sm font-medium truncate">
+                          {f.filename}
+                        </p>
                         <p className="text-xs text-gray-400">
-                          {f.valid_count} valid · {new Date(f.uploaded_at).toLocaleDateString()}
+                          {f.valid_count} valid ·{" "}
+                          {new Date(f.uploaded_at).toLocaleDateString()}
                         </p>
                       </div>
                     </button>
@@ -612,22 +631,30 @@ export default function NewCampaignPage() {
           <div className="space-y-4">
             <h2 className="font-medium">Pre-flight Check</h2>
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg p-3 text-center" style={{ background: "#24422e14" }}>
-                <p className="text-2xl font-bold" style={{ color: "#24422e" }}>{preflight.valid_count}</p>
-                <p className="text-xs" style={{ color: "#24422e" }}>Valid</p>
-              </div>
-              <div className="bg-red-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-red-500">{preflight.invalid_count}</p>
-                <p className="text-xs text-red-500">Invalid</p>
-              </div>
-              <div className="bg-amber-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-amber-600">{preflight.duplicate_count}</p>
-                <p className="text-xs text-amber-600">Duplicates</p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-gray-500">{preflight.suppressed_count}</p>
-                <p className="text-xs text-gray-500">Suppressed</p>
-              </div>
+              <StatCard
+                value={preflight.valid_count}
+                label="Valid"
+                colorCls="text-[#24422e]"
+                bgCls="bg-[#24422e]/[0.08]"
+              />
+              <StatCard
+                value={preflight.invalid_count}
+                label="Invalid"
+                colorCls="text-red-500"
+                bgCls="bg-red-50"
+              />
+              <StatCard
+                value={preflight.duplicate_count}
+                label="Duplicates"
+                colorCls="text-amber-600"
+                bgCls="bg-amber-50"
+              />
+              <StatCard
+                value={preflight.suppressed_count}
+                label="Suppressed"
+                colorCls="text-gray-500"
+                bgCls="bg-gray-50"
+              />
             </div>
             {preflight.invalid_rows.length > 0 && (
               <div className="border rounded-lg overflow-hidden">
@@ -636,9 +663,14 @@ export default function NewCampaignPage() {
                 </div>
                 <div className="max-h-40 overflow-y-auto divide-y">
                   {preflight.invalid_rows.slice(0, 20).map((r) => (
-                    <div key={r.row_number} className="px-3 py-1.5 text-xs flex gap-3">
+                    <div
+                      key={r.row_number}
+                      className="px-3 py-1.5 text-xs flex gap-3"
+                    >
                       <span className="text-gray-400">Row {r.row_number}</span>
-                      <span className="font-mono">{r.raw_phone || "(empty)"}</span>
+                      <span className="font-mono">
+                        {r.raw_phone || "(empty)"}
+                      </span>
                       <span className="text-red-500">{r.reason}</span>
                     </div>
                   ))}
@@ -647,7 +679,8 @@ export default function NewCampaignPage() {
             )}
             {preflight.valid_count === 0 && (
               <div className="flex items-center gap-2 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">
-                <AlertCircle className="w-4 h-4" /> No valid contacts found. Please fix your file.
+                <AlertCircle className="w-4 h-4" /> No valid contacts found.
+                Please fix your file.
               </div>
             )}
           </div>
@@ -661,16 +694,20 @@ export default function NewCampaignPage() {
             {/* Settings */}
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium mb-1 block">Campaign Name</label>
+                <label className="text-sm font-medium mb-1 block">
+                  Campaign Name
+                </label>
                 <input
                   value={campaignName}
                   onChange={(e) => setCampaignName(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30"
+                  className={cn(INPUT_CLS, "py-2")}
                   placeholder="e.g. Summer Promo 2026"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium mb-1 block">Priority</label>
+                <label className="text-sm font-medium mb-1 block">
+                  Priority
+                </label>
                 <div className="flex gap-2">
                   {(["MARKETING", "UTILITY"] as const).map((p) => (
                     <button
@@ -680,7 +717,7 @@ export default function NewCampaignPage() {
                         "flex-1 py-2 rounded-lg text-sm font-medium border transition",
                         priority === p
                           ? "text-[#24422e] border-[#24422e] bg-[#24422e]/5"
-                          : "border-gray-200 text-gray-500 hover:border-[#24422e]/30"
+                          : "border-gray-200 text-gray-500 hover:border-[#24422e]/30",
                       )}
                     >
                       {p}
@@ -712,7 +749,10 @@ export default function NewCampaignPage() {
                   ["Campaign Name", campaignName || "—"],
                   ["Template", selectedTemplate?.name ?? "—"],
                   ["Priority", priority],
-                  ["Recipients", preflight ? `${preflight.valid_count} contacts` : "—"],
+                  [
+                    "Recipients",
+                    preflight ? `${preflight.valid_count} contacts` : "—",
+                  ],
                   ["Unsubscribe Footer", includeUnsub ? "Yes" : "No"],
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between px-4 py-2.5">
@@ -736,7 +776,11 @@ export default function NewCampaignPage() {
           </button>
 
           {step < 3 ? (
-            <GradBtn onClick={() => setStep((s) => s + 1)} disabled={!canNext} className="px-4 py-2 text-sm">
+            <GradBtn
+              onClick={() => setStep((s) => s + 1)}
+              disabled={!canNext}
+              className="px-4 py-2 text-sm"
+            >
               Next <ChevronRight className="w-4 h-4" />
             </GradBtn>
           ) : (

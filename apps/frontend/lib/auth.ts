@@ -16,7 +16,7 @@ export async function login(email: string, password: string): Promise<User> {
   return me.data;
 }
 
-export async function registerUser(payload: {
+export async function registerUser(_payload: {
   firstName: string;
   lastName: string;
   email: string;
@@ -25,7 +25,9 @@ export async function registerUser(payload: {
   confirmPassword: string;
   agreeToTerms: boolean;
 }): Promise<void> {
-  await api.post("/auth/register", payload);
+  throw new Error(
+    "Self-registration is not supported. Contact your administrator.",
+  );
 }
 
 export async function logout() {
