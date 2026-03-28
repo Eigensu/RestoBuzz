@@ -4,7 +4,11 @@ from bson import ObjectId
 import io
 import openpyxl
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import (
+    require_role,
+    require_restaurant_access,
+    validate_restaurant_access,
+)
 from app.core.errors import (
     NotFoundError,
     ConflictError,
@@ -48,9 +52,10 @@ async def list_members(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     current_user: dict = Depends(require_role("viewer")),
+    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
-    query: dict = {"restaurant_id": restaurant_id}
+    query: dict = {"restaurant_id": validated_rid}
     if type in ("nfc", "ecard"):
         query["type"] = type
     if search:
@@ -73,6 +78,7 @@ async def create_member(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    await validate_restaurant_access(current_user, body.restaurant_id, db)
     if body.type == "nfc" and not body.card_uid:
         raise ValidationError("card_uid is required for NFC members")
     if body.type == "ecard" and not body.ecard_code:
@@ -168,14 +174,15 @@ async def record_visit(
     return _serialize(doc)
 
 
-@router.post("/import", status_code=200)
+@router.post("/import")
 async def import_members(
     restaurant_id: str = Query(...),
-    type: str = Query("ecard"),
     file: UploadFile = File(...),
+    type: str = Query("ecard"),
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    await validate_restaurant_access(current_user, restaurant_id, db)
     contents = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(contents))
     ws = wb.active

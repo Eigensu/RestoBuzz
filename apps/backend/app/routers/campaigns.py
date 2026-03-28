@@ -6,8 +6,12 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from app.database import get_db
-from app.dependencies import require_role
-from app.core.logging import get_logger
+from app.dependencies import (
+    require_role,
+    get_current_user,
+    require_restaurant_access,
+    validate_restaurant_access,
+)
 from app.core.errors import (
     CampaignNotFoundError,
     ContactFileExpiredError,
@@ -29,6 +33,7 @@ logger = get_logger(__name__)
 def _serialize_campaign(doc: dict) -> CampaignResponse:
     return CampaignResponse(
         id=str(doc["_id"]),
+        restaurant_id=doc.get("restaurant_id", ""),
         name=doc["name"],
         template_id=doc["template_id"],
         template_name=doc["template_name"],
@@ -50,15 +55,18 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
 
 @router.get("/", response_model=CampaignListResponse)
 async def list_campaigns(
+    restaurant_id: str = Query(...),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: dict = Depends(require_role("viewer")),
+    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
     skip = (page - 1) * page_size
-    total = await db.campaign_jobs.count_documents({})
+    query = {"restaurant_id": validated_rid}
+    total = await db.campaign_jobs.count_documents(query)
     cursor = (
-        db.campaign_jobs.find({}).sort("created_at", -1).skip(skip).limit(page_size)
+        db.campaign_jobs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
     )
     items = [_serialize_campaign(doc) async for doc in cursor]
     return CampaignListResponse(
@@ -72,6 +80,8 @@ async def create_campaign(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    # Validate access manually since it's in the body
+    await validate_restaurant_access(current_user, body.restaurant_id, db)
     from redis.asyncio import from_url
     from app.config import settings
 
@@ -92,6 +102,7 @@ async def create_campaign(
     now = datetime.now(timezone.utc)
 
     job_doc = {
+        "restaurant_id": body.restaurant_id,
         "name": body.name,
         "template_id": body.template_id,
         "template_name": body.template_name,
@@ -308,7 +319,19 @@ async def retry_failed(
         raise ValidationError("No failed messages to retry")
 
     now = datetime.now(timezone.utc)
+    retry_restaurant_id = original.get("restaurant_id", "")
+    if not retry_restaurant_id:
+        raise ValidationError("Original campaign has no restaurant_id and cannot be retried")
+
+    # Access check for retry
+    from app.core.errors import ForbiddenError
+    try:
+        await validate_restaurant_access(current_user, retry_restaurant_id, db)
+    except ForbiddenError:
+        raise ForbiddenError(f"Access denied to restaurant '{retry_restaurant_id}'")
+
     job_doc = {
+        "restaurant_id": retry_restaurant_id,
         "name": f"{original['name']} (retry)",
         "template_id": original.get("template_id", ""),
         "template_name": original["template_name"],

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import type { PreflightResult, Template } from "@/types";
@@ -222,8 +223,11 @@ function stepCircleStyle(
 }
 
 export default function NewCampaignPage() {
+  const { restaurant } = useAuthStore();
   const router = useRouter();
   const [step, setStep] = useState(0);
+
+  if (!restaurant) return null;
 
   // Step 0: Template
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
@@ -311,6 +315,7 @@ export default function NewCampaignPage() {
   const createMutation = useMutation({
     mutationFn: () =>
       api.post("/campaigns", {
+        restaurant_id: restaurant!.id,
         name: campaignName,
         template_id: selectedTemplate?.name ?? "",
         template_name: selectedTemplate?.name ?? "",

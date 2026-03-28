@@ -2,9 +2,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
-import { RESTAURANTS } from "@/types";
+import { getRestaurants } from "@/lib/restaurants";
+import type { Restaurant } from "@/types";
 import { useUIStore } from "@/lib/ui-store";
 import {
   LayoutDashboard,
@@ -45,6 +47,11 @@ export default function DashboardLayout({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inboxUnread = useUIStore((s) => s.inboxUnread);
+  const { data: restaurants = [] } = useQuery({
+    queryKey: ["restaurants"],
+    queryFn: getRestaurants,
+    enabled: !!user,
+  });
 
   useEffect(() => {
     if (!_hydrated) return; // wait for localStorage rehydration
@@ -130,7 +137,7 @@ export default function DashboardLayout({
 
             {dropdownOpen && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-50 py-1 overflow-hidden">
-                {RESTAURANTS.map((r) => (
+                {restaurants.map((r) => (
                   <button
                     key={r.id}
                     onClick={() => {
