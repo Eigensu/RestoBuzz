@@ -27,6 +27,7 @@ from app.models.message import (
 )
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+logger = get_logger(__name__)
 
 
 def _serialize_campaign(doc: dict) -> CampaignResponse:
@@ -89,7 +90,8 @@ async def create_campaign(
         raw = await redis.get(f"file_ref:{body.contact_file_ref}")
         await redis.aclose()
     except Exception as e:
-        raise RedisError(f"Failed to connect to cache: {e}") from e
+        logger.error("campaign_create_cache_error", error=str(e))
+        raise RedisError("Cache unavailable") from e
 
     if not raw:
         raise ContactFileExpiredError(
@@ -150,7 +152,12 @@ async def create_campaign(
             await db.message_logs.insert_many(message_docs)
         except Exception as e:
             await db.campaign_jobs.delete_one({"_id": job_id})
-            raise ServerError(f"Failed to create message logs: {e}") from e
+            logger.error(
+                "campaign_create_message_logs_error",
+                campaign_id=str(job_id),
+                error=str(e),
+            )
+            raise ServerError("Failed to create message logs") from e
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
