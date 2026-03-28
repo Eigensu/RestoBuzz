@@ -65,7 +65,8 @@ export default function DashboardPage() {
         <h1 className="text-xl font-semibold">Dashboard</h1>
         <Link
           href="/campaigns/new"
-          className="bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
+          className="text-white text-sm font-medium px-4 py-2 rounded-lg transition hover:opacity-90"
+          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
         >
           New Campaign
         </Link>
@@ -76,25 +77,25 @@ export default function DashboardPage() {
           label="Sent"
           value={totals.sent}
           icon={Send}
-          color="bg-blue-500"
+          color="bg-[#3a6b47]"
         />
         <StatCard
           label="Delivered"
           value={totals.delivered}
           icon={CheckCheck}
-          color="bg-green-500"
+          color="bg-[#24422e]"
         />
         <StatCard
           label="Read"
           value={totals.read}
           icon={Eye}
-          color="bg-purple-500"
+          color="bg-[#2d5438]"
         />
         <StatCard
           label="Failed"
           value={totals.failed}
           icon={XCircle}
-          color="bg-red-500"
+          color="bg-[#1a3022]"
         />
       </div>
 
@@ -103,7 +104,7 @@ export default function DashboardPage() {
           <h2 className="font-medium">Recent Campaigns</h2>
           <Link
             href="/campaigns"
-            className="text-sm text-green-600 hover:underline"
+            className="text-sm font-medium hover:underline" style={{ color: "#24422e" }}
           >
             View all
           </Link>
@@ -118,7 +119,7 @@ export default function DashboardPage() {
             <Link
               key={c.id}
               href={`/campaigns/${c.id}`}
-              className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 transition"
+              className="flex items-center gap-4 px-5 py-3 hover:bg-[#24422e]/5 transition"
             >
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{c.name}</p>

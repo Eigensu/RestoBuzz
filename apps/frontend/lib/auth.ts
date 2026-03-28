@@ -16,6 +16,20 @@ export async function login(email: string, password: string): Promise<User> {
   return me.data;
 }
 
+export async function registerUser(_payload: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+  agreeToTerms: boolean;
+}): Promise<void> {
+  throw new Error(
+    "Self-registration is not supported. Contact your administrator.",
+  );
+}
+
 export async function logout() {
   localStorage.removeItem("access_token");
   localStorage.removeItem("refresh_token");

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
 import { RESTAURANTS } from "@/types";
+import { useUIStore } from "@/lib/ui-store";
 import {
   LayoutDashboard,
   Send,
@@ -18,6 +19,7 @@ import {
   ChevronDown,
   Check,
   UserCheck,
+  Store,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -38,11 +40,11 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, setUser, restaurant, setRestaurant, _hydrated } =
-    useAuthStore();
+  const { user, setUser, restaurant, setRestaurant, _hydrated } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const inboxUnread = useUIStore((s) => s.inboxUnread);
 
   useEffect(() => {
     if (!_hydrated) return; // wait for localStorage rehydration
@@ -96,10 +98,10 @@ export default function DashboardLayout({
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b">
-          <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}>
             <MessageSquare className="w-4 h-4 text-white" />
           </div>
-          <span className="font-semibold text-sm">RestoBuzz</span>
+          <span className="font-semibold text-sm text-[#24422e]">RestoBuzz</span>
         </div>
 
         {/* Restaurant dropdown switcher */}
@@ -107,14 +109,14 @@ export default function DashboardLayout({
           <div ref={dropdownRef} className="relative mx-3 mt-3">
             <button
               onClick={() => setDropdownOpen((o) => !o)}
-              className="w-full flex items-center gap-2.5 rounded-lg border bg-gray-50 px-3 py-2.5 hover:bg-gray-100 transition"
+              className="w-full flex items-center gap-2.5 rounded-lg border border-[#24422e]/20 bg-[#24422e]/5 px-3 py-2.5 hover:bg-[#24422e]/10 transition"
             >
-              <span className="text-xl leading-none">{restaurant.emoji}</span>
+              <Store className="w-4 h-4 text-[#24422e] shrink-0" />
               <div className="flex-1 min-w-0 text-left">
-                <p className="text-xs font-semibold truncate">
+                <p className="text-xs font-semibold truncate text-[#24422e]">
                   {restaurant.name}
                 </p>
-                <p className="text-xs text-gray-400 truncate">
+                <p className="text-xs text-[#24422e]/60 truncate">
                   {restaurant.location}
                 </p>
               </div>
@@ -135,17 +137,17 @@ export default function DashboardLayout({
                       setRestaurant(r);
                       setDropdownOpen(false);
                     }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 transition text-left"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[#24422e] hover:text-white transition text-left group"
                   >
-                    <span className="text-base leading-none">{r.emoji}</span>
+                    <Store className="w-4 h-4 text-[#24422e]/60 shrink-0 group-hover:text-white" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium truncate">{r.name}</p>
-                      <p className="text-xs text-gray-400 truncate">
+                      <p className="text-xs text-gray-400 truncate group-hover:text-white/70">
                         {r.location}
                       </p>
                     </div>
                     {restaurant.id === r.id && (
-                      <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                      <Check className="w-3.5 h-3.5 shrink-0" style={{ color: "#24422e" }} />
                     )}
                   </button>
                 ))}
@@ -163,21 +165,29 @@ export default function DashboardLayout({
               className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
                 pathname.startsWith(href) && href !== "/dashboard"
-                  ? "bg-green-50 text-green-700 font-medium"
+                  ? "bg-[#24422e]/10 text-[#24422e] font-medium"
                   : pathname === href
-                    ? "bg-green-50 text-green-700 font-medium"
-                    : "text-gray-600 hover:bg-gray-100",
+                    ? "bg-[#24422e]/10 text-[#24422e] font-medium"
+                    : "text-gray-600 hover:bg-[#24422e] hover:text-white",
               )}
             >
               <Icon className="w-4 h-4" />
-              {label}
+              <span className="flex-1">{label}</span>
+              {href === "/inbox" && inboxUnread > 0 && (
+                <span
+                  className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                  style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+                >
+                  {inboxUnread > 9 ? "9+" : inboxUnread}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
 
         <div className="p-3 border-t">
           <div className="flex items-center gap-2 px-3 py-2 mb-1">
-            <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center text-xs font-medium text-green-700">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white" style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}>
               {user?.email?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
