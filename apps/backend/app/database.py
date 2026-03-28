@@ -38,6 +38,7 @@ async def init_indexes() -> None:
             IndexModel([("status", ASCENDING)]),
             IndexModel([("created_by", ASCENDING)]),
             IndexModel([("scheduled_at", ASCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING)]),  # tenant scoping
         ]
     )
 
@@ -79,6 +80,20 @@ async def init_indexes() -> None:
 
     # suppression_list
     await db.suppression_list.create_index("phone", unique=True)
+
+    # restaurants
+    await db.restaurants.create_index("id", unique=True)
+
+    # user_restaurant_roles (per-restaurant access control)
+    await db.user_restaurant_roles.create_indexes(
+        [
+            IndexModel(
+                [("user_id", ASCENDING), ("restaurant_id", ASCENDING)], unique=True
+            ),
+            IndexModel([("restaurant_id", ASCENDING)]),
+            IndexModel([("user_id", ASCENDING)]),
+        ]
+    )
 
     # contact_files
     await db.contact_files.create_indexes(

@@ -4,7 +4,7 @@ from bson import ObjectId
 import io
 import openpyxl
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import require_role, require_restaurant_access
 from app.core.errors import (
     NotFoundError,
     ConflictError,
@@ -48,9 +48,10 @@ async def list_members(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     current_user: dict = Depends(require_role("viewer")),
+    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
-    query: dict = {"restaurant_id": restaurant_id}
+    query: dict = {"restaurant_id": validated_rid}
     if type in ("nfc", "ecard"):
         query["type"] = type
     if search:
@@ -71,6 +72,7 @@ async def list_members(
 async def create_member(
     body: MemberCreate,
     current_user: dict = Depends(require_role("admin")),
+    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
     if body.type == "nfc" and not body.card_uid:
@@ -79,7 +81,7 @@ async def create_member(
         raise ValidationError("ecard_code is required for e-card members")
 
     existing = await db.members.find_one(
-        {"restaurant_id": body.restaurant_id, "phone": body.phone}
+        {"restaurant_id": validated_rid, "phone": body.phone}
     )
     if existing:
         raise ConflictError(
@@ -88,7 +90,7 @@ async def create_member(
 
     now = datetime.now(timezone.utc)
     doc = {
-        "restaurant_id": body.restaurant_id,
+        "restaurant_id": validated_rid,
         "type": body.type,
         "name": body.name,
         "phone": body.phone,
@@ -168,12 +170,13 @@ async def record_visit(
     return _serialize(doc)
 
 
-@router.post("/import", status_code=200)
+@router.post("/import")
 async def import_members(
     restaurant_id: str = Query(...),
     type: str = Query("ecard"),
     file: UploadFile = File(...),
     current_user: dict = Depends(require_role("admin")),
+    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
     contents = await file.read()

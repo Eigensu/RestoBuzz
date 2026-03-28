@@ -48,8 +48,9 @@ async def main():
 
     # Seed super_admin
     existing = await db.users.find_one({"email": ADMIN_EMAIL})
+    admin_id = None
     if not existing:
-        await db.users.insert_one(
+        result = await db.users.insert_one(
             {
                 "email": ADMIN_EMAIL,
                 "hashed_password": pwd_context.hash(ADMIN_PASSWORD),
@@ -59,9 +60,42 @@ async def main():
                 "last_login": None,
             }
         )
+        admin_id = result.inserted_id
         print(f"Created super_admin: {ADMIN_EMAIL}")
     else:
+        admin_id = existing["_id"]
         print(f"User {ADMIN_EMAIL} already exists")
+
+    # Seed restaurants
+    from app.database import init_indexes
+    await init_indexes() # ensure ALL indexes (including new ones) are created
+
+    RESTAURANTS = [
+        {"id": "r1", "name": "Soraia", "location": "Downtown", "emoji": "🍔", "color": "bg-orange-500"},
+        {"id": "r2", "name": "Fielia", "location": "Midtown", "emoji": "🍣", "color": "bg-pink-500"},
+        {"id": "r3", "name": "Gigi", "location": "West End", "emoji": "🍕", "color": "bg-red-500"},
+        {"id": "r4", "name": "Scarlett House Bandra", "location": "East Side", "emoji": "🍛", "color": "bg-yellow-500"},
+        {"id": "r5", "name": "Scarlett House Juhu", "location": "Uptown", "emoji": "🥗", "color": "bg-green-500"},
+        {"id": "r6", "name": "Sweeney", "location": "Waterfront", "emoji": "🦞", "color": "bg-blue-500"},
+    ]
+
+    for r in RESTAURANTS:
+        await db.restaurants.update_one(
+            {"id": r["id"]},
+            {"$set": r},
+            upsert=True
+        )
+    print(f"Seeded {len(RESTAURANTS)} restaurants")
+
+    # Although super_admin bypasses the check, we can still assign them to all for consistency
+    # especially for the UI which might rely on the list_restaurants endpoint.
+    for r in RESTAURANTS:
+        await db.user_restaurant_roles.update_one(
+            {"user_id": admin_id, "restaurant_id": r["id"]},
+            {"$set": {"role": "admin"}},
+            upsert=True
+        )
+    print("Assigned super_admin to all restaurants")
 
     client.close()
     print("DB initialization complete.")

@@ -227,6 +227,8 @@ export default function NewCampaignPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
 
+  if (!restaurant) return null;
+
   // Step 0: Template
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
     null,

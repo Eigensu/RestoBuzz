@@ -18,6 +18,7 @@ from app.routers import (
     health,
     members,
     media,
+    restaurants,
 )
 from app.sse.campaign_stream import router as sse_router
 
@@ -71,3 +72,4 @@ app.include_router(health.router, prefix="/api")
 app.include_router(sse_router, prefix="/api")
 app.include_router(members.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
+app.include_router(restaurants.router, prefix="/api")

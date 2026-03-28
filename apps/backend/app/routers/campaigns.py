@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from app.database import get_db
-from app.dependencies import require_role, get_current_user
+from app.dependencies import require_role, get_current_user, require_restaurant_access
 from app.core.errors import (
     CampaignNotFoundError,
     ContactFileExpiredError,
@@ -53,10 +53,11 @@ async def list_campaigns(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: dict = Depends(require_role("viewer")),
+    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
     skip = (page - 1) * page_size
-    query = {"restaurant_id": restaurant_id}
+    query = {"restaurant_id": validated_rid}
     total = await db.campaign_jobs.count_documents(query)
     cursor = (
         db.campaign_jobs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
@@ -71,6 +72,7 @@ async def list_campaigns(
 async def create_campaign(
     body: CampaignCreate,
     current_user: dict = Depends(require_role("admin")),
+    validated_rid: str = Depends(require_restaurant_access()),
     db=Depends(get_db),
 ):
     from redis.asyncio import from_url
@@ -92,7 +94,7 @@ async def create_campaign(
     now = datetime.now(timezone.utc)
 
     job_doc = {
-        "restaurant_id": body.restaurant_id,
+        "restaurant_id": validated_rid,
         "name": body.name,
         "template_id": body.template_id,
         "template_name": body.template_name,
@@ -304,8 +306,22 @@ async def retry_failed(
         raise ValidationError("No failed messages to retry")
 
     now = datetime.now(timezone.utc)
+    retry_restaurant_id = original.get("restaurant_id", "")
+    if not retry_restaurant_id:
+        raise ValidationError("Original campaign has no restaurant_id and cannot be retried")
+
+    # Access check for retry
+    from app.dependencies import get_user_restaurant_ids
+    allowed_ids = await get_user_restaurant_ids(current_user, db)
+    if retry_restaurant_id not in allowed_ids:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access denied to restaurant '{retry_restaurant_id}'",
+        )
+
     job_doc = {
-        "restaurant_id": original.get("restaurant_id", ""),
+        "restaurant_id": retry_restaurant_id,
         "name": f"{original['name']} (retry)",
         "template_id": original.get("template_id", ""),
         "template_name": original["template_name"],

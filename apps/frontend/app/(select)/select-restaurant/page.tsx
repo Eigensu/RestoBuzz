@@ -1,9 +1,11 @@
 "use client";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/auth";
 import { getMe } from "@/lib/auth";
-import { RESTAURANTS } from "@/types";
+import { getRestaurants } from "@/lib/restaurants";
+import type { Restaurant } from "@/types";
 import {
   Store,
   Utensils,
@@ -13,6 +15,7 @@ import {
   Salad,
   Wine,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
 
 const getIcon = (id: string) => {
@@ -38,6 +41,12 @@ export default function SelectRestaurantPage() {
   const router = useRouter();
   const { user, setUser, setRestaurant, _hydrated } = useAuthStore();
 
+  const { data: restaurants = [], isLoading } = useQuery({
+    queryKey: ["restaurants"],
+    queryFn: getRestaurants,
+    enabled: !!user,
+  });
+
   useEffect(() => {
     if (!_hydrated) return;
     if (!user) {
@@ -48,7 +57,7 @@ export default function SelectRestaurantPage() {
     }
   }, [_hydrated, user, router, setUser]);
 
-  const handleSelect = (r: (typeof RESTAURANTS)[number]) => {
+  const handleSelect = (r: Restaurant) => {
     setRestaurant(r);
     router.push("/dashboard");
   };
@@ -82,28 +91,47 @@ export default function SelectRestaurantPage() {
             Choose which restaurant workspace you want to manage right now.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
-            {RESTAURANTS.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => handleSelect(r)}
-                className="group flex items-center gap-4 bg-[#eff2f0] rounded-xl p-4 hover:bg-[#24422e] transition-colors text-left border border-transparent hover:border-[#24422e]"
-              >
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-white text-[#24422e] group-hover:text-white group-hover:bg-white/10 transition-colors">
-                  {getIcon(r.id)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-[#24422e] group-hover:text-white transition-colors">
-                    {r.name}
-                  </p>
-                  <p className="text-xs text-gray-500 group-hover:text-gray-300 transition-colors">
-                    {r.location}
-                  </p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors shrink-0" />
-              </button>
-            ))}
-          </div>
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="w-10 h-10 text-[#24422e] animate-spin mb-4" />
+              <p className="text-sm text-gray-400 text-center">
+                Fetching your restaurants...
+              </p>
+            </div>
+          ) : restaurants.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 border border-dashed rounded-xl w-full">
+              <Store className="w-10 h-10 text-gray-300 mb-4" />
+              <p className="text-sm text-gray-500 text-center">
+                No restaurants assigned to your account.
+              </p>
+              <p className="text-xs text-gray-400 text-center mt-1">
+                Please contact your administrator.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
+              {restaurants.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => handleSelect(r)}
+                  className="group flex items-center gap-4 bg-[#eff2f0] rounded-xl p-4 hover:bg-[#24422e] transition-colors text-left border border-transparent hover:border-[#24422e]"
+                >
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-white text-[#24422e] group-hover:text-white group-hover:bg-white/10 transition-colors">
+                    {getIcon(r.id)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm text-[#24422e] group-hover:text-white transition-colors">
+                      {r.name}
+                    </p>
+                    <p className="text-xs text-gray-500 group-hover:text-gray-300 transition-colors">
+                      {r.location}
+                    </p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

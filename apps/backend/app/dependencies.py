@@ -1,4 +1,4 @@
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
@@ -38,5 +38,51 @@ def require_role(minimum_role: str):
     async def dependency(current_user: dict = Depends(get_current_user)):
         check_role(current_user["role"], minimum_role)
         return current_user
+
+    return dependency
+
+
+async def get_user_restaurant_ids(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> set[str]:
+    """Returns the set of restaurant IDs the user has access to.
+    super_admin bypasses all checks and gets every restaurant."""
+    if current_user.get("role") == "super_admin":
+        # Return all restaurant IDs from the collection
+        cursor = db.restaurants.find({}, {"id": 1, "_id": 0})
+        return {doc["id"] async for doc in cursor}
+
+    cursor = db.user_restaurant_roles.find(
+        {"user_id": ObjectId(current_user["_id"])}, {"restaurant_id": 1, "_id": 0}
+    )
+    return {doc["restaurant_id"] async for doc in cursor}
+
+
+def require_restaurant_access(restaurant_id_param: str = "restaurant_id"):
+    """Dependency factory. Use as: Depends(require_restaurant_access())
+    Validates that the current user has access to the restaurant_id in the request.
+    Returns the validated restaurant_id string on success."""
+
+    async def dependency(
+        restaurant_id: str,
+        current_user: dict = Depends(get_current_user),
+        db: AsyncIOMotorDatabase = Depends(get_db),
+    ) -> str:
+        if current_user.get("role") == "super_admin":
+            return restaurant_id
+
+        assignment = await db.user_restaurant_roles.find_one(
+            {
+                "user_id": ObjectId(current_user["_id"]),
+                "restaurant_id": restaurant_id,
+            }
+        )
+        if not assignment:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied to restaurant '{restaurant_id}'",
+            )
+        return restaurant_id
 
     return dependency

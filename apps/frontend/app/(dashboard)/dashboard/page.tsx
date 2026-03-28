@@ -7,12 +7,10 @@ import {
   Send,
   CheckCheck,
   Eye,
-  XCircle,
   Megaphone,
   AlertTriangle,
   TrendingUp,
 } from "lucide-react";
-import { relativeIST } from "@/lib/date";
 import Link from "next/link";
 import {
   LineChart,
@@ -132,23 +130,32 @@ export default function DashboardPage() {
   // Time Series Data (Group by Day)
   const timeSeriesMap = campaigns.reduce((acc, c) => {
     if (!c.created_at) return acc;
-    const date = new Date(c.created_at).toLocaleDateString("en-US", {
+    const createdAt = new Date(c.created_at);
+    const dateKey = createdAt.toISOString().slice(0, 10); // YYYY-MM-DD — stable grouping key
+    const dateLabel = createdAt.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
     });
-    if (!acc[date]) {
-      acc[date] = { date, sent: 0, delivered: 0, read: 0, failed: 0 };
+    if (!acc[dateKey]) {
+      acc[dateKey] = {
+        date: dateLabel,
+        sortKey: createdAt.getTime(),
+        sent: 0,
+        delivered: 0,
+        read: 0,
+        failed: 0,
+      };
     }
-    acc[date].sent += c.sent_count;
-    acc[date].delivered += c.delivered_count;
-    acc[date].read += c.read_count;
-    acc[date].failed += c.failed_count;
+    acc[dateKey].sent += c.sent_count;
+    acc[dateKey].delivered += c.delivered_count;
+    acc[dateKey].read += c.read_count;
+    acc[dateKey].failed += c.failed_count;
     return acc;
   }, {} as Record<string, any>);
 
-  // Sort dates chronologically
+  // Sort dates chronologically using stable numeric epoch
   const timeSeriesData = Object.values(timeSeriesMap).sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    (a, b) => a.sortKey - b.sortKey
   );
 
   if (!restaurant || isLoading) {
