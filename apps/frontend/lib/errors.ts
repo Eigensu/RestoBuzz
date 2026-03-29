@@ -152,29 +152,36 @@ const ERROR_TYPE_MAP: Record<string, new (message: string) => AppError> = {
  * Converts any thrown value (axios error, plain Error, unknown) into a typed
  * AppError subclass. Safe to use in every catch block.
  */
-export function parseApiError(err: unknown): AppError {
-  const response = (
-    err as {
-      response?: { data?: { detail?: string; type?: string }; status?: number };
-    }
-  )?.response;
+function fromApiResponse(response: any): AppError {
+  const { detail, type } = response.data ?? {};
+  const status = response.status ?? 500;
+  const message = detail ?? "An unexpected error occurred";
 
-  if (response) {
-    const { detail, type } = response.data ?? {};
-    const status = response.status ?? 500;
-    const message = detail ?? "An unexpected error occurred";
+  if (type && ERROR_TYPE_MAP[type]) return new ERROR_TYPE_MAP[type](message);
 
-    if (type && ERROR_TYPE_MAP[type]) return new ERROR_TYPE_MAP[type](message);
-
-    if (status === 401) return new AuthError(message);
-    if (status === 403) return new PermissionError(message);
-    if (status === 404) return new NotFoundError(message);
-    if (status === 409) return new ConflictError(message);
-    if (status === 400) return new ValidationError(message);
-    return new ServerError(message);
+  switch (status) {
+    case 400:
+      return new ValidationError(message);
+    case 401:
+      return new AuthError(message);
+    case 403:
+      return new PermissionError(message);
+    case 404:
+      return new NotFoundError(message);
+    case 409:
+      return new ConflictError(message);
+    default:
+      return new ServerError(message);
   }
+}
 
+function fromNativeError(err: any): AppError {
   if (err instanceof AppError) return err;
-  if (err instanceof Error) return new ServerError(err.message);
-  return new ServerError("An unexpected error occurred");
+  return new ServerError(err instanceof Error ? err.message : "An unexpected error occurred");
+}
+
+export function parseApiError(err: unknown): AppError {
+  const response = (err as any)?.response;
+  if (response) return fromApiResponse(response);
+  return fromNativeError(err);
 }

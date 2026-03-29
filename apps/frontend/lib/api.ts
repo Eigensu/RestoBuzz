@@ -3,7 +3,7 @@ import { parseApiError } from "./errors";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-const isBrowser = typeof globalThis.window !== "undefined";
+const isBrowser = globalThis.window !== undefined;
 
 // In the browser, use a relative path so requests go to the Next.js dev server
 // (/api/*) which is rewritten server-side to the real backend. This avoids

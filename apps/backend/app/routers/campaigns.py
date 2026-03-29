@@ -2,6 +2,7 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
+from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
@@ -57,12 +58,12 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
 
 @router.get("/", response_model=CampaignListResponse)
 async def list_campaigns(
-    restaurant_id: str = Query(...),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    current_user: dict = Depends(require_role("viewer")),
-    validated_rid: str = Depends(require_restaurant_access()),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Query()],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
+    db: Annotated[any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     query = {"restaurant_id": validated_rid}
@@ -79,8 +80,8 @@ async def list_campaigns(
 @router.post("/", response_model=CampaignResponse, status_code=201)
 async def create_campaign(
     body: CampaignCreate,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     # Validate access manually since it's in the body
     await validate_restaurant_access(current_user, body.restaurant_id, db)
@@ -168,8 +169,8 @@ async def create_campaign(
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 async def get_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
@@ -182,8 +183,8 @@ async def get_campaign(
 @router.post("/{campaign_id}/start", response_model=CampaignResponse)
 async def start_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
@@ -209,8 +210,8 @@ async def start_campaign(
 @router.post("/{campaign_id}/pause", response_model=CampaignResponse)
 async def pause_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     # Fetch first to check ownership/access
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
@@ -232,8 +233,8 @@ async def pause_campaign(
 @router.post("/{campaign_id}/cancel", response_model=CampaignResponse)
 async def cancel_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     # Fetch first to check ownership/access
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
@@ -258,11 +259,11 @@ async def cancel_campaign(
 @router.get("/{campaign_id}/messages", response_model=MessageLogListResponse)
 async def list_messages(
     campaign_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    status: str | None = None,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    status: Annotated[str | None, Query()] = None,
 ):
     # Fetch job to verify access
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
@@ -312,8 +313,8 @@ async def list_messages(
 @router.get("/{campaign_id}/failure-breakdown")
 async def failure_breakdown(
     campaign_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     # Fetch job to verify access
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
@@ -339,8 +340,8 @@ async def failure_breakdown(
 )
 async def retry_failed(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     original = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not original:
@@ -422,8 +423,8 @@ async def retry_failed(
 @router.delete("/{campaign_id}", status_code=204)
 async def delete_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
@@ -440,8 +441,8 @@ async def delete_campaign(
 @router.get("/{campaign_id}/export-failed")
 async def export_failed(
     campaign_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     # Fetch job to verify access
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})

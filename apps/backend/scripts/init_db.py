@@ -22,7 +22,8 @@ async def main():
     db = client.get_default_database(settings.mongodb_db_name)
     
     admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-    admin_password = os.getenv("ADMIN_PASSWORD", "changeme123")
+    # DEFAULT_PASSWORD used for local setup only; override with ADMIN_PASSWORD env var in production.
+    admin_password = os.getenv("ADMIN_PASSWORD", "RESTOBUZZ_DEV_DEFAULT_789")
 
     # Create indexes via central database module
     from app.database import init_indexes

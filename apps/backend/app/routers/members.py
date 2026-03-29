@@ -1,3 +1,4 @@
+from typing import Annotated
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from bson import ObjectId
@@ -47,14 +48,14 @@ def _serialize(doc: dict) -> MemberResponse:
 
 @router.get("/", response_model=MemberListResponse)
 async def list_members(
-    restaurant_id: str = Query(...),
-    type: str | None = Query(None),
-    search: str | None = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    current_user: dict = Depends(require_role("viewer")),
-    validated_rid: str = Depends(require_restaurant_access()),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Query()],
+    type: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
+    db: Annotated[any, Depends(get_db)] = None,
 ):
     query: dict = {"restaurant_id": validated_rid}
     if type in ("nfc", "ecard"):
@@ -76,8 +77,8 @@ async def list_members(
 @router.post("/", response_model=MemberResponse, status_code=201)
 async def create_member(
     body: MemberCreate,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     await validate_restaurant_access(current_user, body.restaurant_id, db)
     if body.type == "nfc" and not body.card_uid:
@@ -117,8 +118,8 @@ async def create_member(
 @router.get("/{member_id}", response_model=MemberResponse)
 async def get_member(
     member_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
@@ -132,8 +133,8 @@ async def get_member(
 async def update_member(
     member_id: str,
     body: MemberUpdate,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     # Fetch first to check ownership/access
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
@@ -157,8 +158,8 @@ async def update_member(
 @router.delete("/{member_id}", status_code=204)
 async def delete_member(
     member_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
@@ -172,8 +173,8 @@ async def delete_member(
 @router.post("/{member_id}/visit", response_model=MemberResponse)
 async def record_visit(
     member_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
@@ -192,11 +193,11 @@ async def record_visit(
 
 @router.post("/import")
 async def import_members(
-    restaurant_id: str = Query(...),
-    file: UploadFile = File(...),
-    type: str = Query("ecard"),
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Query()],
+    file: Annotated[UploadFile, File()],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
+    type: Annotated[str, Query()] = "ecard",
 ):
     await validate_restaurant_access(current_user, restaurant_id, db)
     contents = await file.read()

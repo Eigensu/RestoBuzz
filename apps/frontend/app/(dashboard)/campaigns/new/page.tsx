@@ -116,7 +116,7 @@ function TemplatePreview({
     | undefined;
 
   const resolveBody = (text: string) =>
-    text.replace(/\{\{(\d+)\}\}/g, (_, k) => variables[k] || `{{${k}}}`);
+    text.replaceAll(/\{\{(\d+)\}\}/g, (_, k) => variables[k] ?? `{{${k}}}`);
 
   return (
     <div className="flex flex-col items-center justify-center h-full px-4">
@@ -497,23 +497,26 @@ function Step3Review({
             placeholder="e.g. Summer Promo 2026"
           />
         </div>
-        <div>
-          <label id="priority-label" className="text-sm font-medium mb-1 block">Priority</label>
-          <div role="group" aria-labelledby="priority-label" className="flex gap-2">
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium text-[#24422e]">Priority</legend>
+          <div className="flex gap-2">
             {(["MARKETING", "UTILITY"] as const).map((p) => (
               <button
                 key={p}
+                type="button"
                 onClick={() => setPriority(p)}
                 className={cn(
-                  "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                  priority === p ? "text-[#24422e] border-[#24422e] bg-[#24422e]/5" : "border-gray-200 text-gray-500 hover:border-[#24422e]/30"
+                  "flex-1 py-2 rounded-lg text-sm font-medium border transition focus:ring-2 focus:ring-[#24422e]/20",
+                  priority === p
+                    ? "text-[#24422e] border-[#24422e] bg-[#24422e]/5 font-bold"
+                    : "border-gray-200 text-gray-500 hover:border-[#24422e]/30"
                 )}
               >
                 {p}
               </button>
             ))}
           </div>
-        </div>
+        </fieldset>
       </div>
 
       {priority === "MARKETING" && (

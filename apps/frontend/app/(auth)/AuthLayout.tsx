@@ -65,11 +65,6 @@ export default function AuthLayout({
   const router = useRouter();
   const setUser = useAuthStore((s) => s.setUser);
   const [mode, setMode] = useState<"login" | "register">(initialMode);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const [showLoginPw, setShowLoginPw] = useState(false);
   const [showRegPw, setShowRegPw] = useState(false);

@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
 import { getRestaurants } from "@/lib/restaurants";
-import type { Restaurant } from "@/types";
 import { useUIStore } from "@/lib/ui-store";
 import {
   LayoutDashboard,

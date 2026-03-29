@@ -276,83 +276,83 @@ export default function InboxPage() {
           selected ? "flex" : "hidden sm:flex",
         )}
       >
-        {!activeConv ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2">
-            <div className="w-12 h-12 rounded-full bg-[#24422e]/10 flex items-center justify-center">
-              <Send className="w-5 h-5 text-[#24422e]" />
+      {activeConv ? (
+        <>
+          {/* Header */}
+          <div className="px-4 py-3 border-b flex items-center gap-3">
+            <button onClick={() => setSelected(null)} className="sm:hidden">
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+              style={{ background: BRAND_GRADIENT }}
+            >
+              {initials(activeConv.sender_name, activeConv.from_phone)}
             </div>
-            <p className="text-sm">Select a conversation to start</p>
+            <div>
+              <p className="text-sm font-semibold text-[#24422e]">
+                {activeConv.sender_name ?? activeConv.from_phone}
+              </p>
+              <p className="text-xs text-gray-400">{activeConv.from_phone}</p>
+            </div>
           </div>
-        ) : (
-          <>
-            {/* Header */}
-            <div className="px-4 py-3 border-b flex items-center gap-3">
-              <button onClick={() => setSelected(null)} className="sm:hidden">
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50/40">
+            {thread.map((msg) => (
+              <MessageBubble key={msg.id} msg={msg} />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Quick reply suggestions + reply bar — unified bottom panel */}
+          <div className="border-t bg-white">
+            {suggestions.length > 0 && (
+              <div className="px-4 pt-3 pb-2 flex flex-wrap gap-1.5">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => replyMutation.mutate(s)}
+                    disabled={replyMutation.isPending}
+                    className="text-xs px-3 py-1.5 rounded-full bg-[#24422e]/5 border border-[#24422e]/15 text-[#24422e] hover:bg-[#24422e] hover:text-white hover:border-transparent transition-all font-medium disabled:opacity-50"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="px-4 py-3 flex gap-2 items-center">
+              <input
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && reply.trim()) {
+                    e.preventDefault();
+                    sendReply();
+                  }
+                }}
+                placeholder="Type a message…"
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/25 focus:border-[#24422e]/40 transition"
+              />
+              <button
+                onClick={sendReply}
+                disabled={!reply.trim() || replyMutation.isPending}
+                className="w-9 h-9 text-white rounded-full flex items-center justify-center transition-all disabled:opacity-30 hover:scale-105"
                 style={{ background: BRAND_GRADIENT }}
               >
-                {initials(activeConv.sender_name, activeConv.from_phone)}
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[#24422e]">
-                  {activeConv.sender_name ?? activeConv.from_phone}
-                </p>
-                <p className="text-xs text-gray-400">{activeConv.from_phone}</p>
-              </div>
+                <Send className="w-4 h-4" />
+              </button>
             </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50/40">
-              {thread.map((msg) => (
-                <MessageBubble key={msg.id} msg={msg} />
-              ))}
-              <div ref={bottomRef} />
-            </div>
-
-            {/* Quick reply suggestions + reply bar — unified bottom panel */}
-            <div className="border-t bg-white">
-              {suggestions.length > 0 && (
-                <div className="px-4 pt-3 pb-2 flex flex-wrap gap-1.5">
-                  {suggestions.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => replyMutation.mutate(s)}
-                      disabled={replyMutation.isPending}
-                      className="text-xs px-3 py-1.5 rounded-full bg-[#24422e]/5 border border-[#24422e]/15 text-[#24422e] hover:bg-[#24422e] hover:text-white hover:border-transparent transition-all font-medium disabled:opacity-50"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="px-4 py-3 flex gap-2 items-center">
-                <input
-                  value={reply}
-                  onChange={(e) => setReply(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && reply.trim()) {
-                      e.preventDefault();
-                      sendReply();
-                    }
-                  }}
-                  placeholder="Type a message…"
-                  className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/25 focus:border-[#24422e]/40 transition"
-                />
-                <button
-                  onClick={sendReply}
-                  disabled={!reply.trim() || replyMutation.isPending}
-                  className="w-9 h-9 text-white rounded-full flex items-center justify-center transition-all disabled:opacity-30 hover:scale-105"
-                  style={{ background: BRAND_GRADIENT }}
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </>
-        )}
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2">
+          <div className="w-12 h-12 rounded-full bg-[#24422e]/10 flex items-center justify-center">
+            <Send className="w-5 h-5 text-[#24422e]" />
+          </div>
+          <p className="text-sm">Select a conversation to start</p>
+        </div>
+      )}
       </div>
     </div>
   );
