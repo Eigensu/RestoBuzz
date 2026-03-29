@@ -71,6 +71,29 @@ const PIE_COLORS: Record<string, string> = {
 
 const FUNNEL_COLORS = ["#6bb97b", "#509160", "#3a6b47", "#24422e"];
 
+type TimeSeriesPoint = {
+  date: string;
+  sortKey: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+};
+
+function formatTooltipNumber(
+  val: number | string | readonly (number | string)[] | undefined,
+): string {
+  if (Array.isArray(val)) {
+    return val
+      .map((item) =>
+        typeof item === "number" ? item.toLocaleString() : String(item),
+      )
+      .join(", ");
+  }
+  if (typeof val === "number") return val.toLocaleString();
+  return val == null ? "" : String(val);
+}
+
 export default function DashboardPage() {
   const { restaurant } = useAuthStore();
 
@@ -94,7 +117,7 @@ export default function DashboardPage() {
       read: acc.read + c.read_count,
       failed: acc.failed + c.failed_count,
     }),
-    { totalMsg: 0, sent: 0, delivered: 0, read: 0, failed: 0 }
+    { totalMsg: 0, sent: 0, delivered: 0, read: 0, failed: 0 },
   );
 
   const deliveryRate =
@@ -117,10 +140,13 @@ export default function DashboardPage() {
   ];
 
   // Pie Chart Data
-  const statusCounts = campaigns.reduce((acc, c) => {
-    acc[c.status] = (acc[c.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const statusCounts = campaigns.reduce(
+    (acc, c) => {
+      acc[c.status] = (acc[c.status] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   const pieData = Object.entries(statusCounts).map(([status, count]) => ({
     name: status,
@@ -128,39 +154,44 @@ export default function DashboardPage() {
   }));
 
   // Time Series Data (Group by Day)
-  const timeSeriesMap = campaigns.reduce((acc, c) => {
-    if (!c.created_at) return acc;
-    const createdAt = new Date(c.created_at);
-    const dateKey = createdAt.toISOString().slice(0, 10); // YYYY-MM-DD — stable grouping key
-    const dateLabel = createdAt.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-    if (!acc[dateKey]) {
-      acc[dateKey] = {
-        date: dateLabel,
-        sortKey: createdAt.getTime(),
-        sent: 0,
-        delivered: 0,
-        read: 0,
-        failed: 0,
-      };
-    }
-    acc[dateKey].sent += c.sent_count;
-    acc[dateKey].delivered += c.delivered_count;
-    acc[dateKey].read += c.read_count;
-    acc[dateKey].failed += c.failed_count;
-    return acc;
-  }, {} as Record<string, any>);
+  const timeSeriesMap = campaigns.reduce(
+    (acc, c) => {
+      if (!c.created_at) return acc;
+      const createdAt = new Date(c.created_at);
+      const dateKey = createdAt.toISOString().slice(0, 10); // YYYY-MM-DD — stable grouping key
+      const dateLabel = createdAt.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+      if (!acc[dateKey]) {
+        acc[dateKey] = {
+          date: dateLabel,
+          sortKey: createdAt.getTime(),
+          sent: 0,
+          delivered: 0,
+          read: 0,
+          failed: 0,
+        };
+      }
+      acc[dateKey].sent += c.sent_count;
+      acc[dateKey].delivered += c.delivered_count;
+      acc[dateKey].read += c.read_count;
+      acc[dateKey].failed += c.failed_count;
+      return acc;
+    },
+    {} as Record<string, TimeSeriesPoint>,
+  );
 
   // Sort dates chronologically using stable numeric epoch
   const timeSeriesData = Object.values(timeSeriesMap).sort(
-    (a, b) => a.sortKey - b.sortKey
+    (a, b) => a.sortKey - b.sortKey,
   );
 
   if (!restaurant || isLoading) {
-    return <div className="p-8 text-center text-gray-400">Loading Dashboard...</div>;
+    return (
+      <div className="p-8 text-center text-gray-400">Loading Dashboard...</div>
+    );
   }
 
   return (
@@ -234,18 +265,24 @@ export default function DashboardPage() {
       {/* Middle Row: Funnel & Pie Chart */}
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Core Funnel */}
-        <div className="lg:col-span-2 bg-white rounded-xl border p-5">
+        <div className="lg:col-span-2 bg-white rounded-xl border p-5 min-w-0">
           <h2 className="font-semibold text-sm mb-4">Core Conversion Funnel</h2>
           {totals.totalMsg === 0 ? (
             <div className="h-64 flex items-center justify-center text-sm text-gray-400">
               No data yet to visualize
             </div>
           ) : (
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-64 w-full min-w-0">
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minWidth={0}
+                minHeight={240}
+                debounce={50}
+              >
                 <FunnelChart>
                   <Tooltip
-                    formatter={(val: any) => val?.toLocaleString()}
+                    formatter={(val) => formatTooltipNumber(val)}
                     contentStyle={{ borderRadius: "8px", fontSize: "12px" }}
                   />
                   <Funnel dataKey="value" data={funnelData} isAnimationActive>
@@ -264,15 +301,21 @@ export default function DashboardPage() {
         </div>
 
         {/* Status Distribution */}
-        <div className="bg-white rounded-xl border p-5">
+        <div className="bg-white rounded-xl border p-5 min-w-0">
           <h2 className="font-semibold text-sm mb-4">Campaign Status</h2>
           {pieData.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-sm text-gray-400">
               No campaigns
             </div>
           ) : (
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-64 w-full min-w-0">
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minWidth={0}
+                minHeight={240}
+                debounce={50}
+              >
                 <PieChart>
                   <Pie
                     data={pieData}
@@ -289,7 +332,7 @@ export default function DashboardPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(val: any) => val?.toLocaleString()}
+                    formatter={(val) => formatTooltipNumber(val)}
                     contentStyle={{ borderRadius: "8px", fontSize: "12px" }}
                   />
                   <Legend
@@ -305,17 +348,24 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom Row: Time Series Trend */}
-      <div className="bg-white rounded-xl border p-5">
+      <div className="bg-white rounded-xl border p-5 min-w-0">
         <h2 className="flex items-center gap-2 font-semibold text-sm mb-4">
-          <TrendingUp className="w-4 h-4 text-gray-500" /> WhatsApp Delivery Trends
+          <TrendingUp className="w-4 h-4 text-gray-500" /> WhatsApp Delivery
+          Trends
         </h2>
         {timeSeriesData.length === 0 ? (
           <div className="h-72 flex items-center justify-center text-sm text-gray-400">
             Not enough data over time
           </div>
         ) : (
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 w-full min-w-0">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              minWidth={0}
+              minHeight={280}
+              debounce={50}
+            >
               <LineChart data={timeSeriesData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis

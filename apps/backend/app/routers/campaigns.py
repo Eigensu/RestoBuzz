@@ -56,6 +56,7 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
     )
 
 
+@router.get("", response_model=CampaignListResponse)
 @router.get("/", response_model=CampaignListResponse)
 async def list_campaigns(
     restaurant_id: Annotated[str, Query()],
@@ -77,6 +78,7 @@ async def list_campaigns(
     )
 
 
+@router.post("", response_model=CampaignResponse, status_code=201)
 @router.post("/", response_model=CampaignResponse, status_code=201)
 async def create_campaign(
     body: CampaignCreate,
@@ -175,7 +177,7 @@ async def get_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
     return _serialize_campaign(doc)
 
@@ -189,9 +191,9 @@ async def start_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
-    
+
     if doc["status"] not in ("draft", "paused"):
         raise ValidationError(f"Cannot start a campaign with status '{doc['status']}'")
 
@@ -217,7 +219,7 @@ async def pause_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
     doc = await db.campaign_jobs.find_one_and_update(
@@ -240,7 +242,7 @@ async def cancel_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
     doc = await db.campaign_jobs.find_one_and_update(
@@ -269,7 +271,7 @@ async def list_messages(
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not job:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, job["restaurant_id"], db)
 
     query: dict = {"job_id": to_object_id(campaign_id)}
@@ -320,7 +322,7 @@ async def failure_breakdown(
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not job:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, job["restaurant_id"], db)
 
     cursor = db.message_logs.aggregate(
@@ -357,10 +359,13 @@ async def retry_failed(
     now = datetime.now(timezone.utc)
     retry_restaurant_id = original.get("restaurant_id", "")
     if not retry_restaurant_id:
-        raise ValidationError("Original campaign has no restaurant_id and cannot be retried")
+        raise ValidationError(
+            "Original campaign has no restaurant_id and cannot be retried"
+        )
 
     # Access check for retry
     from app.core.errors import ForbiddenError
+
     try:
         await validate_restaurant_access(current_user, retry_restaurant_id, db)
     except ForbiddenError:
@@ -429,7 +434,7 @@ async def delete_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
     if doc["status"] == "running":
@@ -448,10 +453,12 @@ async def export_failed(
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not job:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
-    
+
     await validate_restaurant_access(current_user, job["restaurant_id"], db)
 
-    cursor = db.message_logs.find({"job_id": to_object_id(campaign_id), "status": "failed"})
+    cursor = db.message_logs.find(
+        {"job_id": to_object_id(campaign_id), "status": "failed"}
+    )
 
     async def generate():
         output = io.StringIO()
