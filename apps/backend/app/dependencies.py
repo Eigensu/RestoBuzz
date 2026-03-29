@@ -1,11 +1,16 @@
-from fastapi import Depends, HTTPException
+from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.database import get_db as _get_db
 from app.core.security import decode_token
 from app.core.rbac import check_role
-from app.core.errors import ForbiddenError, InvalidTokenError, UserNotFoundError
+from app.core.errors import (
+    ForbiddenError,
+    InvalidTokenError,
+    UserNotFoundError,
+    ValidationError,
+)
 from app.core.utils import to_object_id
 from app.core.logging import get_logger
 
@@ -23,13 +28,18 @@ async def get_current_user(
 ) -> dict:
     try:
         payload = decode_token(credentials.credentials)
-    except ValueError:
-        raise InvalidTokenError("Invalid or expired token")
+    except ValueError as err:
+        raise InvalidTokenError("Invalid or expired token") from err
 
     if payload.get("type") != "access":
         raise InvalidTokenError("Not an access token")
 
-    user = await db.users.find_one({"_id": to_object_id(payload["sub"])})
+    try:
+        user_id = to_object_id(payload["sub"])
+    except ValidationError as err:
+        raise InvalidTokenError("Invalid token subject") from err
+
+    user = await db.users.find_one({"_id": user_id})
     if not user or not user.get("is_active"):
         raise UserNotFoundError("User not found or inactive")
 

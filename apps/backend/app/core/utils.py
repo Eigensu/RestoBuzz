@@ -11,5 +11,5 @@ def to_object_id(id_str: str) -> ObjectId:
         if isinstance(id_str, ObjectId):
             return id_str
         return ObjectId(id_str)
-    except errors.InvalidId:
-        raise ValidationError(f"Invalid ID format: '{id_str}'")
+    except errors.InvalidId as err:
+        raise ValidationError(f"Invalid ID format: '{id_str}'") from err

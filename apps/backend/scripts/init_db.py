@@ -3,7 +3,6 @@
 import asyncio
 import os
 import sys
-import os
 from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -16,11 +15,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 async def main():
     from app.config import settings
+
     # For Atlas SRV URLs, we must use the configured mongodb_url and mongodb_db_name
     # directly to ensure consistency with the backend.
     client = AsyncIOMotorClient(settings.mongodb_url)
     db = client.get_default_database(settings.mongodb_db_name)
-    
+
     admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
     # Using k_v to avoid SonarCloud's hard-coded credential heuristic.
     # This is a development placeholder; use ADMIN_PASSWORD in production.
@@ -28,6 +28,7 @@ async def main():
 
     # Create indexes via central database module
     from app.database import init_indexes
+
     await init_indexes()
     print("Database indexes initialized")
 
@@ -50,37 +51,63 @@ async def main():
     else:
         admin_id = existing["_id"]
         # Only update password if RESET_PASSWORD=1 is set
-        update_data = {
-            "role": "super_admin",
-            "is_active": True
-        }
+        update_data = {"role": "super_admin", "is_active": True}
         if os.getenv("RESET_PASSWORD") == "1":
             update_data["hashed_password"] = pwd_context.hash(k_v)
             print(f"User {admin_email} password reset initiated.")
-        
-        await db.users.update_one(
-            {"_id": admin_id},
-            {"$set": update_data}
-        )
+
+        await db.users.update_one({"_id": admin_id}, {"$set": update_data})
         print(f"User {admin_email} record ensured (role: super_admin).")
 
     # Seed restaurants
 
     RESTAURANTS = [
-        {"id": "r1", "name": "Soraia", "location": "Downtown", "emoji": "🍔", "color": "bg-orange-500"},
-        {"id": "r2", "name": "Fielia", "location": "Midtown", "emoji": "🍣", "color": "bg-pink-500"},
-        {"id": "r3", "name": "Gigi", "location": "West End", "emoji": "🍕", "color": "bg-red-500"},
-        {"id": "r4", "name": "Scarlett House Bandra", "location": "East Side", "emoji": "🍛", "color": "bg-yellow-500"},
-        {"id": "r5", "name": "Scarlett House Juhu", "location": "Uptown", "emoji": "🥗", "color": "bg-green-500"},
-        {"id": "r6", "name": "Sweeney", "location": "Waterfront", "emoji": "🦞", "color": "bg-blue-500"},
+        {
+            "id": "r1",
+            "name": "Soraia",
+            "location": "Downtown",
+            "emoji": "🍔",
+            "color": "bg-orange-500",
+        },
+        {
+            "id": "r2",
+            "name": "Fielia",
+            "location": "Midtown",
+            "emoji": "🍣",
+            "color": "bg-pink-500",
+        },
+        {
+            "id": "r3",
+            "name": "Gigi",
+            "location": "West End",
+            "emoji": "🍕",
+            "color": "bg-red-500",
+        },
+        {
+            "id": "r4",
+            "name": "Scarlett House Bandra",
+            "location": "East Side",
+            "emoji": "🍛",
+            "color": "bg-yellow-500",
+        },
+        {
+            "id": "r5",
+            "name": "Scarlett House Juhu",
+            "location": "Uptown",
+            "emoji": "🥗",
+            "color": "bg-green-500",
+        },
+        {
+            "id": "r6",
+            "name": "Sweeney",
+            "location": "Waterfront",
+            "emoji": "🦞",
+            "color": "bg-blue-500",
+        },
     ]
 
     for r in RESTAURANTS:
-        await db.restaurants.update_one(
-            {"id": r["id"]},
-            {"$set": r},
-            upsert=True
-        )
+        await db.restaurants.update_one({"id": r["id"]}, {"$set": r}, upsert=True)
     print(f"Seeded {len(RESTAURANTS)} restaurants")
 
     # Although super_admin bypasses the check, we can still assign them to all for consistency
@@ -89,7 +116,7 @@ async def main():
         await db.user_restaurant_roles.update_one(
             {"user_id": admin_id, "restaurant_id": r["id"]},
             {"$set": {"role": "admin"}},
-            upsert=True
+            upsert=True,
         )
     print("Assigned super_admin to all restaurants")
 

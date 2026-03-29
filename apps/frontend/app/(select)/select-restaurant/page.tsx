@@ -41,7 +41,7 @@ export default function SelectRestaurantPage() {
   const router = useRouter();
   const { user, setUser, setRestaurant, _hydrated } = useAuthStore();
 
-  const { data: restaurants = [], isLoading } = useQuery({
+  const { data: restaurants = [], isLoading, isError, error } = useQuery({
     queryKey: ["restaurants"],
     queryFn: getRestaurants,
     enabled: !!user,
@@ -70,6 +70,19 @@ export default function SelectRestaurantPage() {
           <p className="text-sm text-gray-400 text-center">
             Fetching your restaurants...
           </p>
+        </div>
+      );
+    } else if (isError) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      statusContent = (
+        <div className="flex flex-col items-center justify-center py-12 border border-red-200 bg-red-50 rounded-xl w-full">
+          <p className="text-sm font-medium text-red-700 text-center">
+            We couldn't load your restaurants right now.
+          </p>
+          <p className="text-xs text-red-600 text-center mt-1">
+            Please try again in a moment.
+          </p>
+          <p className="text-xs text-red-500 text-center mt-2">{message}</p>
         </div>
       );
     } else if (restaurants.length === 0) {

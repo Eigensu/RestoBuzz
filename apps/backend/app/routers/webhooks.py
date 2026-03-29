@@ -82,8 +82,12 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
         from app.workers.webhook_task import process_webhook_task
 
         process_webhook_task.delay(payload)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception(
+            "webhook_dispatch_error",
+            error=str(e),
+            task="process_webhook_task",
+        )
 
     return {"status": "ok"}
 

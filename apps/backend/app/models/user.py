@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import Literal
 from datetime import datetime
 
@@ -23,6 +23,19 @@ class RegisterRequest(BaseModel):
     password: str
     confirmPassword: str
     agreeToTerms: bool
+
+    @field_validator("agreeToTerms")
+    @classmethod
+    def validate_agree_to_terms(cls, agree_to_terms: bool) -> bool:
+        if not agree_to_terms:
+            raise ValueError("agreeToTerms must be true")
+        return agree_to_terms
+
+    @model_validator(mode="after")
+    def validate_password_confirmation(self) -> "RegisterRequest":
+        if self.password != self.confirmPassword:
+            raise ValueError("password and confirmPassword must match")
+        return self
 
 
 class UserInDB(BaseModel):

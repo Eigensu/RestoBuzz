@@ -39,11 +39,15 @@ api.interceptors.response.use(
             // Use the global axios (no interceptors) to avoid recursive
             // interceptor calls. Use relative path so the request is same-origin
             // and forwarded by Next.js to the real backend.
-            const { data } = await axios.post(`/api/auth/refresh`, {
-              refresh_token: refresh,
-            }, {
-              headers: { "ngrok-skip-browser-warning": "1" }
-            });
+            const { data } = await axios.post(
+              `/api/auth/refresh`,
+              {
+                refresh_token: refresh,
+              },
+              {
+                headers: { "ngrok-skip-browser-warning": "1" },
+              },
+            );
             localStorage.setItem("access_token", data.access_token);
             localStorage.setItem("refresh_token", data.refresh_token);
             original.headers.Authorization = `Bearer ${data.access_token}`;
@@ -52,18 +56,6 @@ api.interceptors.response.use(
             localStorage.clear();
             globalThis.window.location.href = "/login";
           }
-        }
-      } else {
-        // Server-side: call backend directly
-        try {
-          await axios.post(`${API_URL}/api/auth/refresh`, {
-            refresh_token: error.config?.headers?.["refresh_token"] ?? null,
-          }, {
-            headers: { "ngrok-skip-browser-warning": "1" }
-          });
-          // No localStorage on server — just return original request failure
-        } catch {
-          // ignore on server
         }
       }
     }
