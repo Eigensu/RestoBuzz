@@ -1,6 +1,7 @@
 import uuid
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File
 from app.dependencies import require_role
+from app.core.errors import InvalidFileFormatError, ValidationError
 from app.services.cloudinary_service import upload_media, MAX_IMAGE_BYTES
 
 router = APIRouter(prefix="/media", tags=["media"])
@@ -14,11 +15,13 @@ async def upload_image(
     current_user: dict = Depends(require_role("admin")),
 ):
     if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(400, f"Unsupported file type: {file.content_type}")
+        raise InvalidFileFormatError(
+            f"Unsupported file type '{file.content_type}'. Allowed: jpeg, png, webp, gif"
+        )
 
     content = await file.read()
     if len(content) > MAX_IMAGE_BYTES:
-        raise HTTPException(400, "File exceeds 5 MB limit")
+        raise ValidationError("File exceeds the 5 MB size limit")
 
     ext = (file.filename or "image").rsplit(".", 1)[-1]
     public_id = f"whatsapp-media/{uuid.uuid4().hex}.{ext}"

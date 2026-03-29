@@ -6,50 +6,6 @@ export interface Restaurant {
   color: string; // tailwind bg color class
 }
 
-export const RESTAURANTS: Restaurant[] = [
-  {
-    id: "r1",
-    name: "Soraia",
-    location: "Downtown",
-    emoji: "🍔",
-    color: "bg-orange-500",
-  },
-  {
-    id: "r2",
-    name: "Fielia",
-    location: "Midtown",
-    emoji: "🍣",
-    color: "bg-pink-500",
-  },
-  {
-    id: "r3",
-    name: "Gigi",
-    location: "West End",
-    emoji: "🍕",
-    color: "bg-red-500",
-  },
-  {
-    id: "r4",
-    name: "Scarlett House Bandra",
-    location: "East Side",
-    emoji: "🍛",
-    color: "bg-yellow-500",
-  },
-  {
-    id: "r5",
-    name: "Scarlett House Juhu",
-    location: "Uptown",
-    emoji: "🥗",
-    color: "bg-green-500",
-  },
-  {
-    id: "r6",
-    name: "Sweeney",
-    location: "Waterfront",
-    emoji: "🦞",
-    color: "bg-blue-500",
-  },
-];
 
 export interface Campaign {
   id: string;

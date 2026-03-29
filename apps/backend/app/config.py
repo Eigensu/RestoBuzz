@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     )
 
     # MongoDB
-    mongodb_url: str = "mongodb://localhost:27017/whatsapp_bulk"
+    mongodb_url: str = "mongodb://localhost:27017/restobuzz"
+    mongodb_db_name: str = "restobuzz"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -47,6 +48,13 @@ class Settings(BaseSettings):
     # Celery
     celery_concurrency: int = 4
     rate_limit_mps: int = 80
+
+    # CORS — comma-separated list of allowed origins
+    cors_origins: str = "http://localhost:3000, *"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 settings = Settings()

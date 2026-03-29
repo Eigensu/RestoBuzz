@@ -1,0 +1,13 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/run.js uvicorn app.main:app --reload --port 8000",
+    "worker": "node scripts/run.js celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q utility,marketing",
+    "beat": "node scripts/run.js celery -A app.workers.celery_app beat --loglevel=info",
+    "flower": "node scripts/run.js celery -A app.workers.celery_app flower --port=5555",
+    "init:db": "node scripts/run.js python scripts/init_db.py",
+    "setup": "node scripts/setup.js"
+  }
+}

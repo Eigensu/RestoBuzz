@@ -1,10 +1,22 @@
+from typing import Annotated
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, Query, UploadFile, File
 from bson import ObjectId
 import io
 import openpyxl
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import (
+    require_role,
+    require_restaurant_access,
+    validate_restaurant_access,
+)
+from app.core.utils import to_object_id
+from app.core.errors import (
+    NotFoundError,
+    ConflictError,
+    ValidationError,
+    InvalidFileFormatError,
+)
 from app.models.member import (
     MemberCreate,
     MemberUpdate,
@@ -36,15 +48,16 @@ def _serialize(doc: dict) -> MemberResponse:
 
 @router.get("/", response_model=MemberListResponse)
 async def list_members(
-    restaurant_id: str = Query(...),
-    type: str | None = Query(None),
-    search: str | None = Query(None),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Query()],
+    type: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
+    db: Annotated[any, Depends(get_db)] = None,
 ):
-    query: dict = {"restaurant_id": restaurant_id}
+    query: dict = {"restaurant_id": validated_rid}
     if type in ("nfc", "ecard"):
         query["type"] = type
     if search:
@@ -64,22 +77,21 @@ async def list_members(
 @router.post("/", response_model=MemberResponse, status_code=201)
 async def create_member(
     body: MemberCreate,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    # Validate type-specific fields
+    await validate_restaurant_access(current_user, body.restaurant_id, db)
     if body.type == "nfc" and not body.card_uid:
-        raise HTTPException(400, "card_uid is required for NFC members")
+        raise ValidationError("card_uid is required for NFC members")
     if body.type == "ecard" and not body.ecard_code:
-        raise HTTPException(400, "ecard_code is required for e-card members")
+        raise ValidationError("ecard_code is required for e-card members")
 
-    # Check duplicate phone within restaurant
     existing = await db.members.find_one(
         {"restaurant_id": body.restaurant_id, "phone": body.phone}
     )
     if existing:
-        raise HTTPException(
-            409, "A member with this phone number already exists in this restaurant"
+        raise ConflictError(
+            "A member with this phone number already exists in this restaurant"
         )
 
     now = datetime.now(timezone.utc)
@@ -106,12 +118,14 @@ async def create_member(
 @router.get("/{member_id}", response_model=MemberResponse)
 async def get_member(
     member_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    doc = await db.members.find_one({"_id": ObjectId(member_id)})
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
-        raise HTTPException(404, "Member not found")
+        raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
     return _serialize(doc)
 
 
@@ -119,64 +133,77 @@ async def get_member(
 async def update_member(
     member_id: str,
     body: MemberUpdate,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
+    # Fetch first to check ownership/access
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
+    if not doc:
+        raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
-        raise HTTPException(400, "No fields to update")
+        raise ValidationError("No fields provided to update")
 
     doc = await db.members.find_one_and_update(
-        {"_id": ObjectId(member_id)},
+        {"_id": to_object_id(member_id)},
         {"$set": updates},
         return_document=True,
     )
-    if not doc:
-        raise HTTPException(404, "Member not found")
     return _serialize(doc)
 
 
 @router.delete("/{member_id}", status_code=204)
 async def delete_member(
     member_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    result = await db.members.delete_one({"_id": ObjectId(member_id)})
-    if result.deleted_count == 0:
-        raise HTTPException(404, "Member not found")
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
+    if not doc:
+        raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
+    await db.members.delete_one({"_id": to_object_id(member_id)})
 
 
 @router.post("/{member_id}/visit", response_model=MemberResponse)
 async def record_visit(
     member_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
+    if not doc:
+        raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     now = datetime.now(timezone.utc)
     doc = await db.members.find_one_and_update(
-        {"_id": ObjectId(member_id)},
+        {"_id": to_object_id(member_id)},
         {"$inc": {"visit_count": 1}, "$set": {"last_visit": now}},
         return_document=True,
     )
-    if not doc:
-        raise HTTPException(404, "Member not found")
     return _serialize(doc)
 
 
-@router.post("/import", status_code=200)
+@router.post("/import")
 async def import_members(
-    restaurant_id: str = Query(...),
-    type: str = Query("ecard"),
-    file: UploadFile = File(...),
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Query()],
+    file: Annotated[UploadFile, File()],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
+    type: Annotated[str, Query()] = "ecard",
 ):
+    await validate_restaurant_access(current_user, restaurant_id, db)
     contents = await file.read()
     wb = openpyxl.load_workbook(io.BytesIO(contents))
     ws = wb.active
 
-    # Normalize headers
     raw_headers = [str(c.value).strip().lower() if c.value else "" for c in ws[1]]
 
     def find_col(names):
@@ -192,8 +219,8 @@ async def import_members(
     email_idx = find_col(["email", "email address"])
 
     if name_idx is None or phone_idx is None:
-        raise HTTPException(
-            400, "Excel must have 'Name' and 'Phone'/'Contact Number' columns"
+        raise InvalidFileFormatError(
+            "Excel must have 'Name' and 'Phone'/'Contact Number' columns"
         )
 
     now = datetime.now(timezone.utc)
@@ -212,7 +239,6 @@ async def import_members(
             skipped += 1
             continue
 
-        # Normalize phone
         phone = phone.replace(" ", "").replace("+", "").replace("-", "")
         if not phone.startswith("91"):
             phone = "91" + phone.lstrip("0")

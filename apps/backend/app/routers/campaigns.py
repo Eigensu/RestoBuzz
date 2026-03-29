@@ -2,11 +2,26 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Annotated
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from bson import ObjectId
 from app.database import get_db
-from app.dependencies import require_role, get_current_user
+from app.dependencies import (
+    require_role,
+    get_current_user,
+    require_restaurant_access,
+    validate_restaurant_access,
+)
+from app.core.utils import to_object_id
+from app.core.logging import get_logger
+from app.core.errors import (
+    CampaignNotFoundError,
+    ContactFileExpiredError,
+    RedisError,
+    ServerError,
+    ValidationError,
+)
 from app.models.campaign import CampaignCreate, CampaignResponse, CampaignListResponse
 from app.models.message import (
     MessageLogListResponse,
@@ -15,11 +30,13 @@ from app.models.message import (
 )
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+logger = get_logger(__name__)
 
 
 def _serialize_campaign(doc: dict) -> CampaignResponse:
     return CampaignResponse(
         id=str(doc["_id"]),
+        restaurant_id=doc.get("restaurant_id", ""),
         name=doc["name"],
         template_id=doc["template_id"],
         template_name=doc["template_name"],
@@ -41,15 +58,18 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
 
 @router.get("/", response_model=CampaignListResponse)
 async def list_campaigns(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Query()],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
+    db: Annotated[any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
-    total = await db.campaign_jobs.count_documents({})
+    query = {"restaurant_id": validated_rid}
+    total = await db.campaign_jobs.count_documents(query)
     cursor = (
-        db.campaign_jobs.find({}).sort("created_at", -1).skip(skip).limit(page_size)
+        db.campaign_jobs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
     )
     items = [_serialize_campaign(doc) async for doc in cursor]
     return CampaignListResponse(
@@ -60,10 +80,11 @@ async def list_campaigns(
 @router.post("/", response_model=CampaignResponse, status_code=201)
 async def create_campaign(
     body: CampaignCreate,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    # Load contacts from Redis cache
+    # Validate access manually since it's in the body
+    await validate_restaurant_access(current_user, body.restaurant_id, db)
     from redis.asyncio import from_url
     from app.config import settings
 
@@ -72,17 +93,19 @@ async def create_campaign(
         raw = await redis.get(f"file_ref:{body.contact_file_ref}")
         await redis.aclose()
     except Exception as e:
-        raise HTTPException(500, f"Redis error: {e}") from e
+        logger.error("campaign_create_cache_error", error=str(e))
+        raise RedisError("Cache unavailable") from e
 
     if not raw:
-        raise HTTPException(
-            400, "Contact file reference expired or not found. Re-upload contacts."
+        raise ContactFileExpiredError(
+            "Contact file reference expired or not found. Please re-upload your contacts."
         )
 
     contacts = json.loads(raw)
     now = datetime.now(timezone.utc)
 
     job_doc = {
+        "restaurant_id": body.restaurant_id,
         "name": body.name,
         "template_id": body.template_id,
         "template_name": body.template_name,
@@ -98,14 +121,13 @@ async def create_campaign(
         "scheduled_at": body.scheduled_at,
         "started_at": None,
         "completed_at": None,
-        "created_by": ObjectId(current_user["id"]),
+        "created_by": current_user["_id"],
         "include_unsubscribe": body.include_unsubscribe,
         "created_at": now,
     }
     result = await db.campaign_jobs.insert_one(job_doc)
     job_id = result.inserted_id
 
-    # Bulk insert message logs — roll back campaign if this fails
     message_docs = [
         {
             "job_id": job_id,
@@ -133,7 +155,12 @@ async def create_campaign(
             await db.message_logs.insert_many(message_docs)
         except Exception as e:
             await db.campaign_jobs.delete_one({"_id": job_id})
-            raise HTTPException(500, f"Failed to create message logs: {e}") from e
+            logger.error(
+                "campaign_create_message_logs_error",
+                campaign_id=str(job_id),
+                error=str(e),
+            )
+            raise ServerError("Failed to create message logs") from e
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
@@ -142,30 +169,34 @@ async def create_campaign(
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 async def get_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
     return _serialize_campaign(doc)
 
 
 @router.post("/{campaign_id}/start", response_model=CampaignResponse)
 async def start_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+    
     if doc["status"] not in ("draft", "paused"):
-        raise HTTPException(400, f"Cannot start campaign in '{doc['status']}' status")
+        raise ValidationError(f"Cannot start a campaign with status '{doc['status']}'")
 
     await db.campaign_jobs.update_one(
-        {"_id": ObjectId(campaign_id)},
-        {"$set": {"status": "queued"}},
+        {"_id": to_object_id(campaign_id)}, {"$set": {"status": "queued"}}
     )
 
     from app.workers.send_task import dispatch_campaign_task
@@ -179,48 +210,69 @@ async def start_campaign(
 @router.post("/{campaign_id}/pause", response_model=CampaignResponse)
 async def pause_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
+    # Fetch first to check ownership/access
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     doc = await db.campaign_jobs.find_one_and_update(
-        {"_id": ObjectId(campaign_id), "status": "running"},
+        {"_id": to_object_id(campaign_id), "status": "running"},
         {"$set": {"status": "paused"}},
         return_document=True,
     )
     if not doc:
-        raise HTTPException(400, "Campaign is not running")
+        raise ValidationError("Campaign is not currently running")
     return _serialize_campaign(doc)
 
 
 @router.post("/{campaign_id}/cancel", response_model=CampaignResponse)
 async def cancel_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
+    # Fetch first to check ownership/access
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     doc = await db.campaign_jobs.find_one_and_update(
         {
-            "_id": ObjectId(campaign_id),
+            "_id": to_object_id(campaign_id),
             "status": {"$in": ["draft", "queued", "running", "paused"]},
         },
         {"$set": {"status": "cancelled"}},
         return_document=True,
     )
     if not doc:
-        raise HTTPException(400, "Campaign cannot be cancelled")
+        raise ValidationError("Campaign cannot be cancelled in its current state")
     return _serialize_campaign(doc)
 
 
 @router.get("/{campaign_id}/messages", response_model=MessageLogListResponse)
 async def list_messages(
     campaign_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    status: str | None = None,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    status: Annotated[str | None, Query()] = None,
 ):
-    query: dict = {"job_id": ObjectId(campaign_id)}
+    # Fetch job to verify access
+    job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not job:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, job["restaurant_id"], db)
+
+    query: dict = {"job_id": to_object_id(campaign_id)}
     if status:
         query["status"] = status
 
@@ -261,12 +313,19 @@ async def list_messages(
 @router.get("/{campaign_id}/failure-breakdown")
 async def failure_breakdown(
     campaign_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
+    # Fetch job to verify access
+    job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not job:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, job["restaurant_id"], db)
+
     cursor = db.message_logs.aggregate(
         [
-            {"$match": {"job_id": ObjectId(campaign_id), "status": "failed"}},
+            {"$match": {"job_id": to_object_id(campaign_id), "status": "failed"}},
             {"$group": {"_id": "$error_message", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
             {"$limit": 10},
@@ -281,22 +340,34 @@ async def failure_breakdown(
 )
 async def retry_failed(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    original = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    original = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not original:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
 
     failed_logs = await db.message_logs.find(
-        {"job_id": ObjectId(campaign_id), "status": "failed"}
+        {"job_id": to_object_id(campaign_id), "status": "failed"}
     ).to_list(10000)
 
     if not failed_logs:
-        raise HTTPException(400, "No failed messages to retry")
+        raise ValidationError("No failed messages to retry")
 
     now = datetime.now(timezone.utc)
+    retry_restaurant_id = original.get("restaurant_id", "")
+    if not retry_restaurant_id:
+        raise ValidationError("Original campaign has no restaurant_id and cannot be retried")
+
+    # Access check for retry
+    from app.core.errors import ForbiddenError
+    try:
+        await validate_restaurant_access(current_user, retry_restaurant_id, db)
+    except ForbiddenError:
+        raise ForbiddenError(f"Access denied to restaurant '{retry_restaurant_id}'")
+
     job_doc = {
+        "restaurant_id": retry_restaurant_id,
         "name": f"{original['name']} (retry)",
         "template_id": original.get("template_id", ""),
         "template_name": original["template_name"],
@@ -310,7 +381,7 @@ async def retry_failed(
         "scheduled_at": None,
         "started_at": None,
         "completed_at": None,
-        "created_by": ObjectId(current_user["id"]),
+        "created_by": current_user["_id"],
         "include_unsubscribe": original.get("include_unsubscribe", False),
         "media_url": original.get("media_url"),
         "created_at": now,
@@ -352,25 +423,35 @@ async def retry_failed(
 @router.delete("/{campaign_id}", status_code=204)
 async def delete_campaign(
     campaign_id: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
-        raise HTTPException(404, "Campaign not found")
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     if doc["status"] == "running":
-        raise HTTPException(400, "Cannot delete a running campaign. Cancel it first.")
-    await db.message_logs.delete_many({"job_id": ObjectId(campaign_id)})
-    await db.campaign_jobs.delete_one({"_id": ObjectId(campaign_id)})
+        raise ValidationError("Cannot delete a running campaign — cancel it first")
+    await db.message_logs.delete_many({"job_id": to_object_id(campaign_id)})
+    await db.campaign_jobs.delete_one({"_id": to_object_id(campaign_id)})
 
 
 @router.get("/{campaign_id}/export-failed")
 async def export_failed(
     campaign_id: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[any, Depends(get_db)],
 ):
-    cursor = db.message_logs.find({"job_id": ObjectId(campaign_id), "status": "failed"})
+    # Fetch job to verify access
+    job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not job:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, job["restaurant_id"], db)
+
+    cursor = db.message_logs.find({"job_id": to_object_id(campaign_id), "status": "failed"})
 
     async def generate():
         output = io.StringIO()

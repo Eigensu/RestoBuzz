@@ -1,9 +1,10 @@
 import json
 import hashlib
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File
 from app.database import get_db
 from app.dependencies import require_role
+from app.core.errors import InvalidFileFormatError, ValidationError, NotFoundError
 from app.models.contact import PreflightResult, ColumnMapping
 from app.services.contact_parser import parse_contacts
 
@@ -34,16 +35,15 @@ async def upload_contacts(
     db=Depends(get_db),
 ):
     if not file.filename.endswith((".xlsx", ".xls", ".csv")):
-        raise HTTPException(400, "Only .xlsx, .xls, .csv files are supported")
+        raise InvalidFileFormatError("Only .xlsx, .xls, and .csv files are supported")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(400, "File exceeds 50MB limit")
+        raise ValidationError("File exceeds the 50 MB size limit")
 
     filename = file.filename
     file_hash = hashlib.md5(content).hexdigest()
 
-    # Return cached result if same file was parsed before
     existing = await db.contact_files.find_one(
         {"filename": filename, "hash": file_hash}
     )
@@ -60,7 +60,6 @@ async def upload_contacts(
 
     result = await parse_contacts(content, filename, mapping, suppressed)
 
-    # Persist parsed result to DB by filename + hash
     await db.contact_files.update_one(
         {"filename": filename, "hash": file_hash},
         {
@@ -83,7 +82,6 @@ async def list_contact_files(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    """List all previously parsed contact files."""
     docs = (
         await db.contact_files.find(
             {},
@@ -117,10 +115,9 @@ async def reuse_contact_file(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    """Re-cache a previously parsed file so it can be used in a new campaign."""
     doc = await db.contact_files.find_one({"result.file_ref": file_ref})
     if not doc:
-        raise HTTPException(404, "File not found")
+        raise NotFoundError(f"Contact file '{file_ref}' not found")
 
     result = PreflightResult(**doc["result"])
     await _cache_file_ref(result.file_ref, result.valid_rows)
