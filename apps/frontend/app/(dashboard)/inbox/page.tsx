@@ -32,7 +32,7 @@ function getPreview(conv: Conversation): string {
 /* ─── Quick reply suggestions ─────────────────────────────── */
 
 function getQuickReplies(lastMsg: InboundMessage | undefined): string[] {
-  if (!lastMsg || lastMsg.direction !== "inbound") return [];
+  if (lastMsg?.direction !== "inbound") return [];
 
   if (lastMsg.message_type === "location")
     return [
@@ -142,7 +142,7 @@ export default function InboxPage() {
     queryKey: ["inbox-messages", selected],
     queryFn: () =>
       api
-        .get(`/inbox/conversations/${encodeURIComponent(selected!)}`)
+        .get(`/inbox/conversations/${encodeURIComponent(selected ?? "")}`)
         .then((r) => r.data),
     enabled: !!selected,
     refetchInterval: 8_000,
@@ -171,7 +171,7 @@ export default function InboxPage() {
 
   const replyMutation = useMutation({
     mutationFn: (body: string) =>
-      api.post(`/inbox/conversations/${encodeURIComponent(selected!)}/reply`, {
+      api.post(`/inbox/conversations/${encodeURIComponent(selected ?? "")}/reply`, {
         body,
       }),
     onSuccess: () => {

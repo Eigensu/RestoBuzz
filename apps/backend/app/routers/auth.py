@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends
+from typing import Annotated
+from fastapi import APIRouter, Depends, Body
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.core.utils import to_object_id
 from app.database import get_db
@@ -30,7 +32,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserResponse, status_code=201)
-async def register(body: RegisterRequest, db=Depends(get_db)):
+async def register(
+    body: Annotated[RegisterRequest, Body()],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
+):
     # Check if user already exists
     existing = await db.users.find_one({"email": body.email})
     if existing:
@@ -65,7 +70,10 @@ async def register(body: RegisterRequest, db=Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenPair)
-async def login(body: LoginRequest, db=Depends(get_db)):
+async def login(
+    body: Annotated[LoginRequest, Body()],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
+):
     user = await db.users.find_one({"email": body.email})
     if not user or not verify_password(body.password, user["hashed_password"]):
         raise InvalidCredentialsError("Invalid email or password")
@@ -83,7 +91,10 @@ async def login(body: LoginRequest, db=Depends(get_db)):
 
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(body: RefreshRequest, db=Depends(get_db)):
+async def refresh(
+    body: Annotated[RefreshRequest, Body()],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
+):
     try:
         payload = decode_token(body.refresh_token)
     except ValueError as exc:
@@ -103,7 +114,7 @@ async def refresh(body: RefreshRequest, db=Depends(get_db)):
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(current_user: dict = Depends(get_current_user)):
+async def me(current_user: Annotated[dict, Depends(get_current_user)]):
     return UserResponse(
         id=str(current_user["_id"]),
         email=current_user["email"],

@@ -36,10 +36,10 @@ function StatCard({
   colorCls,
   bgCls,
 }: {
-  value: number;
-  label: string;
-  colorCls: string;
-  bgCls: string;
+  readonly value: number;
+  readonly label: string;
+  readonly colorCls: string;
+  readonly bgCls: string;
 }) {
   return (
     <div className={cn("rounded-lg p-3 text-center", bgCls)}>
@@ -69,11 +69,11 @@ const GradBtn = ({
   className = "",
   type = "button",
 }: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  className?: string;
-  type?: "button" | "submit";
+  readonly children: React.ReactNode;
+  readonly onClick?: () => void;
+  readonly disabled?: boolean;
+  readonly className?: string;
+  readonly type?: "button" | "submit";
 }) => (
   <button
     type={type}
@@ -205,6 +205,350 @@ function TemplatePreview({
   );
 }
 
+/* ─── Step 0: Template ───────────────────────────────────── */
+function Step0Template({
+  templates,
+  selectedTemplate,
+  setSelectedTemplate,
+  variables,
+  setVariables,
+  mediaUrl,
+  setMediaUrl,
+  fetchingTemplates,
+  refetchTemplates,
+  uploadingMedia,
+  setUploadingMedia,
+  bodyVars,
+}: {
+  readonly templates: Template[];
+  readonly selectedTemplate: Template | null;
+  readonly setSelectedTemplate: (t: Template | null) => void;
+  readonly variables: Record<string, string>;
+  readonly setVariables: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  readonly mediaUrl: string;
+  readonly setMediaUrl: (url: string) => void;
+  readonly fetchingTemplates: boolean;
+  readonly refetchTemplates: () => void;
+  readonly uploadingMedia: boolean;
+  readonly setUploadingMedia: (b: boolean) => void;
+  readonly bodyVars: string[];
+}) {
+  return (
+    <div className="flex gap-6">
+      <div className="flex-1 min-w-0 space-y-3 overflow-y-auto max-h-[65vh] pr-1">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">Select Template</h2>
+          <button
+            onClick={refetchTemplates}
+            disabled={fetchingTemplates}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#24422e] disabled:opacity-50 transition"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", fetchingTemplates && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
+        <div className="grid gap-2 max-h-64 overflow-y-auto pr-1">
+          {templates.map((t) => (
+            <button
+              key={t.name}
+              onClick={() => {
+                setSelectedTemplate(t);
+                setVariables({});
+              }}
+              className={cn(
+                "text-left border rounded-lg px-4 py-3 transition",
+                selectedTemplate?.name === t.name
+                  ? "border-[#24422e] bg-[#24422e]/5"
+                  : "hover:border-[#24422e]/30"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">{t.name}</span>
+                <span className={cn(
+                  "text-xs px-2 py-0.5 rounded-full",
+                  t.category === "UTILITY" ? "bg-[#24422e]/10 text-[#24422e]" : "bg-[#3a6b47]/10 text-[#3a6b47]"
+                )}>
+                  {t.category}
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">{t.language} · {t.status}</p>
+            </button>
+          ))}
+        </div>
+
+        {selectedTemplate && bodyVars.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Template Variables</p>
+            {bodyVars.map((v) => (
+              <div key={v}>
+                <label htmlFor={`var-${v}`} className="text-xs text-gray-500 mb-0.5 block">{`{{${v}}}`}</label>
+                <input
+                  id={`var-${v}`}
+                  value={variables[v] ?? ""}
+                  onChange={(e) => setVariables(prev => ({ ...prev, [v]: e.target.value }))}
+                  className={INPUT_CLS}
+                  placeholder={`Value for {{${v}}}`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {selectedTemplate && (
+          <div className="space-y-1.5">
+            <label htmlFor="media-upload-input" className="text-xs text-gray-500 block">Media Image (optional)</label>
+            {mediaUrl ? (
+              <div className="relative w-full rounded-lg overflow-hidden border">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={mediaUrl} alt="media preview" className="w-full max-h-36 object-cover" />
+                <button
+                  onClick={() => setMediaUrl("")}
+                  className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <label className={cn(
+                "flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 cursor-pointer transition",
+                uploadingMedia ? "opacity-50 pointer-events-none" : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5"
+              )}>
+                <input
+                  id="media-upload-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const img = e.target.files?.[0];
+                    if (!img) return;
+                    setUploadingMedia(true);
+                    try {
+                      const form = new FormData();
+                      form.append("file", img);
+                      const { data } = await api.post("/media/upload", form, {
+                        headers: { "Content-Type": "multipart/form-data" },
+                      });
+                      setMediaUrl(data.url);
+                    } catch (err) {
+                      toast.error(parseApiError(err).message);
+                    } finally {
+                      setUploadingMedia(false);
+                    }
+                  }}
+                />
+                {uploadingMedia ? <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" /> : <ImageIcon className="w-5 h-5 text-gray-300" />}
+                <span className="text-xs text-gray-400">{uploadingMedia ? "Uploading…" : "Click to upload · JPG, PNG, WEBP · max 5MB"}</span>
+              </label>
+            )}
+            <input
+              value={mediaUrl}
+              onChange={(e) => setMediaUrl(e.target.value)}
+              className={INPUT_CLS}
+              placeholder="Or paste a URL directly…"
+            />
+          </div>
+        )}
+      </div>
+      <div className="hidden lg:flex w-72 border-l pl-6 flex-col sticky top-0 self-start">
+        <TemplatePreview template={selectedTemplate} variables={variables} mediaUrl={mediaUrl} />
+      </div>
+    </div>
+  );
+}
+
+/* ─── Step 1: Upload ─────────────────────────────────────── */
+function Step1Upload({
+  getRootProps,
+  getInputProps,
+  isDragActive,
+  file,
+  uploading,
+  uploadFile,
+  savedFiles,
+  reusingFile,
+  reuseFile,
+}: {
+  readonly getRootProps: any;
+  readonly getInputProps: any;
+  readonly isDragActive: boolean;
+  readonly file: File | null;
+  readonly uploading: boolean;
+  readonly uploadFile: () => void;
+  readonly savedFiles: SavedFile[] | undefined;
+  readonly reusingFile: boolean;
+  readonly reuseFile: (ref: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <h2 className="font-medium">Upload Contacts</h2>
+      <div {...getRootProps()} className={cn(
+        "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition",
+        isDragActive ? "border-[#24422e]/60 bg-[#24422e]/5" : "border-gray-200 hover:border-[#24422e]/40"
+      )}>
+        <input {...getInputProps()} />
+        <Upload className="w-8 h-8 text-gray-300 mx-auto mb-3" />
+        <p className="text-sm text-gray-500">Drop a CSV or XLSX file here, or click to browse</p>
+        <p className="text-xs text-gray-400 mt-1">Max 50MB · First row must be headers</p>
+      </div>
+      {file && (
+        <div className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg" style={{ background: "#24422e14", color: "#24422e" }}>
+          <CheckCircle className="w-4 h-4" />
+          {file.name} ({(file.size / 1024).toFixed(1)} KB)
+        </div>
+      )}
+      <GradBtn onClick={uploadFile} disabled={!file || uploading} className="w-full py-2">
+        {uploading ? "Parsing..." : "Parse & Continue"}
+      </GradBtn>
+      {savedFiles && savedFiles.length > 0 && (
+        <>
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
+            <div className="relative flex justify-center text-xs"><span className="bg-white px-2 text-gray-400">Or use a previously parsed file</span></div>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-2">
+            {savedFiles.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => reuseFile(f.file_ref)}
+                disabled={reusingFile}
+                className="w-full flex items-center gap-3 p-3 border rounded-lg hover:border-[#24422e]/40 hover:bg-[#24422e]/5 transition text-left disabled:opacity-50"
+              >
+                <FileSpreadsheet className="w-5 h-5 text-gray-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{f.filename}</p>
+                  <p className="text-xs text-gray-400">{f.valid_count} valid · {new Date(f.uploaded_at).toLocaleDateString()}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─── Step 2: Preflight ───────────────────────────────────── */
+function Step2Preflight({ preflight }: { readonly preflight: PreflightResult }) {
+  return (
+    <div className="space-y-4">
+      <h2 className="font-medium">Pre-flight Check</h2>
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard value={preflight.valid_count} label="Valid" colorCls="text-[#24422e]" bgCls="bg-[#24422e]/[0.08]" />
+        <StatCard value={preflight.invalid_count} label="Invalid" colorCls="text-red-500" bgCls="bg-red-50" />
+        <StatCard value={preflight.duplicate_count} label="Duplicates" colorCls="text-amber-600" bgCls="bg-amber-50" />
+        <StatCard value={preflight.suppressed_count} label="Suppressed" colorCls="text-gray-500" bgCls="bg-gray-50" />
+      </div>
+      {preflight.invalid_rows.length > 0 && (
+        <div className="border rounded-lg overflow-hidden">
+          <div className="bg-red-50 px-3 py-2 text-xs font-medium text-red-600 flex items-center gap-1">
+            <XCircle className="w-3.5 h-3.5" /> Invalid rows
+          </div>
+          <div className="max-h-40 overflow-y-auto divide-y">
+            {preflight.invalid_rows.slice(0, 20).map((r) => (
+              <div key={r.row_number} className="px-3 py-1.5 text-xs flex gap-3">
+                <span className="text-gray-400">Row {r.row_number}</span>
+                <span className="font-mono">{r.raw_phone || "(empty)"}</span>
+                <span className="text-red-500">{r.reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {preflight.valid_count === 0 && (
+        <div className="flex items-center gap-2 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">
+          <AlertCircle className="w-4 h-4" /> No valid contacts found. Please fix your file.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Step 3: Review ──────────────────────────────────────── */
+function Step3Review({
+  campaignName,
+  setCampaignName,
+  priority,
+  setPriority,
+  includeUnsub,
+  setIncludeUnsub,
+  selectedTemplate,
+  preflight,
+}: {
+  readonly campaignName: string;
+  readonly setCampaignName: (s: string) => void;
+  readonly priority: "MARKETING" | "UTILITY";
+  readonly setPriority: (p: "MARKETING" | "UTILITY") => void;
+  readonly includeUnsub: boolean;
+  readonly setIncludeUnsub: (b: boolean) => void;
+  readonly selectedTemplate: Template | null;
+  readonly preflight: PreflightResult | null;
+}) {
+  return (
+    <div className="space-y-5">
+      <h2 className="font-medium">Schedule & Review</h2>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="campaign-name" className="text-sm font-medium mb-1 block">Campaign Name</label>
+          <input
+            id="campaign-name"
+            value={campaignName}
+            onChange={(e) => setCampaignName(e.target.value)}
+            className={cn(INPUT_CLS, "py-2")}
+            placeholder="e.g. Summer Promo 2026"
+          />
+        </div>
+        <div>
+          <label id="priority-label" className="text-sm font-medium mb-1 block">Priority</label>
+          <div role="group" aria-labelledby="priority-label" className="flex gap-2">
+            {(["MARKETING", "UTILITY"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPriority(p)}
+                className={cn(
+                  "flex-1 py-2 rounded-lg text-sm font-medium border transition",
+                  priority === p ? "text-[#24422e] border-[#24422e] bg-[#24422e]/5" : "border-gray-200 text-gray-500 hover:border-[#24422e]/30"
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {priority === "MARKETING" && (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={includeUnsub}
+            onChange={(e) => setIncludeUnsub(e.target.checked)}
+            className="w-4 h-4 accent-[#24422e] cursor-pointer"
+          />
+          <span className="text-sm">Include unsubscribe footer</span>
+        </label>
+      )}
+
+      <div className="border rounded-xl overflow-hidden">
+        <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b bg-gray-50">Summary</div>
+        <div className="divide-y text-sm">
+          {[
+            ["Campaign Name", campaignName || "—"],
+            ["Template", selectedTemplate?.name ?? "—"],
+            ["Priority", priority],
+            ["Recipients", preflight ? `${preflight.valid_count} contacts` : "—"],
+            ["Unsubscribe Footer", includeUnsub ? "Yes" : "No"],
+          ].map(([label, value]) => (
+            <div key={label} className="flex justify-between px-4 py-2.5">
+              <span className="text-gray-500">{label}</span>
+              <span className="font-medium">{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main page ──────────────────────────────────────────── */
 
 function stepCircleClass(i: number, step: number) {
@@ -226,8 +570,6 @@ export default function NewCampaignPage() {
   const { restaurant } = useAuthStore();
   const router = useRouter();
   const [step, setStep] = useState(0);
-
-  if (!restaurant) return null;
 
   // Step 0: Template
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
@@ -315,7 +657,7 @@ export default function NewCampaignPage() {
   const createMutation = useMutation({
     mutationFn: () =>
       api.post("/campaigns", {
-        restaurant_id: restaurant!.id,
+        restaurant_id: restaurant?.id ?? "",
         name: campaignName,
         template_id: selectedTemplate?.name ?? "",
         template_name: selectedTemplate?.name ?? "",
@@ -338,14 +680,24 @@ export default function NewCampaignPage() {
       ?.text?.match(/\{\{(\d+)\}\}/g)
       ?.map((v) => v.replace(/[{}]/g, "")) ?? [];
 
-  const canNext =
-    step === 0
-      ? !!selectedTemplate
-      : step === 1
-        ? !!preflight
-        : step === 2
-          ? (preflight?.valid_count ?? 0) > 0
-          : !!campaignName;
+  const getCanNext = () => {
+    switch (step) {
+      case 0:
+        return !!selectedTemplate;
+      case 1:
+        return !!preflight;
+      case 2:
+        return (preflight?.valid_count ?? 0) > 0;
+      case 3:
+        return !!campaignName;
+      default:
+        return false;
+    }
+  };
+
+  const canNext = getCanNext();
+
+  if (!restaurant) return null;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -382,422 +734,80 @@ export default function NewCampaignPage() {
 
       {/* Step content */}
       <div className="bg-white rounded-xl border p-6">
-        {/* ── Step 0: Template ── */}
         {step === 0 && (
-          <div className="flex gap-6">
-            {/* Left: template list */}
-            <div className="flex-1 min-w-0 space-y-3 overflow-y-auto max-h-[65vh] pr-1">
-              <div className="flex items-center justify-between">
-                <h2 className="font-medium">Select Template</h2>
-                <button
-                  onClick={() => refetchTemplates()}
-                  disabled={fetchingTemplates}
-                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#24422e] disabled:opacity-50 transition"
-                >
-                  <RefreshCw
-                    className={cn(
-                      "w-3.5 h-3.5",
-                      fetchingTemplates && "animate-spin",
-                    )}
-                  />
-                  Refresh
-                </button>
-              </div>
-              <div className="grid gap-2 max-h-64 overflow-y-auto pr-1">
-                {(templates ?? []).map((t) => (
-                  <button
-                    key={t.name}
-                    onClick={() => {
-                      setSelectedTemplate(t);
-                      setVariables({});
-                    }}
-                    className={cn(
-                      "text-left border rounded-lg px-4 py-3 transition",
-                      selectedTemplate?.name === t.name
-                        ? "border-[#24422e] bg-[#24422e]/5"
-                        : "hover:border-[#24422e]/30",
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{t.name}</span>
-                      <span
-                        className={cn(
-                          "text-xs px-2 py-0.5 rounded-full",
-                          t.category === "UTILITY"
-                            ? "bg-[#24422e]/10 text-[#24422e]"
-                            : "bg-[#3a6b47]/10 text-[#3a6b47]",
-                        )}
-                      >
-                        {t.category}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {t.language} · {t.status}
-                    </p>
-                  </button>
-                ))}
-              </div>
-
-              {/* Variables */}
-              {selectedTemplate && bodyVars.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Template Variables</p>
-                  {bodyVars.map((v) => (
-                    <div key={v}>
-                      <label className="text-xs text-gray-500 mb-0.5 block">{`{{${v}}}`}</label>
-                      <input
-                        value={variables[v] ?? ""}
-                        onChange={(e) =>
-                          setVariables((prev) => ({
-                            ...prev,
-                            [v]: e.target.value,
-                          }))
-                        }
-                        className={INPUT_CLS}
-                        placeholder={`Value for {{${v}}}`}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Media upload */}
-              {selectedTemplate && (
-                <div className="space-y-1.5">
-                  <label className="text-xs text-gray-500 block">
-                    Media Image (optional)
-                  </label>
-                  {mediaUrl ? (
-                    <div className="relative w-full rounded-lg overflow-hidden border">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={mediaUrl}
-                        alt="media preview"
-                        className="w-full max-h-36 object-cover"
-                      />
-                      <button
-                        onClick={() => setMediaUrl("")}
-                        className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <label
-                      className={cn(
-                        "flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 cursor-pointer transition",
-                        uploadingMedia
-                          ? "opacity-50 pointer-events-none"
-                          : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5",
-                      )}
-                    >
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif"
-                        className="sr-only"
-                        onChange={async (e) => {
-                          const img = e.target.files?.[0];
-                          if (!img) return;
-                          setUploadingMedia(true);
-                          try {
-                            const form = new FormData();
-                            form.append("file", img);
-                            const { data } = await api.post(
-                              "/media/upload",
-                              form,
-                              {
-                                headers: {
-                                  "Content-Type": "multipart/form-data",
-                                },
-                              },
-                            );
-                            setMediaUrl(data.url);
-                          } catch (e) {
-                            toast.error(parseApiError(e).message);
-                          } finally {
-                            setUploadingMedia(false);
-                          }
-                        }}
-                      />
-                      {uploadingMedia ? (
-                        <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
-                      ) : (
-                        <ImageIcon className="w-5 h-5 text-gray-300" />
-                      )}
-                      <span className="text-xs text-gray-400">
-                        {uploadingMedia
-                          ? "Uploading…"
-                          : "Click to upload · JPG, PNG, WEBP · max 5MB"}
-                      </span>
-                    </label>
-                  )}
-                  <input
-                    value={mediaUrl}
-                    onChange={(e) => setMediaUrl(e.target.value)}
-                    className={INPUT_CLS}
-                    placeholder="Or paste a URL directly…"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Right: live preview — sticky so it stays at top */}
-            <div className="hidden lg:flex w-72 border-l pl-6 flex-col sticky top-0 self-start">
-              <TemplatePreview
-                template={selectedTemplate}
-                variables={variables}
-                mediaUrl={mediaUrl}
-              />
-            </div>
-          </div>
+          <Step0Template
+            templates={templates}
+            selectedTemplate={selectedTemplate}
+            setSelectedTemplate={setSelectedTemplate}
+            variables={variables}
+            setVariables={setVariables}
+            mediaUrl={mediaUrl}
+            setMediaUrl={setMediaUrl}
+            fetchingTemplates={fetchingTemplates}
+            refetchTemplates={refetchTemplates}
+            uploadingMedia={uploadingMedia}
+            setUploadingMedia={setUploadingMedia}
+            bodyVars={bodyVars}
+          />
         )}
 
-        {/* ── Step 1: Upload ── */}
         {step === 1 && (
-          <div className="space-y-4">
-            <h2 className="font-medium">Upload Contacts</h2>
-            <div
-              {...getRootProps()}
-              className={cn(
-                "border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition",
-                isDragActive
-                  ? "border-[#24422e]/60 bg-[#24422e]/5"
-                  : "border-gray-200 hover:border-[#24422e]/40",
-              )}
-            >
-              <input {...getInputProps()} />
-              <Upload className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">
-                Drop a CSV or XLSX file here, or click to browse
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                Max 50MB · First row must be headers
-              </p>
-            </div>
-
-            {file && (
-              <div
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg"
-                style={{ background: "#24422e14", color: "#24422e" }}
-              >
-                <CheckCircle className="w-4 h-4" />
-                {file.name} ({(file.size / 1024).toFixed(1)} KB)
-              </div>
-            )}
-
-            <GradBtn
-              onClick={uploadFile}
-              disabled={!file || uploading}
-              className="w-full py-2"
-            >
-              {uploading ? "Parsing..." : "Parse & Continue"}
-            </GradBtn>
-
-            {savedFiles && savedFiles.length > 0 && (
-              <>
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200" />
-                  </div>
-                  <div className="relative flex justify-center text-xs">
-                    <span className="bg-white px-2 text-gray-400">
-                      Or use a previously parsed file
-                    </span>
-                  </div>
-                </div>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {savedFiles.map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => reuseFile(f.file_ref)}
-                      disabled={reusingFile}
-                      className="w-full flex items-center gap-3 p-3 border rounded-lg hover:border-[#24422e]/40 hover:bg-[#24422e]/5 transition text-left disabled:opacity-50"
-                    >
-                      <FileSpreadsheet className="w-5 h-5 text-gray-400 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {f.filename}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {f.valid_count} valid ·{" "}
-                          {new Date(f.uploaded_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          <Step1Upload
+            getRootProps={getRootProps}
+            getInputProps={getInputProps}
+            isDragActive={isDragActive}
+            file={file}
+            uploading={uploading}
+            uploadFile={uploadFile}
+            savedFiles={savedFiles}
+            reusingFile={reusingFile}
+            reuseFile={reuseFile}
+          />
         )}
 
-        {/* ── Step 2: Preflight ── */}
-        {step === 2 && preflight && (
-          <div className="space-y-4">
-            <h2 className="font-medium">Pre-flight Check</h2>
-            <div className="grid grid-cols-2 gap-3">
-              <StatCard
-                value={preflight.valid_count}
-                label="Valid"
-                colorCls="text-[#24422e]"
-                bgCls="bg-[#24422e]/[0.08]"
-              />
-              <StatCard
-                value={preflight.invalid_count}
-                label="Invalid"
-                colorCls="text-red-500"
-                bgCls="bg-red-50"
-              />
-              <StatCard
-                value={preflight.duplicate_count}
-                label="Duplicates"
-                colorCls="text-amber-600"
-                bgCls="bg-amber-50"
-              />
-              <StatCard
-                value={preflight.suppressed_count}
-                label="Suppressed"
-                colorCls="text-gray-500"
-                bgCls="bg-gray-50"
-              />
-            </div>
-            {preflight.invalid_rows.length > 0 && (
-              <div className="border rounded-lg overflow-hidden">
-                <div className="bg-red-50 px-3 py-2 text-xs font-medium text-red-600 flex items-center gap-1">
-                  <XCircle className="w-3.5 h-3.5" /> Invalid rows
-                </div>
-                <div className="max-h-40 overflow-y-auto divide-y">
-                  {preflight.invalid_rows.slice(0, 20).map((r) => (
-                    <div
-                      key={r.row_number}
-                      className="px-3 py-1.5 text-xs flex gap-3"
-                    >
-                      <span className="text-gray-400">Row {r.row_number}</span>
-                      <span className="font-mono">
-                        {r.raw_phone || "(empty)"}
-                      </span>
-                      <span className="text-red-500">{r.reason}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {preflight.valid_count === 0 && (
-              <div className="flex items-center gap-2 text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">
-                <AlertCircle className="w-4 h-4" /> No valid contacts found.
-                Please fix your file.
-              </div>
-            )}
-          </div>
-        )}
+        {step === 2 && preflight && <Step2Preflight preflight={preflight} />}
 
-        {/* ── Step 3: Schedule & Review ── */}
         {step === 3 && (
-          <div className="space-y-5">
-            <h2 className="font-medium">Schedule & Review</h2>
-
-            {/* Settings */}
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block">
-                  Campaign Name
-                </label>
-                <input
-                  value={campaignName}
-                  onChange={(e) => setCampaignName(e.target.value)}
-                  className={cn(INPUT_CLS, "py-2")}
-                  placeholder="e.g. Summer Promo 2026"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">
-                  Priority
-                </label>
-                <div className="flex gap-2">
-                  {(["MARKETING", "UTILITY"] as const).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPriority(p)}
-                      className={cn(
-                        "flex-1 py-2 rounded-lg text-sm font-medium border transition",
-                        priority === p
-                          ? "text-[#24422e] border-[#24422e] bg-[#24422e]/5"
-                          : "border-gray-200 text-gray-500 hover:border-[#24422e]/30",
-                      )}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {priority === "MARKETING" && (
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeUnsub}
-                  onChange={(e) => setIncludeUnsub(e.target.checked)}
-                  className="w-4 h-4 accent-[#24422e] cursor-pointer"
-                />
-                <span className="text-sm">Include unsubscribe footer</span>
-              </label>
-            )}
-
-            {/* Review summary */}
-            <div className="border rounded-xl overflow-hidden">
-              <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b bg-gray-50">
-                Summary
-              </div>
-              <div className="divide-y text-sm">
-                {[
-                  ["Campaign Name", campaignName || "—"],
-                  ["Template", selectedTemplate?.name ?? "—"],
-                  ["Priority", priority],
-                  [
-                    "Recipients",
-                    preflight ? `${preflight.valid_count} contacts` : "—",
-                  ],
-                  ["Unsubscribe Footer", includeUnsub ? "Yes" : "No"],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex justify-between px-4 py-2.5">
-                    <span className="text-gray-500">{label}</span>
-                    <span className="font-medium">{value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <Step3Review
+            campaignName={campaignName}
+            setCampaignName={setCampaignName}
+            priority={priority}
+            setPriority={setPriority}
+            includeUnsub={includeUnsub}
+            setIncludeUnsub={setIncludeUnsub}
+            selectedTemplate={selectedTemplate}
+            preflight={preflight}
+          />
         )}
+      </div>
 
-        {/* Navigation */}
-        <div className="flex justify-between mt-6">
-          <button
-            onClick={() => setStep((s) => s - 1)}
-            disabled={step === 0}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#24422e] disabled:opacity-30 transition"
+      {/* Navigation */}
+      <div className="flex justify-between mt-6">
+        <button
+          onClick={() => setStep((s) => s - 1)}
+          disabled={step === 0}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#24422e] disabled:opacity-30 transition"
+        >
+          <ChevronLeft className="w-4 h-4" /> Back
+        </button>
+
+        {step < 3 ? (
+          <GradBtn
+            onClick={() => setStep((s) => s + 1)}
+            disabled={!canNext}
+            className="px-4 py-2 text-sm"
           >
-            <ChevronLeft className="w-4 h-4" /> Back
-          </button>
-
-          {step < 3 ? (
-            <GradBtn
-              onClick={() => setStep((s) => s + 1)}
-              disabled={!canNext}
-              className="px-4 py-2 text-sm"
-            >
-              Next <ChevronRight className="w-4 h-4" />
-            </GradBtn>
-          ) : (
-            <GradBtn
-              onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !campaignName}
-              className="px-6 py-2 text-sm"
-            >
-              {createMutation.isPending ? "Creating..." : "🚀 Launch Campaign"}
-            </GradBtn>
-          )}
-        </div>
+            Next <ChevronRight className="w-4 h-4" />
+          </GradBtn>
+        ) : (
+          <GradBtn
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending || !campaignName}
+            className="px-6 py-2 text-sm"
+          >
+            {createMutation.isPending ? "Creating..." : "🚀 Launch Campaign"}
+          </GradBtn>
+        )}
       </div>
     </div>
   );

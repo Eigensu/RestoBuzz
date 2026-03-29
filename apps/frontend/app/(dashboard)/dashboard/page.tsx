@@ -281,9 +281,9 @@ export default function DashboardPage() {
                     paddingAngle={5}
                     dataKey="value"
                   >
-                    {pieData.map((entry, index) => (
+                    {pieData.map((entry) => (
                       <Cell
-                        key={`cell-${index}`}
+                        key={`cell-${entry.name}`}
                         fill={PIE_COLORS[entry.name] || PIE_COLORS.draft}
                       />
                     ))}

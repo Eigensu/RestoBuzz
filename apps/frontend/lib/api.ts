@@ -3,7 +3,7 @@ import { parseApiError } from "./errors";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-const isBrowser = typeof window !== "undefined";
+const isBrowser = typeof globalThis.window !== "undefined";
 
 // In the browser, use a relative path so requests go to the Next.js dev server
 // (/api/*) which is rewritten server-side to the real backend. This avoids
@@ -50,13 +50,13 @@ api.interceptors.response.use(
             return api(original);
           } catch {
             localStorage.clear();
-            window.location.href = "/login";
+            globalThis.window.location.href = "/login";
           }
         }
       } else {
         // Server-side: call backend directly
         try {
-          const { data } = await axios.post(`${API_URL}/api/auth/refresh`, {
+          await axios.post(`${API_URL}/api/auth/refresh`, {
             refresh_token: error.config?.headers?.["refresh_token"] ?? null,
           }, {
             headers: { "ngrok-skip-browser-warning": "1" }
@@ -67,6 +67,6 @@ api.interceptors.response.use(
         }
       }
     }
-    return Promise.reject(parseApiError(error));
+    throw parseApiError(error);
   },
 );

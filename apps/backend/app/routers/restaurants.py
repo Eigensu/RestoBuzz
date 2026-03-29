@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
+from fastapi import APIRouter, Depends, Path, Body
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.database import get_db
 from app.dependencies import require_role, get_user_restaurant_ids
@@ -13,8 +15,8 @@ router = APIRouter(prefix="/restaurants", tags=["restaurants"])
 @router.get("", response_model=list[RestaurantResponse])
 @router.get("/", response_model=list[RestaurantResponse])
 async def list_restaurants(
-    allowed_ids: set[str] = Depends(get_user_restaurant_ids),
-    db=Depends(get_db),
+    allowed_ids: Annotated[set[str], Depends(get_user_restaurant_ids)],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     """Returns only the restaurants the authenticated user has access to.
     super_admin gets all restaurants."""
@@ -34,10 +36,10 @@ async def list_restaurants(
 
 @router.post("/{restaurant_id}/assign", status_code=201)
 async def assign_user(
-    restaurant_id: str,
-    body: AssignUserRequest,
-    current_user: dict = Depends(require_role("super_admin")),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Path()],
+    body: Annotated[AssignUserRequest, Body()],
+    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     """super_admin assigns a user to a restaurant with a given role."""
     # Check restaurant exists
@@ -61,10 +63,10 @@ async def assign_user(
 
 @router.delete("/{restaurant_id}/unassign/{user_id}")
 async def unassign_user(
-    restaurant_id: str,
-    user_id: str,
-    current_user: dict = Depends(require_role("super_admin")),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Path()],
+    user_id: Annotated[str, Path()],
+    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     """super_admin removes a user's access to a restaurant."""
     user_oid = to_object_id(user_id)
@@ -78,9 +80,9 @@ async def unassign_user(
 
 @router.get("/{restaurant_id}/users", response_model=list[UserRestaurantRole])
 async def list_restaurant_users(
-    restaurant_id: str,
-    current_user: dict = Depends(require_role("super_admin")),
-    db=Depends(get_db),
+    restaurant_id: Annotated[str, Path()],
+    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     """super_admin lists all users assigned to a restaurant."""
     cursor = db.user_restaurant_roles.find({"restaurant_id": restaurant_id})

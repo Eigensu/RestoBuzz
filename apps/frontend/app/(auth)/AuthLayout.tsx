@@ -64,18 +64,9 @@ export default function AuthLayout({
 }) {
   const router = useRouter();
   const setUser = useAuthStore((s) => s.setUser);
-  const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useState<"login" | "register">(initialMode);
+  const [mounted, setMounted] = useState(false);
 
-  useState(() => {
-    // Standard Next.js practice for client components that
-    // might be modified by browser extensions.
-    if (typeof window !== "undefined") {
-      setMounted(true);
-    }
-  });
-
-  // Also use useEffect to ensure we stay in sync
   useEffect(() => {
     setMounted(true);
   }, []);

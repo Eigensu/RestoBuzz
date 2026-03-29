@@ -11,7 +11,7 @@ export function useSSE<T>(path: string | null) {
   useEffect(() => {
     if (!path) return;
     const token =
-      typeof window !== "undefined"
+      typeof globalThis.window !== "undefined"
         ? localStorage.getItem("access_token")
         : null;
     const params = new URLSearchParams();
