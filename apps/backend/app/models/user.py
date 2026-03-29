@@ -8,8 +8,21 @@ Role = Literal["super_admin", "admin", "viewer"]
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=6)
     role: Role = "viewer"
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+
+
+class RegisterRequest(BaseModel):
+    firstName: str
+    lastName: str
+    email: EmailStr
+    phone: str
+    password: str
+    confirmPassword: str
+    agreeToTerms: bool
 
 
 class UserInDB(BaseModel):
@@ -17,6 +30,9 @@ class UserInDB(BaseModel):
     email: EmailStr
     hashed_password: str
     role: Role
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
     is_active: bool = True
     created_at: datetime
     last_login: datetime | None = None
@@ -26,6 +42,9 @@ class UserResponse(BaseModel):
     id: str
     email: EmailStr
     role: Role
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
     is_active: bool
     created_at: datetime
 

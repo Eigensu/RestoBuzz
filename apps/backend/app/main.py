@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.database import init_indexes, close_db
-from app.core.logging import setup_logging, CorrelationIdMiddleware
+from app.core.logging import setup_logging, CorrelationIdMiddleware, get_logger
 from app.core.errors import AppError
 from app.config import settings
 from app.routers import (
@@ -25,11 +25,11 @@ from app.sse.campaign_stream import router as sse_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("\n" + "="*50)
-    print("BACKEND IS LIVE - LOADING NEW CONFIG")
-    print("="*50 + "\n")
     setup_logging()
+    logger = get_logger(__name__)
+    logger.info("backend_startup", version="1.0.0", status="loading_indexes")
     await init_indexes()
+    logger.info("backend_startup_complete")
     yield
     await close_db()
 
@@ -38,7 +38,6 @@ app = FastAPI(
     title="WhatsApp Bulk Sender API",
     version="1.0.0",
     lifespan=lifespan,
-    redirect_slashes=False,
 )
 
 # IMPORTANT: Starlette runs middleware in REVERSE registration order (LIFO).
@@ -46,13 +45,14 @@ app = FastAPI(
 # executes OUTERMOST — i.e. it handles preflight OPTIONS before anything else.
 app.add_middleware(CorrelationIdMiddleware)
 
-# Enhanced CORS: If '*' is in origins, we use allow_origin_regex to support credentials
+# Enhanced CORS: If '*' is in origins, allow any origin but disable credentials to avoid
+# insecure wildcard configuration. For specific origins, credentials remain enabled.
 _origins = settings.cors_origins_list
 if "*" in _origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"https?://.*",
-        allow_credentials=True,
+        allow_origins=["*"],
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

@@ -7,8 +7,10 @@ from app.core.security import decode_token
 from app.core.rbac import check_role
 from app.core.errors import ForbiddenError, InvalidTokenError, UserNotFoundError
 from app.core.utils import to_object_id
+from app.core.logging import get_logger
 
 bearer = HTTPBearer()
+logger = get_logger(__name__)
 
 
 def get_db() -> AsyncIOMotorDatabase:
@@ -47,21 +49,16 @@ async def get_user_restaurant_ids(
     current_user: dict = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> set[str]:
-    # Dev account or super_admin bypasses all checks
-    print(f"DEBUG: Checking access for user {current_user.get('email')} with role {current_user.get('role')}")
-    if current_user.get("role") == "super_admin" or current_user.get("email") == "admin@example.com":
-        # Fetch all restaurants without projection to avoid silent KeyError
-        # if the 'id' field is missing from any document
+    # Bypass for super_admin role ONLY
+    if current_user.get("role") == "super_admin":
         cursor = db.restaurants.find({})
         ids = {str(doc["id"]) async for doc in cursor if "id" in doc}
-        print(f"DEBUG: super_admin bypass - found {len(ids)} restaurants")
         return ids
 
     cursor = db.user_restaurant_roles.find(
         {"user_id": ObjectId(current_user["_id"])}, {"restaurant_id": 1, "_id": 0}
     )
     ids = {doc["restaurant_id"] async for doc in cursor}
-    print(f"DEBUG: Found {len(ids)} assigned restaurants for user")
     return ids
 
 
@@ -70,8 +67,8 @@ async def validate_restaurant_access(
 ) -> str:
     """Helper to validate access. Raises ForbiddenError if denied.
     Returns the restaurant_id if access is granted."""
-    # Dev account or super_admin bypasses all checks
-    if current_user.get("role") == "super_admin" or current_user.get("email") == "admin@example.com":
+    # super_admin bypass
+    if current_user.get("role") == "super_admin":
         return restaurant_id
 
     assignment = await db.user_restaurant_roles.find_one(
@@ -81,6 +78,11 @@ async def validate_restaurant_access(
         }
     )
     if not assignment:
+        logger.warning(
+            "restaurant_access_denied",
+            user_id=str(current_user["_id"]),
+            restaurant_id=restaurant_id
+        )
         raise ForbiddenError(f"Access denied to restaurant '{restaurant_id}'")
     return restaurant_id
 

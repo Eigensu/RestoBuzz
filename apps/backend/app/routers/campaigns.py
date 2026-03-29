@@ -174,6 +174,8 @@ async def get_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
     return _serialize_campaign(doc)
 
 
@@ -186,6 +188,9 @@ async def start_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+    
     if doc["status"] not in ("draft", "paused"):
         raise ValidationError(f"Cannot start a campaign with status '{doc['status']}'")
 
@@ -207,6 +212,13 @@ async def pause_campaign(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    # Fetch first to check ownership/access
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     doc = await db.campaign_jobs.find_one_and_update(
         {"_id": to_object_id(campaign_id), "status": "running"},
         {"$set": {"status": "paused"}},
@@ -223,6 +235,13 @@ async def cancel_campaign(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    # Fetch first to check ownership/access
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     doc = await db.campaign_jobs.find_one_and_update(
         {
             "_id": to_object_id(campaign_id),
@@ -245,6 +264,13 @@ async def list_messages(
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
+    # Fetch job to verify access
+    job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not job:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, job["restaurant_id"], db)
+
     query: dict = {"job_id": to_object_id(campaign_id)}
     if status:
         query["status"] = status
@@ -289,6 +315,13 @@ async def failure_breakdown(
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
+    # Fetch job to verify access
+    job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not job:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, job["restaurant_id"], db)
+
     cursor = db.message_logs.aggregate(
         [
             {"$match": {"job_id": to_object_id(campaign_id), "status": "failed"}},
@@ -395,6 +428,9 @@ async def delete_campaign(
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     if doc["status"] == "running":
         raise ValidationError("Cannot delete a running campaign — cancel it first")
     await db.message_logs.delete_many({"job_id": to_object_id(campaign_id)})
@@ -407,6 +443,13 @@ async def export_failed(
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
+    # Fetch job to verify access
+    job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
+    if not job:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    
+    await validate_restaurant_access(current_user, job["restaurant_id"], db)
+
     cursor = db.message_logs.find({"job_id": to_object_id(campaign_id), "status": "failed"})
 
     async def generate():

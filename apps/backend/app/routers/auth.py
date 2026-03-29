@@ -5,6 +5,7 @@ from app.core.utils import to_object_id
 from app.database import get_db
 from app.core.security import (
     verify_password,
+    hash_password,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -14,9 +15,11 @@ from app.core.errors import (
     AccountDisabledError,
     InvalidTokenError,
     UserNotFoundError,
+    EmailAlreadyExistsError,
 )
 from app.models.user import (
     LoginRequest,
+    RegisterRequest,
     TokenPair,
     RefreshRequest,
     UserResponse,
@@ -24,6 +27,41 @@ from app.models.user import (
 from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", response_model=UserResponse, status_code=201)
+async def register(body: RegisterRequest, db=Depends(get_db)):
+    # Check if user already exists
+    existing = await db.users.find_one({"email": body.email})
+    if existing:
+        raise EmailAlreadyExistsError(f"User with email {body.email} already exists")
+
+    now = datetime.now(timezone.utc)
+    user_doc = {
+        "email": body.email,
+        "hashed_password": hash_password(body.password),
+        "role": "viewer",
+        "first_name": body.firstName,
+        "last_name": body.lastName,
+        "phone": body.phone,
+        "is_active": True,
+        "created_at": now,
+        "last_login": None,
+    }
+
+    result = await db.users.insert_one(user_doc)
+    user_doc["_id"] = result.inserted_id
+
+    return UserResponse(
+        id=str(user_doc["_id"]),
+        email=user_doc["email"],
+        role=user_doc["role"],
+        first_name=user_doc["first_name"],
+        last_name=user_doc["last_name"],
+        phone=user_doc["phone"],
+        is_active=user_doc["is_active"],
+        created_at=user_doc["created_at"],
+    )
 
 
 @router.post("/login", response_model=TokenPair)

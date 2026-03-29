@@ -47,20 +47,22 @@ async def main():
         print(f"Created super_admin: {admin_email}")
     else:
         admin_id = existing["_id"]
-        # Update user to ensure role and password match current configuration
+        # Only update password if RESET_PASSWORD=1 is set
+        update_data = {
+            "role": "super_admin",
+            "is_active": True
+        }
+        if os.getenv("RESET_PASSWORD") == "1":
+            update_data["hashed_password"] = pwd_context.hash(admin_password)
+            print(f"User {admin_email} password reset initiated.")
+        
         await db.users.update_one(
             {"_id": admin_id},
-            {"$set": {
-                "hashed_password": pwd_context.hash(admin_password),
-                "role": "super_admin",
-                "is_active": True
-            }}
+            {"$set": update_data}
         )
-        print(f"User {admin_email} already exists — password and role (super_admin) updated.")
+        print(f"User {admin_email} record ensured (role: super_admin).")
 
     # Seed restaurants
-    from app.database import init_indexes
-    await init_indexes() # ensure ALL indexes (including new ones) are created
 
     RESTAURANTS = [
         {"id": "r1", "name": "Soraia", "location": "Downtown", "emoji": "🍔", "color": "bg-orange-500"},

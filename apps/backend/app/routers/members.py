@@ -123,6 +123,8 @@ async def get_member(
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
     return _serialize(doc)
 
 
@@ -133,6 +135,13 @@ async def update_member(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    # Fetch first to check ownership/access
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
+    if not doc:
+        raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise ValidationError("No fields provided to update")
@@ -142,8 +151,6 @@ async def update_member(
         {"$set": updates},
         return_document=True,
     )
-    if not doc:
-        raise NotFoundError(f"Member '{member_id}' not found")
     return _serialize(doc)
 
 
@@ -153,9 +160,13 @@ async def delete_member(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    result = await db.members.delete_one({"_id": to_object_id(member_id)})
-    if result.deleted_count == 0:
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
+    if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
+    await db.members.delete_one({"_id": to_object_id(member_id)})
 
 
 @router.post("/{member_id}/visit", response_model=MemberResponse)
@@ -164,14 +175,18 @@ async def record_visit(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
+    if not doc:
+        raise NotFoundError(f"Member '{member_id}' not found")
+    
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
     now = datetime.now(timezone.utc)
     doc = await db.members.find_one_and_update(
         {"_id": to_object_id(member_id)},
         {"$inc": {"visit_count": 1}, "$set": {"last_visit": now}},
         return_document=True,
     )
-    if not doc:
-        raise NotFoundError(f"Member '{member_id}' not found")
     return _serialize(doc)
 
 
