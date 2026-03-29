@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from bson import ObjectId
+from app.core.utils import to_object_id
 from app.database import get_db
 from app.core.security import (
     verify_password,
@@ -52,7 +53,7 @@ async def refresh(body: RefreshRequest, db=Depends(get_db)):
     if payload.get("type") != "refresh":
         raise InvalidTokenError("Not a refresh token")
 
-    user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+    user = await db.users.find_one({"_id": to_object_id(payload["sub"])})
     if not user:
         raise UserNotFoundError("User not found")
 

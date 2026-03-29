@@ -53,7 +53,7 @@ async def add_suppression(
     doc = {
         "phone": phone,
         "reason": body.reason,
-        "added_by": ObjectId(current_user["id"]),
+        "added_by": current_user["_id"],
         "added_at": now,
     }
     try:

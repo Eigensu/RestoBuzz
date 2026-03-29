@@ -9,6 +9,7 @@ from app.dependencies import (
     require_restaurant_access,
     validate_restaurant_access,
 )
+from app.core.utils import to_object_id
 from app.core.errors import (
     NotFoundError,
     ConflictError,
@@ -119,7 +120,7 @@ async def get_member(
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
-    doc = await db.members.find_one({"_id": ObjectId(member_id)})
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
     return _serialize(doc)
@@ -137,7 +138,7 @@ async def update_member(
         raise ValidationError("No fields provided to update")
 
     doc = await db.members.find_one_and_update(
-        {"_id": ObjectId(member_id)},
+        {"_id": to_object_id(member_id)},
         {"$set": updates},
         return_document=True,
     )
@@ -152,7 +153,7 @@ async def delete_member(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    result = await db.members.delete_one({"_id": ObjectId(member_id)})
+    result = await db.members.delete_one({"_id": to_object_id(member_id)})
     if result.deleted_count == 0:
         raise NotFoundError(f"Member '{member_id}' not found")
 
@@ -165,7 +166,7 @@ async def record_visit(
 ):
     now = datetime.now(timezone.utc)
     doc = await db.members.find_one_and_update(
-        {"_id": ObjectId(member_id)},
+        {"_id": to_object_id(member_id)},
         {"$inc": {"visit_count": 1}, "$set": {"last_visit": now}},
         return_document=True,
     )

@@ -37,14 +37,29 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# IMPORTANT: Starlette runs middleware in REVERSE registration order (LIFO).
+# CorrelationIdMiddleware must be registered FIRST so that CORSMiddleware
+# executes OUTERMOST — i.e. it handles preflight OPTIONS before anything else.
 app.add_middleware(CorrelationIdMiddleware)
+
+# Enhanced CORS: If '*' is in origins, we use allow_origin_regex to support credentials
+_origins = settings.cors_origins_list
+if "*" in _origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://.*",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.exception_handler(AppError)

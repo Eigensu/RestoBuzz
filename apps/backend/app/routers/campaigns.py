@@ -12,6 +12,8 @@ from app.dependencies import (
     require_restaurant_access,
     validate_restaurant_access,
 )
+from app.core.utils import to_object_id
+from app.core.logging import get_logger
 from app.core.errors import (
     CampaignNotFoundError,
     ContactFileExpiredError,
@@ -118,7 +120,7 @@ async def create_campaign(
         "scheduled_at": body.scheduled_at,
         "started_at": None,
         "completed_at": None,
-        "created_by": ObjectId(current_user["id"]),
+        "created_by": current_user["_id"],
         "include_unsubscribe": body.include_unsubscribe,
         "created_at": now,
     }
@@ -169,7 +171,7 @@ async def get_campaign(
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
-    doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
     return _serialize_campaign(doc)
@@ -181,14 +183,14 @@ async def start_campaign(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
     if doc["status"] not in ("draft", "paused"):
         raise ValidationError(f"Cannot start a campaign with status '{doc['status']}'")
 
     await db.campaign_jobs.update_one(
-        {"_id": ObjectId(campaign_id)}, {"$set": {"status": "queued"}}
+        {"_id": to_object_id(campaign_id)}, {"$set": {"status": "queued"}}
     )
 
     from app.workers.send_task import dispatch_campaign_task
@@ -206,7 +208,7 @@ async def pause_campaign(
     db=Depends(get_db),
 ):
     doc = await db.campaign_jobs.find_one_and_update(
-        {"_id": ObjectId(campaign_id), "status": "running"},
+        {"_id": to_object_id(campaign_id), "status": "running"},
         {"$set": {"status": "paused"}},
         return_document=True,
     )
@@ -223,7 +225,7 @@ async def cancel_campaign(
 ):
     doc = await db.campaign_jobs.find_one_and_update(
         {
-            "_id": ObjectId(campaign_id),
+            "_id": to_object_id(campaign_id),
             "status": {"$in": ["draft", "queued", "running", "paused"]},
         },
         {"$set": {"status": "cancelled"}},
@@ -243,7 +245,7 @@ async def list_messages(
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
-    query: dict = {"job_id": ObjectId(campaign_id)}
+    query: dict = {"job_id": to_object_id(campaign_id)}
     if status:
         query["status"] = status
 
@@ -289,7 +291,7 @@ async def failure_breakdown(
 ):
     cursor = db.message_logs.aggregate(
         [
-            {"$match": {"job_id": ObjectId(campaign_id), "status": "failed"}},
+            {"$match": {"job_id": to_object_id(campaign_id), "status": "failed"}},
             {"$group": {"_id": "$error_message", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}},
             {"$limit": 10},
@@ -307,12 +309,12 @@ async def retry_failed(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    original = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    original = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not original:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
 
     failed_logs = await db.message_logs.find(
-        {"job_id": ObjectId(campaign_id), "status": "failed"}
+        {"job_id": to_object_id(campaign_id), "status": "failed"}
     ).to_list(10000)
 
     if not failed_logs:
@@ -345,7 +347,7 @@ async def retry_failed(
         "scheduled_at": None,
         "started_at": None,
         "completed_at": None,
-        "created_by": ObjectId(current_user["id"]),
+        "created_by": current_user["_id"],
         "include_unsubscribe": original.get("include_unsubscribe", False),
         "media_url": original.get("media_url"),
         "created_at": now,
@@ -390,13 +392,13 @@ async def delete_campaign(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
     if doc["status"] == "running":
         raise ValidationError("Cannot delete a running campaign — cancel it first")
-    await db.message_logs.delete_many({"job_id": ObjectId(campaign_id)})
-    await db.campaign_jobs.delete_one({"_id": ObjectId(campaign_id)})
+    await db.message_logs.delete_many({"job_id": to_object_id(campaign_id)})
+    await db.campaign_jobs.delete_one({"_id": to_object_id(campaign_id)})
 
 
 @router.get("/{campaign_id}/export-failed")
@@ -405,7 +407,7 @@ async def export_failed(
     current_user: dict = Depends(require_role("viewer")),
     db=Depends(get_db),
 ):
-    cursor = db.message_logs.find({"job_id": ObjectId(campaign_id), "status": "failed"})
+    cursor = db.message_logs.find({"job_id": to_object_id(campaign_id), "status": "failed"})
 
     async def generate():
         output = io.StringIO()

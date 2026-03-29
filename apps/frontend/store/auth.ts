@@ -24,7 +24,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "wa-auth",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => sessionStorage),
       partialize: (state) => ({
         user: state.user,
         restaurant: state.restaurant,

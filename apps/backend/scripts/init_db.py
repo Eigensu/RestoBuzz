@@ -2,8 +2,13 @@
 
 import asyncio
 import os
+import sys
+import os
 from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
+
+# Add the apps/backend directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from passlib.context import CryptContext
 
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/restobuzz")
