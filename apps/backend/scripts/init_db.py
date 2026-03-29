@@ -11,16 +11,18 @@ from motor.motor_asyncio import AsyncIOMotorClient
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from passlib.context import CryptContext
 
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/restobuzz")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme123")
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 async def main():
-    client = AsyncIOMotorClient(MONGODB_URL)
-    db = client.get_default_database()
+    from app.config import settings
+    # For Atlas SRV URLs, we must use the configured mongodb_url and mongodb_db_name
+    # directly to ensure consistency with the backend.
+    client = AsyncIOMotorClient(settings.mongodb_url)
+    db = client.get_default_database(settings.mongodb_db_name)
+    
+    admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
+    admin_password = os.getenv("ADMIN_PASSWORD", "changeme123")
 
     # Create indexes via central database module
     from app.database import init_indexes
@@ -28,13 +30,13 @@ async def main():
     print("Database indexes initialized")
 
     # Seed super_admin
-    existing = await db.users.find_one({"email": ADMIN_EMAIL})
+    existing = await db.users.find_one({"email": admin_email})
     admin_id = None
     if not existing:
         result = await db.users.insert_one(
             {
-                "email": ADMIN_EMAIL,
-                "hashed_password": pwd_context.hash(ADMIN_PASSWORD),
+                "email": admin_email,
+                "hashed_password": pwd_context.hash(admin_password),
                 "role": "super_admin",
                 "is_active": True,
                 "created_at": datetime.now(timezone.utc),
@@ -42,10 +44,19 @@ async def main():
             }
         )
         admin_id = result.inserted_id
-        print(f"Created super_admin: {ADMIN_EMAIL}")
+        print(f"Created super_admin: {admin_email}")
     else:
         admin_id = existing["_id"]
-        print(f"User {ADMIN_EMAIL} already exists")
+        # Update user to ensure role and password match current configuration
+        await db.users.update_one(
+            {"_id": admin_id},
+            {"$set": {
+                "hashed_password": pwd_context.hash(admin_password),
+                "role": "super_admin",
+                "is_active": True
+            }}
+        )
+        print(f"User {admin_email} already exists — password and role (super_admin) updated.")
 
     # Seed restaurants
     from app.database import init_indexes

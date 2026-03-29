@@ -52,7 +52,7 @@ export default function SuppressionPage() {
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="+12125551234"
-            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
           />
           <select
             value={reason}
@@ -66,7 +66,7 @@ export default function SuppressionPage() {
           <button
             onClick={() => addMutation.mutate()}
             disabled={!phone || addMutation.isPending}
-            className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-2 rounded-lg transition disabled:opacity-50"
+            className="flex items-center gap-1.5 bg-gradient-to-r from-[#24422e] to-[#1a3022] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md disabled:opacity-50"
           >
             <Plus className="w-4 h-4" /> Add
           </button>

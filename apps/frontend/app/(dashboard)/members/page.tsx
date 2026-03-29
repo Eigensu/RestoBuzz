@@ -96,17 +96,9 @@ function MemberModal({
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition",
                     form.type === t
-                      ? "text-white"
+                      ? "text-white bg-gradient-to-r from-[#24422e] to-[#3a6b47]"
                       : "text-[#24422e] hover:bg-[#24422e]/10",
                   )}
-                  style={
-                    form.type === t
-                      ? {
-                          background:
-                            "linear-gradient(135deg, #24422e, #3a6b47)",
-                        }
-                      : undefined
-                  }
                 >
                   {t === "nfc" ? (
                     <Wifi className="w-4 h-4" />
@@ -127,7 +119,7 @@ function MemberModal({
               <input
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                 placeholder="Jane Doe"
               />
             </div>
@@ -138,7 +130,7 @@ function MemberModal({
               <input
                 value={form.phone}
                 onChange={(e) => set("phone", e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                 placeholder="+1234567890"
               />
             </div>
@@ -149,7 +141,7 @@ function MemberModal({
               <input
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                 placeholder="optional"
               />
             </div>
@@ -162,7 +154,7 @@ function MemberModal({
                 <input
                   value={form.card_uid}
                   onChange={(e) => set("card_uid", e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                   placeholder="A3F2B1C4..."
                 />
               </div>
@@ -174,7 +166,7 @@ function MemberModal({
                 <input
                   value={form.ecard_code}
                   onChange={(e) => set("ecard_code", e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                   placeholder="EC-0042"
                 />
               </div>
@@ -188,7 +180,7 @@ function MemberModal({
                 value={form.notes}
                 onChange={(e) => set("notes", e.target.value)}
                 rows={2}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e] resize-none"
                 placeholder="Optional notes..."
               />
             </div>
@@ -205,8 +197,7 @@ function MemberModal({
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || !form.name || !form.phone}
-            className="flex-1 text-white rounded-lg py-2 text-sm font-medium transition disabled:opacity-50 hover:opacity-90"
-            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+            className="flex-1 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white rounded-lg py-2 text-sm font-medium transition-all duration-300 shadow-sm hover:shadow-md disabled:opacity-50"
           >
             {mutation.isPending
               ? "Saving..."
@@ -319,15 +310,14 @@ export default function MembersPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importMutation.isPending}
-            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 transition-colors duration-200 hover:bg-[linear-gradient(135deg,#24422e,#3a6b47)]"
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-gradient-to-r hover:from-[#24422e] hover:to-[#3a6b47] hover:text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 transition-all duration-300"
           >
             <Upload className="w-4 h-4" />
             {importMutation.isPending ? "Importing..." : "Import Excel"}
           </button>
           <button
             onClick={() => setModal({ open: true, editing: null })}
-            className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition hover:opacity-90"
-            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+            className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md"
           >
             <Plus className="w-4 h-4" /> Add Member
           </button>
@@ -344,14 +334,9 @@ export default function MembersPage() {
               className={cn(
                 "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition",
                 tab === key
-                  ? "text-white"
+                  ? "text-white bg-gradient-to-r from-[#24422e] to-[#3a6b47]"
                   : "text-[#24422e] hover:bg-[#24422e]/10",
               )}
-              style={
-                tab === key
-                  ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
-                  : undefined
-              }
             >
               <Icon className="w-3.5 h-3.5" />
               {label}
@@ -364,7 +349,7 @@ export default function MembersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone, email..."
-            className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+            className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e] bg-white"
           />
         </div>
       </div>

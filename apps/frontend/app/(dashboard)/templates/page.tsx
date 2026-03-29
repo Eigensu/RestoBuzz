@@ -29,7 +29,7 @@ export default function TemplatesPage() {
         <button
           onClick={() => syncMutation.mutate()}
           disabled={syncMutation.isPending}
-          className="flex items-center gap-2 border text-sm px-3 py-1.5 rounded-lg hover:bg-gray-50 transition disabled:opacity-50"
+          className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md disabled:opacity-50"
         >
           <RefreshCw
             className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`}

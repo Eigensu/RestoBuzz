@@ -10,6 +10,7 @@ from app.core.utils import to_object_id
 router = APIRouter(prefix="/restaurants", tags=["restaurants"])
 
 
+@router.get("", response_model=list[RestaurantResponse])
 @router.get("/", response_model=list[RestaurantResponse])
 async def list_restaurants(
     allowed_ids: set[str] = Depends(get_user_restaurant_ids),

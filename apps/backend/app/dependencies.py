@@ -48,16 +48,21 @@ async def get_user_restaurant_ids(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> set[str]:
     # Dev account or super_admin bypasses all checks
+    print(f"DEBUG: Checking access for user {current_user.get('email')} with role {current_user.get('role')}")
     if current_user.get("role") == "super_admin" or current_user.get("email") == "admin@example.com":
         # Fetch all restaurants without projection to avoid silent KeyError
         # if the 'id' field is missing from any document
         cursor = db.restaurants.find({})
-        return {str(doc["id"]) async for doc in cursor if "id" in doc}
+        ids = {str(doc["id"]) async for doc in cursor if "id" in doc}
+        print(f"DEBUG: super_admin bypass - found {len(ids)} restaurants")
+        return ids
 
     cursor = db.user_restaurant_roles.find(
         {"user_id": ObjectId(current_user["_id"])}, {"restaurant_id": 1, "_id": 0}
     )
-    return {doc["restaurant_id"] async for doc in cursor}
+    ids = {doc["restaurant_id"] async for doc in cursor}
+    print(f"DEBUG: Found {len(ids)} assigned restaurants for user")
+    return ids
 
 
 async def validate_restaurant_access(

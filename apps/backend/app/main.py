@@ -25,6 +25,9 @@ from app.sse.campaign_stream import router as sse_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    print("\n" + "="*50)
+    print("BACKEND IS LIVE - LOADING NEW CONFIG")
+    print("="*50 + "\n")
     setup_logging()
     await init_indexes()
     yield
@@ -35,6 +38,7 @@ app = FastAPI(
     title="WhatsApp Bulk Sender API",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # IMPORTANT: Starlette runs middleware in REVERSE registration order (LIFO).

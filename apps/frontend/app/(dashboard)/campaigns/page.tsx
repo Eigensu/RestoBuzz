@@ -49,8 +49,7 @@ export default function CampaignsPage() {
         <h1 className="text-xl font-semibold">Campaigns</h1>
         <Link
           href="/campaigns/new"
-          className="flex items-center gap-2 text-white text-sm font-medium px-4 py-2 rounded-lg transition hover:opacity-90"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md"
         >
           <Plus className="w-4 h-4" /> New Campaign
         </Link>

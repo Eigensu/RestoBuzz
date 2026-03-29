@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -64,7 +64,21 @@ export default function AuthLayout({
 }) {
   const router = useRouter();
   const setUser = useAuthStore((s) => s.setUser);
+  const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useState<"login" | "register">(initialMode);
+
+  useState(() => {
+    // Standard Next.js practice for client components that
+    // might be modified by browser extensions.
+    if (typeof window !== "undefined") {
+      setMounted(true);
+    }
+  });
+
+  // Also use useEffect to ensure we stay in sync
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [showLoginPw, setShowLoginPw] = useState(false);
   const [showRegPw, setShowRegPw] = useState(false);
@@ -157,6 +171,7 @@ export default function AuthLayout({
                   type="email"
                   placeholder="admin@example.com"
                   className={fieldInput}
+                  suppressHydrationWarning
                 />
               </div>
               {loginForm.formState.errors.email && (
@@ -179,6 +194,7 @@ export default function AuthLayout({
                     type={showLoginPw ? "text" : "password"}
                     placeholder="••••••••••••••••"
                     className={fieldInput}
+                    suppressHydrationWarning
                   />
                 </div>
                 <button
@@ -206,6 +222,7 @@ export default function AuthLayout({
                 type="submit"
                 disabled={loginLoading}
                 className="w-full bg-[#24422e] hover:bg-[#1a3022] text-white py-3 text-sm font-medium transition-colors disabled:opacity-60"
+                suppressHydrationWarning
               >
                 {loginLoading ? "Logging in…" : "Log In"}
               </button>
@@ -261,6 +278,7 @@ export default function AuthLayout({
                     type="text"
                     placeholder="John"
                     className={fieldInput}
+                    suppressHydrationWarning
                   />
                 </div>
                 {registerForm.formState.errors.firstName && (
@@ -280,6 +298,7 @@ export default function AuthLayout({
                     type="text"
                     placeholder="Doe"
                     className={fieldInput}
+                    suppressHydrationWarning
                   />
                 </div>
                 {registerForm.formState.errors.lastName && (
@@ -303,6 +322,7 @@ export default function AuthLayout({
                     type="email"
                     placeholder="admin@example.com"
                     className={fieldInput}
+                    suppressHydrationWarning
                   />
                 </div>
                 {registerForm.formState.errors.email && (
@@ -322,6 +342,7 @@ export default function AuthLayout({
                     type="tel"
                     placeholder="0123456789"
                     className={fieldInput}
+                    suppressHydrationWarning
                   />
                 </div>
                 {registerForm.formState.errors.phone && (
@@ -345,6 +366,7 @@ export default function AuthLayout({
                     type={showRegPw ? "text" : "password"}
                     placeholder="••••••••••••••••"
                     className={fieldInput}
+                    suppressHydrationWarning
                   />
                 </div>
                 <button
@@ -379,6 +401,7 @@ export default function AuthLayout({
                     type={showRegCf ? "text" : "password"}
                     placeholder="••••••••••••••••"
                     className={fieldInput}
+                    suppressHydrationWarning
                   />
                 </div>
                 <button
