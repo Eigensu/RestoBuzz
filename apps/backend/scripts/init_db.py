@@ -22,9 +22,15 @@ async def main():
     db = client.get_default_database(settings.mongodb_db_name)
 
     admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-    # Using k_v to avoid SonarCloud's hard-coded credential heuristic.
-    # This is a development placeholder; use ADMIN_PASSWORD in production.
-    k_v = os.getenv("ADMIN_PASSWORD", "DEV_RESTOBUZZ_SECRET_789")
+    admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
+    reset_password = os.getenv("RESET_PASSWORD") == "1"
+
+    def require_admin_password_or_exit(reason: str) -> str:
+        if not admin_password:
+            raise RuntimeError(
+                f"ADMIN_PASSWORD is required to {reason}. Set ADMIN_PASSWORD and rerun."
+            )
+        return admin_password
 
     # Create indexes via central database module
     from app.database import init_indexes
@@ -36,10 +42,11 @@ async def main():
     existing = await db.users.find_one({"email": admin_email})
     admin_id = None
     if not existing:
+        password_to_hash = require_admin_password_or_exit("create super_admin")
         result = await db.users.insert_one(
             {
                 "email": admin_email,
-                "hashed_password": pwd_context.hash(k_v),
+                "hashed_password": pwd_context.hash(password_to_hash),
                 "role": "super_admin",
                 "is_active": True,
                 "created_at": datetime.now(timezone.utc),
@@ -52,8 +59,11 @@ async def main():
         admin_id = existing["_id"]
         # Only update password if RESET_PASSWORD=1 is set
         update_data = {"role": "super_admin", "is_active": True}
-        if os.getenv("RESET_PASSWORD") == "1":
-            update_data["hashed_password"] = pwd_context.hash(k_v)
+        if reset_password:
+            password_to_hash = require_admin_password_or_exit(
+                "reset super_admin password"
+            )
+            update_data["hashed_password"] = pwd_context.hash(password_to_hash)
             print(f"User {admin_email} password reset initiated.")
 
         await db.users.update_one({"_id": admin_id}, {"$set": update_data})

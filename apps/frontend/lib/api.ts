@@ -4,6 +4,8 @@ import { parseApiError } from "./errors";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const isBrowser = globalThis.window !== undefined;
+let volatileAccessToken: string | null = null;
+let volatileRefreshToken: string | null = null;
 
 // In the browser, use a relative path so requests go to the Next.js dev server
 // (/api/*) which is rewritten server-side to the real backend. This avoids
@@ -17,7 +19,7 @@ export const api = axios.create({
 // Attach access token + ngrok bypass header
 api.interceptors.request.use((config) => {
   if (isBrowser) {
-    const token = localStorage.getItem("access_token");
+    const token = volatileAccessToken ?? localStorage.getItem("access_token");
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   // ngrok free tier shows a browser warning page — this header skips it
@@ -33,7 +35,8 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       if (isBrowser) {
-        const refresh = localStorage.getItem("refresh_token");
+        const refresh =
+          volatileRefreshToken ?? localStorage.getItem("refresh_token");
         if (refresh) {
           try {
             // Use the global axios (no interceptors) to avoid recursive
@@ -48,13 +51,17 @@ api.interceptors.response.use(
                 headers: { "ngrok-skip-browser-warning": "1" },
               },
             );
-            localStorage.setItem("access_token", data.access_token);
-            localStorage.setItem("refresh_token", data.refresh_token);
+            // Keep refreshed tokens in memory to reduce persistent token exposure.
+            volatileAccessToken = data.access_token;
+            volatileRefreshToken = data.refresh_token;
             original.headers.Authorization = `Bearer ${data.access_token}`;
             return api(original);
           } catch {
+            volatileAccessToken = null;
+            volatileRefreshToken = null;
             localStorage.clear();
             globalThis.window.location.href = "/login";
+            return;
           }
         }
       }

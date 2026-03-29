@@ -20,7 +20,7 @@ class RegisterRequest(BaseModel):
     lastName: str
     email: EmailStr
     phone: str
-    password: str
+    password: str = Field(min_length=6)
     confirmPassword: str
     agreeToTerms: bool
 

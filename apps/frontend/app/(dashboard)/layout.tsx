@@ -41,25 +41,35 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, setUser, restaurant, setRestaurant, _hydrated } = useAuthStore();
+  const { user, setUser, restaurant, setRestaurant, _hydrated } =
+    useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const isResolvingSession = _hydrated && !user;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inboxUnread = useUIStore((s) => s.inboxUnread);
   const { data: restaurants = [] } = useQuery({
-    queryKey: ["restaurants"],
+    queryKey: ["restaurants", user?.id ?? null],
     queryFn: getRestaurants,
-    enabled: !!user,
+    enabled: Boolean(user) && !isResolvingSession,
   });
 
   useEffect(() => {
     if (!_hydrated) return; // wait for localStorage rehydration
-    if (!user) {
-      getMe().then((u) => {
+    let cancelled = false;
+
+    if (user) return;
+
+    getMe()
+      .then((u) => {
+        if (cancelled) return;
         if (!u) router.push("/login");
         else setUser(u);
       });
-    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [_hydrated, user, router, setUser]);
 
   useEffect(() => {
@@ -104,10 +114,15 @@ export default function DashboardLayout({
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}>
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          >
             <MessageSquare className="w-4 h-4 text-white" />
           </div>
-          <span className="font-semibold text-sm text-[#24422e]">RestoBuzz</span>
+          <span className="font-semibold text-sm text-[#24422e]">
+            RestoBuzz
+          </span>
         </div>
 
         {/* Restaurant dropdown switcher */}
@@ -153,7 +168,10 @@ export default function DashboardLayout({
                       </p>
                     </div>
                     {restaurant.id === r.id && (
-                      <Check className="w-3.5 h-3.5 shrink-0" style={{ color: "#24422e" }} />
+                      <Check
+                        className="w-3.5 h-3.5 shrink-0"
+                        style={{ color: "#24422e" }}
+                      />
                     )}
                   </button>
                 ))}
@@ -182,7 +200,9 @@ export default function DashboardLayout({
               {href === "/inbox" && inboxUnread > 0 && (
                 <span
                   className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
-                  style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+                  style={{
+                    background: "linear-gradient(135deg, #24422e, #3a6b47)",
+                  }}
                 >
                   {inboxUnread > 9 ? "9+" : inboxUnread}
                 </span>
@@ -193,7 +213,12 @@ export default function DashboardLayout({
 
         <div className="p-3 border-t">
           <div className="flex items-center gap-2 px-3 py-2 mb-1">
-            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white" style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}>
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white"
+              style={{
+                background: "linear-gradient(135deg, #24422e, #3a6b47)",
+              }}
+            >
               {user?.email?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
