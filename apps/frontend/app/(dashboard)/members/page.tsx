@@ -1,11 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import type { Member, MemberListResponse } from "@/types";
 import { relativeIST } from "@/lib/date";
 import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 import {
   Plus,
   Search,
@@ -15,6 +16,7 @@ import {
   Wifi,
   X,
   CheckCircle2,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -68,8 +70,7 @@ function MemberModal({
       qc.invalidateQueries({ queryKey: ["members", restaurantId] });
       onClose();
     },
-    onError: (e: { response?: { data?: { detail?: string } } }) =>
-      toast.error(e.response?.data?.detail ?? "Failed to save member"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   return (
@@ -95,8 +96,8 @@ function MemberModal({
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition",
                     form.type === t
-                      ? "bg-green-500 text-white"
-                      : "text-gray-500 hover:bg-gray-50",
+                      ? "text-white bg-gradient-to-r from-[#24422e] to-[#3a6b47]"
+                      : "text-[#24422e] hover:bg-[#24422e]/10",
                   )}
                 >
                   {t === "nfc" ? (
@@ -118,7 +119,7 @@ function MemberModal({
               <input
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                 placeholder="Jane Doe"
               />
             </div>
@@ -129,7 +130,7 @@ function MemberModal({
               <input
                 value={form.phone}
                 onChange={(e) => set("phone", e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                 placeholder="+1234567890"
               />
             </div>
@@ -140,7 +141,7 @@ function MemberModal({
               <input
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                 placeholder="optional"
               />
             </div>
@@ -153,7 +154,7 @@ function MemberModal({
                 <input
                   value={form.card_uid}
                   onChange={(e) => set("card_uid", e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                   placeholder="A3F2B1C4..."
                 />
               </div>
@@ -165,7 +166,7 @@ function MemberModal({
                 <input
                   value={form.ecard_code}
                   onChange={(e) => set("ecard_code", e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
                   placeholder="EC-0042"
                 />
               </div>
@@ -179,7 +180,7 @@ function MemberModal({
                 value={form.notes}
                 onChange={(e) => set("notes", e.target.value)}
                 rows={2}
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e] resize-none"
                 placeholder="Optional notes..."
               />
             </div>
@@ -196,7 +197,7 @@ function MemberModal({
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || !form.name || !form.phone}
-            className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-lg py-2 text-sm font-medium transition disabled:opacity-50"
+            className="flex-1 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white rounded-lg py-2 text-sm font-medium transition-all duration-300 shadow-sm hover:shadow-md disabled:opacity-50"
           >
             {mutation.isPending
               ? "Saving..."
@@ -219,6 +220,26 @@ export default function MembersPage() {
   const [modal, setModal] = useState<{ open: boolean; editing: Member | null }>(
     { open: false, editing: null },
   );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const importMutation = useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return api.post(
+        `/members/import?restaurant_id=${restaurant!.id}&type=${tab === "all" ? "ecard" : tab}`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+    },
+    onSuccess: (res) => {
+      toast.success(
+        `Imported ${res.data.inserted} members, skipped ${res.data.skipped}`,
+      );
+      qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
+    },
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
+  });
 
   const { data, isLoading } = useQuery<MemberListResponse>({
     queryKey: ["members", restaurant?.id, tab, search],
@@ -241,7 +262,7 @@ export default function MembersPage() {
       toast.success("Member removed");
       qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
     },
-    onError: () => toast.error("Failed to delete member"),
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const members = data?.items ?? [];
@@ -271,15 +292,36 @@ export default function MembersPage() {
         <div>
           <h1 className="text-xl font-semibold">Members</h1>
           <p className="text-xs text-gray-400 mt-0.5">
-            {restaurant.emoji} {restaurant.name}
+            {restaurant.name} · {restaurant.location}
           </p>
         </div>
-        <button
-          onClick={() => setModal({ open: true, editing: null })}
-          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
-        >
-          <Plus className="w-4 h-4" /> Add Member
-        </button>
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importMutation.mutate(file);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importMutation.isPending}
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-gradient-to-r hover:from-[#24422e] hover:to-[#3a6b47] hover:text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 transition-all duration-300"
+          >
+            <Upload className="w-4 h-4" />
+            {importMutation.isPending ? "Importing..." : "Import Excel"}
+          </button>
+          <button
+            onClick={() => setModal({ open: true, editing: null })}
+            className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md"
+          >
+            <Plus className="w-4 h-4" /> Add Member
+          </button>
+        </div>
       </div>
 
       {/* Tabs + Search */}
@@ -292,8 +334,8 @@ export default function MembersPage() {
               className={cn(
                 "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition",
                 tab === key
-                  ? "bg-green-500 text-white"
-                  : "text-gray-500 hover:bg-gray-50",
+                  ? "text-white bg-gradient-to-r from-[#24422e] to-[#3a6b47]"
+                  : "text-[#24422e] hover:bg-[#24422e]/10",
               )}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -307,7 +349,7 @@ export default function MembersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone, email..."
-            className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+            className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e] bg-white"
           />
         </div>
       </div>
@@ -321,7 +363,7 @@ export default function MembersPage() {
             <p className="text-gray-400 text-sm">No members found.</p>
             <button
               onClick={() => setModal({ open: true, editing: null })}
-              className="mt-3 text-green-600 text-sm hover:underline"
+              className="mt-3 text-sm font-medium text-[#24422e] hover:underline"
             >
               Add the first member
             </button>

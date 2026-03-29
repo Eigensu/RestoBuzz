@@ -13,17 +13,15 @@ def get_client() -> AsyncIOMotorClient:
 
 
 def get_db() -> AsyncIOMotorDatabase:
-    return get_client().get_default_database()
+    return get_client().get_default_database(settings.mongodb_db_name)
 
 
 def get_fresh_db() -> AsyncIOMotorDatabase:
     """Create a brand-new Motor client for use inside Celery worker tasks.
     Celery forks processes and the parent's event loop is closed in the child,
     so we must never reuse the global _client across fork boundaries."""
-    from app.config import settings
-
     client = AsyncIOMotorClient(settings.mongodb_url)
-    return client.get_default_database()
+    return client.get_default_database(settings.mongodb_db_name)
 
 
 async def init_indexes() -> None:
@@ -38,6 +36,10 @@ async def init_indexes() -> None:
             IndexModel([("status", ASCENDING)]),
             IndexModel([("created_by", ASCENDING)]),
             IndexModel([("scheduled_at", ASCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING)]),  # tenant scoping
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("created_at", DESCENDING)]
+            ),  # dashboard list sorting
         ]
     )
 
@@ -45,7 +47,11 @@ async def init_indexes() -> None:
     await db.message_logs.create_indexes(
         [
             IndexModel([("job_id", ASCENDING), ("status", ASCENDING)]),
-            IndexModel([("wa_message_id", ASCENDING)], unique=True, sparse=True),
+            IndexModel(
+                [("wa_message_id", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"wa_message_id": {"$type": "string"}},
+            ),
             IndexModel([("locked_until", ASCENDING)]),
             IndexModel([("job_id", ASCENDING), ("created_at", DESCENDING)]),
         ]
@@ -75,6 +81,28 @@ async def init_indexes() -> None:
 
     # suppression_list
     await db.suppression_list.create_index("phone", unique=True)
+
+    # restaurants
+    await db.restaurants.create_index("id", unique=True)
+
+    # user_restaurant_roles (per-restaurant access control)
+    await db.user_restaurant_roles.create_indexes(
+        [
+            IndexModel(
+                [("user_id", ASCENDING), ("restaurant_id", ASCENDING)], unique=True
+            ),
+            IndexModel([("restaurant_id", ASCENDING)]),
+            IndexModel([("user_id", ASCENDING)]),
+        ]
+    )
+
+    # contact_files
+    await db.contact_files.create_indexes(
+        [
+            IndexModel([("filename", ASCENDING), ("hash", ASCENDING)], unique=True),
+            IndexModel([("uploaded_at", DESCENDING)]),
+        ]
+    )
 
     # audit_logs
     await db.audit_logs.create_indexes(

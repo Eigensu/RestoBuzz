@@ -1,8 +1,13 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Root .env is two levels above apps/backend/
-_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
+# Prefer the nearest existing .env while developing locally.
+# In containers, .env may not exist and that's fine because Railway injects env vars.
+_CONFIG_PATH = Path(__file__).resolve()
+_ROOT_ENV = next(
+    (parent / ".env" for parent in _CONFIG_PATH.parents if (parent / ".env").exists()),
+    _CONFIG_PATH.parents[min(3, len(_CONFIG_PATH.parents) - 1)] / ".env",
+)
 
 
 class Settings(BaseSettings):
@@ -13,7 +18,8 @@ class Settings(BaseSettings):
     )
 
     # MongoDB
-    mongodb_url: str = "mongodb://localhost:27017/whatsapp_bulk"
+    mongodb_url: str = "mongodb://localhost:27017/restobuzz"
+    mongodb_db_name: str = "restobuzz"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -25,7 +31,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # Meta Cloud API
-    meta_api_version: str = "v21.0"
+    meta_api_version: str = "v25.0"
     meta_waba_id: str = ""
     meta_primary_phone_id: str = ""
     meta_primary_access_token: str = ""
@@ -42,6 +48,13 @@ class Settings(BaseSettings):
     # Celery
     celery_concurrency: int = 4
     rate_limit_mps: int = 80
+
+    # CORS — comma-separated list of allowed origins
+    cors_origins: str = "http://localhost:3000, *"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 settings = Settings()

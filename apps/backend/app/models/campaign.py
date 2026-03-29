@@ -8,19 +8,21 @@ Priority = Literal["MARKETING", "UTILITY"]
 
 
 class CampaignCreate(BaseModel):
+    restaurant_id: str = Field(min_length=1)
     name: str = Field(min_length=1, max_length=200)
-    template_id: str
-    template_name: str
+    template_id: str = Field(min_length=1)
+    template_name: str = Field(min_length=1)
     template_variables: dict = Field(default_factory=dict)
     media_url: str | None = None
     priority: Priority = "MARKETING"
     scheduled_at: datetime | None = None
     include_unsubscribe: bool = True
-    contact_file_ref: str  # temp file key from upload step
+    contact_file_ref: str = Field(min_length=1)  # temp file key from upload step
 
 
 class CampaignResponse(BaseModel):
     id: str
+    restaurant_id: str
     name: str
     template_id: str
     template_name: str

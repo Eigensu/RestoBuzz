@@ -7,12 +7,12 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
-    "dev:backend": "dotenv -e .env -- sh -c 'cd apps/backend && uvicorn app.main:app --reload --port 8000'",
-    "dev:worker": "dotenv -e .env -- sh -c 'cd apps/backend && celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q utility,marketing'",
-    "dev:beat": "dotenv -e .env -- sh -c 'cd apps/backend && celery -A app.workers.celery_app beat --loglevel=info'",
-    "dev:flower": "dotenv -e .env -- sh -c 'cd apps/backend && celery -A app.workers.celery_app flower --port=5555'",
-    "setup:backend": "cd apps/backend && python -m venv .venv && .venv/bin/pip install -r requirements.txt",
-    "init:db": "cd apps/backend && python scripts/init_db.py"
+    "dev:backend": "pnpm --filter backend run dev",
+    "dev:worker": "pnpm --filter backend run worker",
+    "dev:beat": "pnpm --filter backend run beat",
+    "dev:flower": "pnpm --filter backend run flower",
+    "setup:backend": "pnpm --filter backend run setup",
+    "init:db": "pnpm --filter backend run init:db"
   },
   "devDependencies": {
     "turbo": "^2.8.20"
