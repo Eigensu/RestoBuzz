@@ -1,11 +1,13 @@
 "use client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import type { Campaign } from "@/types";
 import Link from "next/link";
 import { relativeIST } from "@/lib/date";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-gray-100 text-gray-600",
@@ -19,23 +21,23 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function CampaignsPage() {
   const qc = useQueryClient();
+  const { restaurant } = useAuthStore();
+
   const { data, isLoading } = useQuery({
-    queryKey: ["campaigns"],
+    queryKey: ["campaigns", restaurant?.id],
     queryFn: () =>
-      api.get("/campaigns?page=1&page_size=50").then((r) => r.data),
+      api.get(`/campaigns?restaurant_id=${restaurant!.id}&page=1&page_size=50`).then((r) => r.data),
+    enabled: !!restaurant,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/campaigns/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["campaigns"] });
+      qc.invalidateQueries({ queryKey: ["campaigns", restaurant?.id] });
       toast.success("Campaign deleted");
     },
     onError: (e: unknown) => {
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? "Delete failed";
-      toast.error(msg);
+      toast.error(parseApiError(e).message);
     },
   });
 
@@ -47,7 +49,7 @@ export default function CampaignsPage() {
         <h1 className="text-xl font-semibold">Campaigns</h1>
         <Link
           href="/campaigns/new"
-          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
+          className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md"
         >
           <Plus className="w-4 h-4" /> New Campaign
         </Link>
@@ -93,7 +95,7 @@ export default function CampaignsPage() {
                     <td className="px-4 py-3">
                       <Link
                         href={`/campaigns/${c.id}`}
-                        className="font-medium hover:text-green-600"
+                        className="font-medium hover:text-[#24422e]"
                       >
                         {c.name}
                       </Link>
@@ -110,7 +112,7 @@ export default function CampaignsPage() {
                       <div className="flex items-center gap-2">
                         <div className="flex-1 bg-gray-100 rounded-full h-1.5">
                           <div
-                            className="bg-green-500 h-1.5 rounded-full"
+                            className="bg-[#24422e] h-1.5 rounded-full"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
