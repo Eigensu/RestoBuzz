@@ -43,9 +43,10 @@ async def upload_contacts(
 
     filename = file.filename
     file_hash = hashlib.md5(content).hexdigest()
+    uploader_id = str(current_user["_id"])
 
     existing = await db.contact_files.find_one(
-        {"filename": filename, "hash": file_hash}
+        {"filename": filename, "hash": file_hash, "uploaded_by": uploader_id}
     )
     if existing:
         result = PreflightResult(**existing["result"])
@@ -61,11 +62,12 @@ async def upload_contacts(
     result = await parse_contacts(content, filename, mapping, suppressed)
 
     await db.contact_files.update_one(
-        {"filename": filename, "hash": file_hash},
+        {"filename": filename, "hash": file_hash, "uploaded_by": uploader_id},
         {
             "$set": {
                 "filename": filename,
                 "hash": file_hash,
+                "uploaded_by": uploader_id,
                 "result": result.model_dump(),
                 "uploaded_at": datetime.now(timezone.utc),
             }
@@ -82,9 +84,10 @@ async def list_contact_files(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
+    uploader_id = str(current_user["_id"])
     docs = (
         await db.contact_files.find(
-            {},
+            {"uploaded_by": uploader_id},
             {
                 "filename": 1,
                 "uploaded_at": 1,
@@ -115,7 +118,10 @@ async def reuse_contact_file(
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
 ):
-    doc = await db.contact_files.find_one({"result.file_ref": file_ref})
+    uploader_id = str(current_user["_id"])
+    doc = await db.contact_files.find_one(
+        {"result.file_ref": file_ref, "uploaded_by": uploader_id}
+    )
     if not doc:
         raise NotFoundError(f"Contact file '{file_ref}' not found")
 

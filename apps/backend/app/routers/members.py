@@ -124,7 +124,7 @@ async def get_member(
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
     return _serialize(doc)
 
@@ -140,7 +140,7 @@ async def update_member(
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -164,7 +164,7 @@ async def delete_member(
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
     await db.members.delete_one({"_id": to_object_id(member_id)})
@@ -179,7 +179,7 @@ async def record_visit(
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
-    
+
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
     now = datetime.now(timezone.utc)
@@ -200,8 +200,25 @@ async def import_members(
     type: Annotated[str, Query()] = "ecard",
 ):
     await validate_restaurant_access(current_user, restaurant_id, db)
+
+    filename = file.filename or ""
+    content_type = file.content_type or ""
+    allowed_content_types = {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    if content_type not in allowed_content_types or not filename.lower().endswith(
+        ".xlsx"
+    ):
+        raise InvalidFileFormatError("Only .xlsx Excel files are supported for import")
+
     contents = await file.read()
-    wb = openpyxl.load_workbook(io.BytesIO(contents))
+    if not contents:
+        raise InvalidFileFormatError("Uploaded Excel file is empty")
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(contents))
+    except Exception as exc:
+        raise InvalidFileFormatError("Unable to read Excel file") from exc
     ws = wb.active
 
     raw_headers = [str(c.value).strip().lower() if c.value else "" for c in ws[1]]
