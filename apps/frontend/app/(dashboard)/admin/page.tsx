@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shield, UserPlus } from "lucide-react";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import { api } from "@/lib/api";
 import { parseApiError } from "@/lib/errors";
 import { toast } from "sonner";
@@ -248,7 +249,7 @@ export default function AdminPage() {
           onClick={() => createAdmin.mutate()}
           disabled={!canCreate || createAdmin.isPending}
           className="inline-flex items-center justify-center text-white text-sm font-bold px-5 py-2.5 rounded-xl transition disabled:opacity-50"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           {createAdmin.isPending ? "Creating..." : "Create Admin"}
         </button>
@@ -350,8 +351,7 @@ export default function AdminPage() {
                           }
                           className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
                           style={{
-                            background:
-                              "linear-gradient(135deg, #24422e, #3a6b47)",
+                            background: BRAND_GRADIENT,
                           }}
                         >
                           Link

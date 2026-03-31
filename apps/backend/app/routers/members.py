@@ -191,6 +191,46 @@ async def record_visit(
     return _serialize(doc)
 
 
+@router.post("/as-contacts")
+async def members_as_contacts(
+    restaurant_id: Annotated[str, Query()],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
+    db: Annotated[any, Depends(get_db)] = None,
+    type: Annotated[str | None, Query()] = None,
+):
+    """Convert members into a PreflightResult so they can be used as campaign contacts."""
+    import uuid, json
+    from redis.asyncio import from_url
+    from app.config import settings
+
+    query: dict = {"restaurant_id": validated_rid, "is_active": True}
+    if type in ("nfc", "ecard"):
+        query["type"] = type
+
+    valid_rows = []
+    async for doc in db.members.find(query, {"name": 1, "phone": 1}):
+        valid_rows.append(
+            {"name": doc.get("name", ""), "phone": doc["phone"], "variables": {}}
+        )
+
+    file_ref = str(uuid.uuid4())
+
+    redis = from_url(settings.redis_url, decode_responses=True)
+    await redis.set(f"file_ref:{file_ref}", json.dumps(valid_rows), ex=3600)
+    await redis.aclose()
+
+    return {
+        "valid_count": len(valid_rows),
+        "invalid_count": 0,
+        "duplicate_count": 0,
+        "suppressed_count": 0,
+        "valid_rows": valid_rows,
+        "invalid_rows": [],
+        "file_ref": file_ref,
+    }
+
+
 @router.post("/import")
 async def import_members(
     restaurant_id: Annotated[str, Query()],

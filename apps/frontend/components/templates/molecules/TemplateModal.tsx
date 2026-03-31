@@ -7,7 +7,7 @@ import { CategoryBadge } from "@/components/templates/atoms/CategoryBadge";
 import { ComponentPill } from "@/components/templates/atoms/ComponentPill";
 import { TemplateFormModal } from "@/components/templates/molecules/TemplateFormModal";
 
-const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
+import { BRAND_GRADIENT } from "@/lib/brand";
 
 interface TemplateModalProps {
   template: Template;

@@ -7,6 +7,7 @@ import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
 import { getRestaurants } from "@/lib/restaurants";
 import { useUIStore } from "@/lib/ui-store";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   LayoutDashboard,
   Send,
@@ -119,7 +120,7 @@ export default function DashboardLayout({
         <div className="flex items-center gap-2 px-4 h-14 border-b">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+            style={{ background: BRAND_GRADIENT }}
           >
             <MessageSquare className="w-4 h-4 text-white" />
           </div>
@@ -204,7 +205,7 @@ export default function DashboardLayout({
                 <span
                   className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
                   style={{
-                    background: "linear-gradient(135deg, #24422e, #3a6b47)",
+                    background: BRAND_GRADIENT,
                   }}
                 >
                   {inboxUnread > 9 ? "9+" : inboxUnread}
@@ -219,7 +220,7 @@ export default function DashboardLayout({
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white"
               style={{
-                background: "linear-gradient(135deg, #24422e, #3a6b47)",
+                background: BRAND_GRADIENT,
               }}
             >
               {user?.email?.[0]?.toUpperCase()}

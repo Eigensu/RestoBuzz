@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import type { Campaign } from "@/types";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import Link from "next/link";
 import { Plus, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -53,7 +54,7 @@ export default function CampaignsPage() {
         <Link
           href="/campaigns/new"
           className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           <Plus className="w-4 h-4" />
           NEW CAMPAIGN

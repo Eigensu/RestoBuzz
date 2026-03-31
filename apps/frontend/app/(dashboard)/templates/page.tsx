@@ -13,7 +13,7 @@ import {
   TemplateEmptyState,
 } from "@/components/templates/organisms/TemplateGrid";
 
-const GREEN = { darkest: "#24422e", dark: "#3a6b47" };
+import { BRAND_GRADIENT, GREEN } from "@/lib/brand";
 
 type FilterStatus = "ALL" | "APPROVED" | "PENDING";
 
