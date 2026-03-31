@@ -52,8 +52,10 @@ export function ConversationItem({
           <p
             className={cn(
               "text-sm truncate tracking-tight transition-colors",
-              conv.unread_count > 0 ? "font-black text-gray-900" : "font-bold text-gray-700",
-              selected && "text-[#24422e]"
+              conv.unread_count > 0
+                ? "font-black text-gray-900"
+                : "font-bold text-gray-700",
+              selected && "text-[#24422e]",
             )}
           >
             {conv.sender_name ?? conv.from_phone}
@@ -66,7 +68,9 @@ export function ConversationItem({
           <p
             className={cn(
               "text-xs truncate leading-relaxed",
-              conv.unread_count > 0 ? "text-gray-900 font-bold" : "text-gray-400 font-medium",
+              conv.unread_count > 0
+                ? "text-gray-900 font-bold"
+                : "text-gray-400 font-medium",
             )}
           >
             {getPreview(conv)}

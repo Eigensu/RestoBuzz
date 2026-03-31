@@ -8,7 +8,6 @@ export interface Restaurant {
   color: string; // tailwind bg color class
 }
 
-
 export interface Campaign {
   id: string;
   name: string;

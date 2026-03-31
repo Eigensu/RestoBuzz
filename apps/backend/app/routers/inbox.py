@@ -81,6 +81,9 @@ async def get_conversation(
     # Limit to last 30 days
     since = datetime.now(timezone.utc) - timedelta(days=30)
 
+    # Limit to last 30 days
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+
     pipeline = [
         {"$match": {"from_phone": phone, "received_at": {"$gte": since}}},
         {"$addFields": {"direction": "inbound"}},

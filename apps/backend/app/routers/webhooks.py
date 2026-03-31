@@ -196,8 +196,9 @@ async def _process_payload(db, payload: dict) -> None:
                 # campaign-related status handling (message_logs, status_history,
                 # counters, etc.) is delegated to the Celery worker.
                 result = await db.outbound_messages.update_one(
-                    {"wa_message_id": wa_id},
-                    {"$set": {"status": wa_status}}
+                    {"wa_message_id": wa_id}, {"$set": {"status": wa_status}}
                 )
                 if result.modified_count > 0:
-                    logger.info("outbound_status_updated", wa_id=wa_id, status=wa_status)
+                    logger.info(
+                        "outbound_status_updated", wa_id=wa_id, status=wa_status
+                    )

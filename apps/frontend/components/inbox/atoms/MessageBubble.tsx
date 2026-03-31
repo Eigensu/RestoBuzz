@@ -77,14 +77,17 @@ export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
                   out ? "text-white/70" : "text-[#24422e]",
                 )}
               >
-                {msg.location.name ?? `${msg.location.lat}, ${msg.location.lng}`}
+                {msg.location.name ??
+                  `${msg.location.lat}, ${msg.location.lng}`}
               </a>
             ) : (
               <span className="italic opacity-80">Location unavailable</span>
             )}
           </div>
         )}
-        {!["text", "image", "document", "location"].includes(msg.message_type) && (
+        {!["text", "image", "document", "location"].includes(
+          msg.message_type,
+        ) && (
           <p className="text-sm italic opacity-80">
             {msg.body || "Unsupported message"}
           </p>

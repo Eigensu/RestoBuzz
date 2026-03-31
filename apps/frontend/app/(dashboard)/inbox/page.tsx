@@ -75,7 +75,7 @@ export default function InboxPage() {
     return convs.filter(
       (c) =>
         (c.sender_name?.toLowerCase() || "").includes(q) ||
-        c.from_phone.includes(q)
+        c.from_phone.includes(q),
     );
   }, [convs, searchQuery]);
 
@@ -141,7 +141,9 @@ export default function InboxPage() {
             <div className="p-2 bg-[#eff2f0] rounded-lg">
               <Send className="w-5 h-5 text-[#24422e]" />
             </div>
-            <h2 className="text-xl font-black text-gray-900 tracking-tight">Inbox</h2>
+            <h2 className="text-xl font-black text-gray-900 tracking-tight">
+              Inbox
+            </h2>
           </div>
           <div className="mt-4 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -192,7 +194,10 @@ export default function InboxPage() {
           <>
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md z-20">
               <div className="flex items-center gap-4">
-                <button onClick={() => setSelected(null)} className="sm:hidden p-2 hover:bg-[#eff2f0] rounded-xl transition-colors">
+                <button
+                  onClick={() => setSelected(null)}
+                  className="sm:hidden p-2 hover:bg-[#eff2f0] rounded-xl transition-colors"
+                >
                   <ArrowLeft className="w-5 h-5 text-[#24422e]" />
                 </button>
                 <div
@@ -205,7 +210,9 @@ export default function InboxPage() {
                   <p className="text-sm font-black text-gray-900 tracking-tight">
                     {activeConv.sender_name ?? activeConv.from_phone}
                   </p>
-                  <p className="text-[10px] font-bold text-[#24422e]/40 uppercase tracking-widest">{activeConv.from_phone}</p>
+                  <p className="text-[10px] font-bold text-[#24422e]/40 uppercase tracking-widest">
+                    {activeConv.from_phone}
+                  </p>
                 </div>
               </div>
             </div>
@@ -213,14 +220,20 @@ export default function InboxPage() {
               {thread.map((msg, i) => {
                 const prev = thread[i - 1];
                 const dStr = String(msg.received_at);
-                const currentMsgDate = new Date(dStr.endsWith("Z") ? dStr : dStr + "Z");
+                const currentMsgDate = new Date(
+                  dStr.endsWith("Z") ? dStr : dStr + "Z",
+                );
                 let showDate = !prev;
                 if (prev) {
                   const pStr = String(prev.received_at);
-                  const prevMsgDate = new Date(pStr.endsWith("Z") ? pStr : pStr + "Z");
-                  showDate = currentMsgDate.toDateString() !== prevMsgDate.toDateString();
+                  const prevMsgDate = new Date(
+                    pStr.endsWith("Z") ? pStr : pStr + "Z",
+                  );
+                  showDate =
+                    currentMsgDate.toDateString() !==
+                    prevMsgDate.toDateString();
                 }
-                
+
                 return (
                   <div key={msg.id} className="space-y-1">
                     {showDate && <DateSeparator date={msg.received_at} />}
