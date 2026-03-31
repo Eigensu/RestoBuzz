@@ -6,6 +6,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const isBrowser = globalThis.window !== undefined;
 let volatileAccessToken: string | null = null;
 let volatileRefreshToken: string | null = null;
+let refreshInFlight: Promise<{ access_token: string; refresh_token: string }> | null =
+  null;
 
 // In the browser, use a relative path so requests go to the Next.js dev server
 // (/api/*) which is rewritten server-side to the real backend. This avoids
@@ -39,27 +41,38 @@ api.interceptors.response.use(
           volatileRefreshToken ?? localStorage.getItem("refresh_token");
         if (refresh) {
           try {
-            // Use the global axios (no interceptors) to avoid recursive
-            // interceptor calls. Use relative path so the request is same-origin
-            // and forwarded by Next.js to the real backend.
-            const { data } = await axios.post(
-              `/api/auth/refresh`,
-              {
-                refresh_token: refresh,
-              },
-              {
-                headers: { "ngrok-skip-browser-warning": "1" },
-              },
-            );
-            // Keep refreshed tokens in memory to reduce persistent token exposure.
+            if (!refreshInFlight) {
+              // Use the global axios (no interceptors) to avoid recursive
+              // interceptor calls. Use relative path so the request is same-origin
+              // and forwarded by Next.js to the real backend.
+              refreshInFlight = axios
+                .post(
+                  `/api/auth/refresh`,
+                  {
+                    refresh_token: refresh,
+                  },
+                  {
+                    headers: { "ngrok-skip-browser-warning": "1" },
+                  },
+                )
+                .then((r) => r.data)
+                .finally(() => {
+                  refreshInFlight = null;
+                });
+            }
+
+            const data = await refreshInFlight;
             volatileAccessToken = data.access_token;
             volatileRefreshToken = data.refresh_token;
+            localStorage.setItem("access_token", data.access_token);
+            localStorage.setItem("refresh_token", data.refresh_token);
             original.headers.Authorization = `Bearer ${data.access_token}`;
             return api(original);
           } catch {
             volatileAccessToken = null;
             volatileRefreshToken = null;
-            localStorage.clear();
+            localStorage.removeItem("access_token");
+            localStorage.removeItem("refresh_token");
             globalThis.window.location.href = "/login";
             return;
           }

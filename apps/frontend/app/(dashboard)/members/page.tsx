@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
@@ -10,6 +10,9 @@ import {
   Plus,
   Search,
   Upload,
+  Download,
+  ChevronLeft,
+  ChevronRight,
   Wifi,
   CreditCard,
   CheckCircle2,
@@ -26,15 +29,22 @@ const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
   { key: "ecard", label: "E-Card", icon: CreditCard },
 ];
 
+const PAGE_SIZE = 25;
+
 export default function MembersPage() {
   const { restaurant } = useAuthStore();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ open: boolean; editing: Member | null }>(
     { open: false, editing: null },
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, search, restaurant?.id]);
 
   const importMutation = useMutation({
     mutationFn: (file: File) => {
@@ -56,12 +66,12 @@ export default function MembersPage() {
   });
 
   const { data, isLoading } = useQuery<MemberListResponse>({
-    queryKey: ["members", restaurant?.id, tab, search],
+    queryKey: ["members", restaurant?.id, tab, search, page],
     queryFn: () => {
       const params = new URLSearchParams({
         restaurant_id: restaurant!.id,
-        page: "1",
-        page_size: "100",
+        page: String(page),
+        page_size: String(PAGE_SIZE),
       });
       if (tab !== "all") params.set("type", tab);
       if (search) params.set("search", search);
@@ -80,6 +90,10 @@ export default function MembersPage() {
   });
 
   const members = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
   if (!restaurant) return null;
 
   return (
@@ -101,6 +115,13 @@ export default function MembersPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <a
+            href="/downloads/member-import-template.xlsx"
+            download
+            className="flex items-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300"
+          >
+            <Download className="w-4 h-4" /> Download Template
+          </a>
           <input
             ref={fileInputRef}
             type="file"
@@ -165,13 +186,40 @@ export default function MembersPage() {
       ) : (
         <MembersTable
           members={members}
-          total={data?.total ?? 0}
+          total={total}
           onEdit={(m) => setModal({ open: true, editing: m })}
           onDelete={(m) => {
             if (confirm(`Remove ${m.name}?`)) deleteMutation.mutate(m.id);
           }}
           onAddFirst={() => setModal({ open: true, editing: null })}
         />
+      )}
+
+      {!isLoading && total > 0 && (
+        <div className="flex items-center justify-between bg-white rounded-xl border px-4 py-3">
+          <p className="text-xs text-gray-500">
+            Showing {from}-{to} of {total}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              <ChevronLeft className="w-4 h-4" /> Prev
+            </button>
+            <span className="text-sm text-gray-600 min-w-20 text-center">
+              Page {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

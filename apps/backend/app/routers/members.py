@@ -1,9 +1,9 @@
-from typing import Annotated
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Query, UploadFile, File
-from bson import ObjectId
 import io
 import openpyxl
+
+from typing import Annotated, Any
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, Query, UploadFile, File
 from app.database import get_db
 from app.dependencies import (
     require_role,
@@ -55,7 +55,7 @@ async def list_members(
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
-    db: Annotated[any, Depends(get_db)] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     query: dict = {"restaurant_id": validated_rid}
     if type in ("nfc", "ecard"):
@@ -78,7 +78,7 @@ async def list_members(
 async def create_member(
     body: MemberCreate,
     current_user: Annotated[dict, Depends(require_role("admin"))],
-    db: Annotated[any, Depends(get_db)],
+    db: Annotated[Any, Depends(get_db)],
 ):
     await validate_restaurant_access(current_user, body.restaurant_id, db)
     if body.type == "nfc" and not body.card_uid:
@@ -119,7 +119,7 @@ async def create_member(
 async def get_member(
     member_id: str,
     current_user: Annotated[dict, Depends(require_role("viewer"))],
-    db: Annotated[any, Depends(get_db)],
+    db: Annotated[Any, Depends(get_db)],
 ):
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
@@ -134,7 +134,7 @@ async def update_member(
     member_id: str,
     body: MemberUpdate,
     current_user: Annotated[dict, Depends(require_role("admin"))],
-    db: Annotated[any, Depends(get_db)],
+    db: Annotated[Any, Depends(get_db)],
 ):
     # Fetch first to check ownership/access
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
@@ -159,7 +159,7 @@ async def update_member(
 async def delete_member(
     member_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
-    db: Annotated[any, Depends(get_db)],
+    db: Annotated[Any, Depends(get_db)],
 ):
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
@@ -174,7 +174,7 @@ async def delete_member(
 async def record_visit(
     member_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
-    db: Annotated[any, Depends(get_db)],
+    db: Annotated[Any, Depends(get_db)],
 ):
     doc = await db.members.find_one({"_id": to_object_id(member_id)})
     if not doc:
@@ -196,7 +196,7 @@ async def import_members(
     restaurant_id: Annotated[str, Query()],
     file: Annotated[UploadFile, File()],
     current_user: Annotated[dict, Depends(require_role("admin"))],
-    db: Annotated[any, Depends(get_db)],
+    db: Annotated[Any, Depends(get_db)],
     type: Annotated[str, Query()] = "ecard",
 ):
     await validate_restaurant_access(current_user, restaurant_id, db)
@@ -235,37 +235,43 @@ async def import_members(
     )
     email_idx = find_col(["email", "email address"])
 
-    if name_idx is None or phone_idx is None:
-        raise InvalidFileFormatError(
-            "Excel must have 'Name' and 'Phone'/'Contact Number' columns"
-        )
+    if name_idx is None:
+        raise InvalidFileFormatError("Excel must have a 'Name' column")
 
     now = datetime.now(timezone.utc)
     inserted = skipped = 0
 
     for row in ws.iter_rows(min_row=2, values_only=True):
         name = str(row[name_idx]).strip() if row[name_idx] else ""
-        phone = str(row[phone_idx]).strip() if row[phone_idx] else ""
+        phone = (
+            str(row[phone_idx]).strip()
+            if phone_idx is not None and row[phone_idx]
+            else ""
+        )
         email = (
             str(row[email_idx]).strip()
             if email_idx is not None and row[email_idx]
             else None
         )
 
-        if not name or not phone or phone == "None":
+        if not name:
             skipped += 1
             continue
 
-        phone = phone.replace(" ", "").replace("+", "").replace("-", "")
-        if not phone.startswith("91"):
-            phone = "91" + phone.lstrip("0")
+        if phone and phone != "None":
+            phone = phone.replace(" ", "").replace("+", "").replace("-", "")
+            if not phone.startswith("91"):
+                phone = "91" + phone.lstrip("0")
+        else:
+            phone = ""
 
-        existing = await db.members.find_one(
-            {"restaurant_id": restaurant_id, "phone": phone}
-        )
-        if existing:
-            skipped += 1
-            continue
+        if phone:
+            existing = await db.members.find_one(
+                {"restaurant_id": restaurant_id, "phone": phone}
+            )
+            if existing:
+                skipped += 1
+                continue
 
         await db.members.insert_one(
             {
