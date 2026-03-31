@@ -32,15 +32,7 @@ import {
   Bar,
 } from "recharts";
 
-/* ─── Shared Styles & Colors ─────────────────────────────────── */
-const GREEN_PALETTE = {
-  darkest: "#24422e",
-  dark: "#3a6b47",
-  medium: "#509160",
-  light: "#6bb97b",
-  lightest: "#a0b9a8",
-  muted: "#eff2f0",
-};
+import { BRAND_GRADIENT, GREEN as GREEN_PALETTE } from "@/lib/brand";
 
 /* ─── Components ────────────────────────────────────────────── */
 
@@ -440,7 +432,7 @@ export default function DashboardPage() {
         <Link
           href="/campaigns/new"
           className="mt-8 text-white text-sm font-bold px-10 py-4 rounded-2xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           Launch Your First Campaign
         </Link>
@@ -480,7 +472,7 @@ export default function DashboardPage() {
         <Link
           href="/campaigns/new"
           className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           <Megaphone className="w-4 h-4" />
           LAUNCH CAMPAIGN
@@ -543,14 +535,30 @@ export default function DashboardPage() {
           <div className="h-[400px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <FunnelChart>
+                <Tooltip
+                  formatter={(value, _name, props) => [
+                    Number(value).toLocaleString(),
+                    props?.payload?.name ?? "",
+                  ]}
+                  contentStyle={{
+                    borderRadius: "10px",
+                    border: "none",
+                    boxShadow: "0 4px 12px rgb(0 0 0 / 0.1)",
+                  }}
+                />
                 <Funnel dataKey="value" data={funnelData} isAnimationActive>
                   <LabelList
                     position="inside"
                     fill="#fff"
                     stroke="none"
                     dataKey="display"
-                    fontSize={13}
-                    fontWeight={900}
+                    fontSize={11}
+                    fontWeight={700}
+                    formatter={(v) => {
+                      // Split "Label: 1,234" → show only the number so it fits narrow segments
+                      const match = String(v).match(/:\s*(.+)$/);
+                      return match ? match[1] : String(v);
+                    }}
                   />
                 </Funnel>
               </FunnelChart>
@@ -732,6 +740,14 @@ export default function DashboardPage() {
                     fontWeight: 700,
                     fill: "#9ca3af",
                   }}
+                  label={{
+                    value: "FAILURE COUNT",
+                    position: "insideBottom",
+                    offset: -10,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                  }}
                 />
                 <YAxis
                   dataKey="reason"
@@ -759,7 +775,7 @@ export default function DashboardPage() {
                   }}
                 />
                 <Bar
-                  dataKey="count"
+                  dataKey="value"
                   radius={[0, 4, 4, 0]}
                   barSize={24}
                   name="Failures"
@@ -864,7 +880,7 @@ export default function DashboardPage() {
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
                   formatter={(value) => [
-                    `${Number(value || 0).toFixed(1)}%`,
+                    `${Number(value).toFixed(1)}%`,
                     "Read Rate",
                   ]}
                 />
@@ -967,6 +983,14 @@ export default function DashboardPage() {
                     fontWeight: 700,
                     fill: "#9ca3af",
                   }}
+                  label={{
+                    value: "TIME RANGE",
+                    position: "insideBottom",
+                    offset: -25,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                  }}
                 />
                 <YAxis
                   axisLine={false}
@@ -989,10 +1013,7 @@ export default function DashboardPage() {
                     border: "none",
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
-                  formatter={(value) => [
-                    value as React.ReactNode,
-                    "Total Reads",
-                  ]}
+                  formatter={(value) => [value, "Total Reads"]}
                 />
                 <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
                   {ttrDistribution.map((_entry: TTRStat, index: number) => (

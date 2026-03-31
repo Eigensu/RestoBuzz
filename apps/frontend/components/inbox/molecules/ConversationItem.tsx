@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
 import { inboxShortDateIST } from "@/lib/date";
 
-const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
+import { BRAND_GRADIENT } from "@/lib/brand";
 
 function initials(name: string | null, phone: string): string {
   if (!name) return phone.slice(-2);
