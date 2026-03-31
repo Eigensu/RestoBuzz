@@ -8,6 +8,7 @@ from app.core.logging import setup_logging, CorrelationIdMiddleware, get_logger
 from app.core.errors import AppError
 from app.config import settings
 from app.routers import (
+    admin,
     auth,
     campaigns,
     contacts,
@@ -82,6 +83,7 @@ async def global_exception_handler(_request: Request, exc: Exception):
 
 # Mount routers
 app.include_router(auth.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 app.include_router(campaigns.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")

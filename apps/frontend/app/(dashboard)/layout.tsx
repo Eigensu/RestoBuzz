@@ -13,7 +13,7 @@ import {
   Inbox,
   FileText,
   Users,
-  Settings,
+  Shield,
   LogOut,
   MessageSquare,
   Menu,
@@ -31,7 +31,6 @@ const NAV = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/contacts", label: "Suppression", icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function DashboardLayout({
@@ -60,12 +59,11 @@ export default function DashboardLayout({
 
     if (user) return;
 
-    getMe()
-      .then((u) => {
-        if (cancelled) return;
-        if (!u) router.push("/login");
-        else setUser(u);
-      });
+    getMe().then((u) => {
+      if (cancelled) return;
+      if (!u) router.push("/login");
+      else setUser(u);
+    });
 
     return () => {
       cancelled = true;
@@ -96,6 +94,11 @@ export default function DashboardLayout({
     setUser(null);
     router.push("/login");
   };
+
+  const navItems =
+    user?.role === "super_admin"
+      ? [...NAV, { href: "/admin", label: "Admin", icon: Shield }]
+      : NAV;
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -181,7 +184,7 @@ export default function DashboardLayout({
         )}
 
         <nav className="flex-1 p-3 space-y-0.5 mt-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
+          {navItems.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}

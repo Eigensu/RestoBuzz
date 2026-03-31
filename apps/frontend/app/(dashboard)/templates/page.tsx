@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Template } from "@/types";
@@ -11,7 +12,6 @@ import {
   TemplateGrid,
   TemplateEmptyState,
 } from "@/components/templates/organisms/TemplateGrid";
-import { TemplateFormModal } from "@/components/templates/molecules/TemplateFormModal";
 
 const GREEN = { darkest: "#24422e", dark: "#3a6b47" };
 
@@ -21,7 +21,6 @@ export default function TemplatesPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("ALL");
-  const [creating, setCreating] = useState(false);
 
   const { data: templates = [], isLoading } = useQuery<Template[]>({
     queryKey: ["templates"],
@@ -59,7 +58,6 @@ export default function TemplatesPage() {
 
   return (
     <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
-      {creating && <TemplateFormModal onClose={() => setCreating(false)} />}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -76,13 +74,13 @@ export default function TemplatesPage() {
           </p>
         </div>
         <div className="flex gap-3">
-          <button
-            onClick={() => setCreating(true)}
+          <Link
+            href="/templates/new"
             className="inline-flex items-center gap-2 text-sm font-bold px-5 py-3 rounded-xl border-2 border-[#24422e] text-[#24422e] hover:bg-[#24422e] hover:text-white transition"
           >
             <Plus className="w-4 h-4" />
             New Template
-          </button>
+          </Link>
           <button
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending}
