@@ -81,13 +81,13 @@ export function QuickReplies({
   const suggestions = getQuickReplies(lastMessage);
   if (!suggestions.length) return null;
   return (
-    <div className="px-4 pt-3 pb-2 flex flex-wrap gap-1.5">
+    <div className="px-6 pt-4 pb-2 flex flex-wrap gap-2 overflow-x-auto custom-scrollbar no-scrollbar whitespace-nowrap">
       {suggestions.map((s) => (
         <button
           key={s}
           onClick={() => onSelect(s)}
           disabled={disabled}
-          className="text-xs px-3 py-1.5 rounded-full bg-[#24422e]/5 border border-[#24422e]/15 text-[#24422e] hover:bg-[#24422e] hover:text-white hover:border-transparent transition-all font-medium disabled:opacity-50"
+          className="text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl bg-[#eff2f0] border border-[#24422e]/5 text-[#24422e] hover:bg-[#24422e] hover:text-white hover:border-transparent transition-all shadow-sm active:scale-95 disabled:opacity-50"
         >
           {s}
         </button>

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
+from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from app.database import get_db
 from app.dependencies import require_role
@@ -76,9 +77,12 @@ async def get_conversation(
     skip = (page - 1) * page_size
     items = []
 
+    # Limit to last 30 days
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+
     # Inbound messages
     inbound_cursor = (
-        db.inbound_messages.find({"from_phone": phone})
+        db.inbound_messages.find({"from_phone": phone, "received_at": {"$gte": since}})
         .sort("received_at", -1)
         .skip(skip)
         .limit(page_size)
@@ -99,12 +103,13 @@ async def get_conversation(
                 is_read=doc.get("is_read", False),
                 received_at=doc["received_at"],
                 direction="inbound",
+                status=None,
             )
         )
 
     # Outbound replies
     outbound_cursor = (
-        db.outbound_messages.find({"to_phone": phone})
+        db.outbound_messages.find({"to_phone": phone, "sent_at": {"$gte": since}})
         .sort("sent_at", -1)
         .limit(page_size)
     )
@@ -120,9 +125,10 @@ async def get_conversation(
                 media_url=None,
                 media_mime_type=None,
                 location=None,
-                is_read=True,
+                is_read=doc.get("status") == "read",
                 received_at=doc["sent_at"],
                 direction="outbound",
+                status=doc.get("status", "sent"),
             )
         )
 
@@ -168,6 +174,7 @@ async def reply(
             "message_type": "text",
             "sent_by": str(current_user["_id"]),
             "sent_at": datetime.now(timezone.utc),
+            "status": "sent",
         }
     )
     return {"wa_message_id": wa_id}

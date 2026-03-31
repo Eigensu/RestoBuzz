@@ -25,6 +25,30 @@ function initials(name: string | null, phone: string): string {
     .toUpperCase();
 }
 
+function DateSeparator({ date }: { date: string }) {
+  const dStr = String(date);
+  const d = new Date(dStr.endsWith("Z") ? dStr : dStr + "Z");
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  let label = d.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  if (d.toDateString() === now.toDateString()) label = "Today";
+  else if (d.toDateString() === yesterday.toDateString()) label = "Yesterday";
+
+  return (
+    <div className="flex justify-center my-6 sticky top-2 z-10">
+      <span className="px-4 py-1.5 bg-[#eff2f0] text-[#24422e] text-[10px] font-black uppercase tracking-widest rounded-full shadow-sm border border-[#24422e]/5">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 export default function InboxPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
@@ -93,25 +117,37 @@ export default function InboxPage() {
   const activeConv = convs.find((c) => c.from_phone === selected) ?? null;
 
   return (
-    <div className="h-full flex rounded-xl border bg-white overflow-hidden">
+    <div className="h-full flex bg-white overflow-hidden">
       {/* Conversation list */}
       <div
         className={cn(
-          "w-full sm:w-72 border-r flex flex-col shrink-0",
+          "w-full sm:w-80 border-r border-gray-100 flex flex-col shrink-0 bg-[#eff2f0]/20",
           selected ? "hidden sm:flex" : "flex",
         )}
       >
-        <div className="px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm text-[#24422e]">Inbox</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {convs.filter((c) => c.unread_count > 0).length} unread
-          </p>
-        </div>
-        <div className="flex-1 overflow-y-auto divide-y">
-          {convs.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-10">
-              No conversations yet
+        <div className="px-6 py-5 border-b border-gray-100 bg-white/50 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[#eff2f0] rounded-lg">
+              <Send className="w-5 h-5 text-[#24422e]" />
+            </div>
+            <h2 className="text-xl font-black text-gray-900 tracking-tight">Inbox</h2>
+          </div>
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-[10px] font-black text-[#24422e]/40 uppercase tracking-widest">
+              Recent Chats
             </p>
+            <span className="px-2 py-0.5 bg-[#eff2f0] text-[#24422e] text-[10px] font-bold rounded-full">
+              {convs.filter((c) => c.unread_count > 0).length} UNREAD
+            </span>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {convs.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-40 text-center px-4">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                No conversations yet
+              </p>
+            </div>
           )}
           {convs.map((c) => (
             <ConversationItem
@@ -127,33 +163,50 @@ export default function InboxPage() {
       {/* Chat thread */}
       <div
         className={cn(
-          "flex-1 flex flex-col",
+          "flex-1 flex flex-col bg-white",
           selected ? "flex" : "hidden sm:flex",
         )}
       >
         {activeConv ? (
           <>
-            <div className="px-4 py-3 border-b flex items-center gap-3">
-              <button onClick={() => setSelected(null)} className="sm:hidden">
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                style={{ background: BRAND_GRADIENT }}
-              >
-                {initials(activeConv.sender_name, activeConv.from_phone)}
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-[#24422e]">
-                  {activeConv.sender_name ?? activeConv.from_phone}
-                </p>
-                <p className="text-xs text-gray-400">{activeConv.from_phone}</p>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white/80 backdrop-blur-md z-20">
+              <div className="flex items-center gap-4">
+                <button onClick={() => setSelected(null)} className="sm:hidden p-2 hover:bg-[#eff2f0] rounded-xl transition-colors">
+                  <ArrowLeft className="w-5 h-5 text-[#24422e]" />
+                </button>
+                <div
+                  className="w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black text-white shrink-0 shadow-lg shadow-green-900/10 transition-transform active:scale-95"
+                  style={{ background: BRAND_GRADIENT }}
+                >
+                  {initials(activeConv.sender_name, activeConv.from_phone)}
+                </div>
+                <div>
+                  <p className="text-sm font-black text-gray-900 tracking-tight">
+                    {activeConv.sender_name ?? activeConv.from_phone}
+                  </p>
+                  <p className="text-[10px] font-bold text-[#24422e]/40 uppercase tracking-widest">{activeConv.from_phone}</p>
+                </div>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50/40">
-              {thread.map((msg) => (
-                <MessageBubble key={msg.id} msg={msg} />
-              ))}
+            <div className="flex-1 overflow-y-auto px-6 py-4 bg-gray-50/30 custom-scrollbar">
+              {thread.map((msg, i) => {
+                const prev = thread[i - 1];
+                const dStr = String(msg.received_at);
+                const currentMsgDate = new Date(dStr.endsWith("Z") ? dStr : dStr + "Z");
+                let showDate = !prev;
+                if (prev) {
+                  const pStr = String(prev.received_at);
+                  const prevMsgDate = new Date(pStr.endsWith("Z") ? pStr : pStr + "Z");
+                  showDate = currentMsgDate.toDateString() !== prevMsgDate.toDateString();
+                }
+                
+                return (
+                  <div key={msg.id} className="space-y-1">
+                    {showDate && <DateSeparator date={msg.received_at} />}
+                    <MessageBubble msg={msg} />
+                  </div>
+                );
+              })}
               <div ref={bottomRef} />
             </div>
             <div className="border-t bg-white">

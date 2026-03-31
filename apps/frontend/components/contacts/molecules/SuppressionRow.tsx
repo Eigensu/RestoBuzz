@@ -14,19 +14,24 @@ interface SuppressionRowProps {
 
 export function SuppressionRow({ item, onRemove }: Readonly<SuppressionRowProps>) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5">
-      <span className="font-mono text-sm flex-1">{item.phone}</span>
-      <span
-        className={`text-xs px-2 py-0.5 rounded-full ${REASON_COLORS[item.reason] ?? "bg-gray-100 text-gray-600"}`}
-      >
-        {item.reason}
-      </span>
-      <span className="text-xs text-gray-400">
-        {relativeIST(item.added_at)}
-      </span>
+    <div className="group flex items-center justify-between px-6 py-4 hover:bg-[#eff2f0]/50 transition-colors">
+      <div className="space-y-1">
+        <p className="font-bold text-gray-900">{item.phone}</p>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 bg-[#eff2f0] text-[#24422e] rounded-full">
+            {item.reason}
+          </span>
+          <span className="text-[11px] font-medium text-gray-400">
+            Added {relativeIST(item.added_at)}
+          </span>
+        </div>
+      </div>
       <button
-        onClick={() => onRemove(item.phone)}
-        className="text-gray-400 hover:text-red-500 transition"
+        onClick={() => {
+          if (confirm(`Remove ${item.phone} from suppression list?`))
+            onRemove(item.phone);
+        }}
+        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl opacity-0 group-hover:opacity-100 transition-all"
       >
         <Trash2 className="w-4 h-4" />
       </button>

@@ -331,12 +331,18 @@ export default function DashboardPage() {
     }));
 
     // 7. Time-to-Read (TTR) — real data from /campaigns/analytics
-    const ttrDistribution: TTRStat[] = analyticsData?.ttr_distribution ?? [
+    const baseTTR: TTRStat[] = analyticsData?.ttr_distribution ?? [
       { range: "0-5 min", count: 0 },
       { range: "5-30 min", count: 0 },
       { range: "30-120 min", count: 0 },
       { range: "2h+", count: 0 },
     ];
+
+    const sumTTR = baseTTR.reduce((acc, d) => acc + d.count, 0);
+    const ttrDistribution =
+      totals.read > sumTTR
+        ? [...baseTTR, { range: "Delayed (>24h)", count: totals.read - sumTTR }]
+        : baseTTR;
 
     // Status Pie
     const statusCounts = campaigns.reduce(
@@ -455,7 +461,7 @@ export default function DashboardPage() {
   } = analytics!;
 
   return (
-    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
+    <div className="space-y-8 pb-20 max-w-[1800px] mx-auto p-4 md:p-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -714,16 +720,21 @@ export default function DashboardPage() {
               <BarChart
                 layout="vertical"
                 data={failureBreakdown}
-                margin={{ left: 20 }}
+                margin={{ left: 10, right: 30, top: 10, bottom: 20 }}
               >
-                <XAxis type="number" hide />
+                <XAxis 
+                  type="number" 
+                  tick={{ fontSize: 10 }}
+                  label={{ value: 'FAILURE COUNT', position: 'insideBottom', offset: -10, fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
+                />
                 <YAxis
                   dataKey="reason"
                   type="category"
-                  width={110}
+                  width={180}
                   tick={{ fontSize: 11, fontWeight: 600 }}
                   axisLine={false}
                   tickLine={false}
+                  label={{ value: 'REASON', angle: -90, position: 'insideLeft', fontSize: 10, fontWeight: 700, fill: '#9ca3af', offset: 10 }}
                 />
                 <Tooltip
                   cursor={{ fill: "#eff2f0" }}
@@ -733,7 +744,7 @@ export default function DashboardPage() {
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
                 />
-                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
+                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24} name="Failures">
                   {failureBreakdown.map(
                     (
                       _entry: { reason: string; value: number },
@@ -786,7 +797,7 @@ export default function DashboardPage() {
           />
           <div className="h-[280px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={hourlyPerformance} margin={{ top: 20 }}>
+              <BarChart data={hourlyPerformance} margin={{ top: 20, right: 30, left: 20, bottom: 30 }}>
                 <CartesianGrid
                   strokeDasharray="3 3"
                   vertical={false}
@@ -799,16 +810,24 @@ export default function DashboardPage() {
                   tick={{ fontSize: 10, fontWeight: 600 }}
                   interval="preserveStartEnd"
                   minTickGap={20}
+                  label={{ value: 'HOUR OF DAY', position: 'insideBottom', offset: -20, fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fill: "#9ca3af" }}
+                  domain={[0, 100]}
+                  label={{ value: 'READ RATE %', angle: -90, position: 'insideLeft', offset: -5, fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
+                />
+                <Tooltip 
+                  cursor={{ fill: "#eff2f0" }}
+                  contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }}
+                  formatter={(value: any) => [`${Number(value).toFixed(1)}%`, 'Read Rate']}
                 />
                 <Bar
                   dataKey="rate"
                   name="rate"
-                  fill={GREEN_PALETTE.medium}
+                  fill={GREEN_PALETTE.darkest}
                   radius={[4, 4, 0, 0]}
                 >
                   {hourlyPerformance.map((entry: HourlyStat, index: number) => {
@@ -822,7 +841,7 @@ export default function DashboardPage() {
                         fill={
                           isWinningPeak
                             ? GREEN_PALETTE.darkest
-                            : GREEN_PALETTE.lightest
+                            : GREEN_PALETTE.dark
                         }
                       />
                     );
@@ -863,8 +882,7 @@ export default function DashboardPage() {
                 return (
                   <>
                     <span className="font-bold">{peak.hour}</span> is your
-                    highest-impact window. While other hours may show 100% read
-                    rates, this window achieved a
+                    highest-impact window. This window achieved a
                     <span className="font-bold">
                       {" "}
                       {peak.rate.toFixed(1)}% interaction
@@ -891,14 +909,20 @@ export default function DashboardPage() {
           />
           <div className="h-[280px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={ttrDistribution}>
+              <BarChart data={ttrDistribution} margin={{ top: 20, right: 30, left: 10, bottom: 40 }}>
                 <XAxis
                   dataKey="range"
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fontWeight: 700 }}
+                  label={{ value: 'TIME RANGE', position: 'insideBottom', offset: -25, fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
                 />
-                <YAxis hide />
+                <YAxis 
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 10, fill: '#9ca3af' }}
+                  label={{ value: 'READ COUNT', angle: -90, position: 'insideLeft', offset: 10, fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
+                />
                 <Tooltip
                   cursor={{ fill: "#eff2f0" }}
                   contentStyle={{
@@ -906,8 +930,9 @@ export default function DashboardPage() {
                     border: "none",
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
+                  formatter={(value: any) => [value, 'Total Reads']}
                 />
-                <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
                   {ttrDistribution.map((_entry: TTRStat, index: number) => (
                     <Cell
                       key={`cell-${index}`}
@@ -931,19 +956,20 @@ export default function DashboardPage() {
             <Eye className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
             <p className="text-[11px] leading-relaxed text-[#24422e] font-medium">
               <span className="font-bold uppercase tracking-wider">
-                Interaction Insight:
+                Interaction Peak Insight:
               </span>
               <br />
-              <span className="font-bold">
-                {(
-                  (ttrDistribution[0]?.count / (totals.read || 1)) *
-                  100
-                ).toFixed(0)}
-                %
-              </span>{" "}
-              of your readers interact within the first{" "}
-              {ttrDistribution[0]?.range}, showing high immediate brand
-              relevance and content urgency.
+              {(() => {
+                const activeWindows = ttrDistribution.filter(d => d.range !== "Delayed (>24h)");
+                const peak = activeWindows.reduce((prev, curr) => (curr.count > prev.count ? curr : prev), activeWindows[0] || ttrDistribution[0]);
+                const prob = (peak.count / (totals.read || 1)) * 100;
+                return (
+                  <>
+                    Apart from the delayed reads, the <span className="font-bold">{peak.range}</span> window shows your highest immediate interaction.
+                    This timeframe accounts for <span className="font-bold">{prob.toFixed(1)}%</span> of total interactions, indicating your most effective engagement zone for new broadcasts.
+                  </>
+                );
+              })()}
             </p>
           </div>
         </div>
@@ -971,12 +997,14 @@ export default function DashboardPage() {
                 tick={{ fontSize: 11, fill: "#9ca3af", fontWeight: 600 }}
                 dy={10}
                 minTickGap={30}
+                label={{ value: 'DATE', position: 'insideBottomRight', offset: -10, fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
               />
               <YAxis
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 11, fill: "#9ca3af" }}
-                width={40}
+                width={80}
+                label={{ value: 'MESSAGE COUNT', angle: -90, position: 'center', fontSize: 10, fontWeight: 700, fill: '#9ca3af', dx: -35 }}
               />
               <Tooltip
                 contentStyle={{

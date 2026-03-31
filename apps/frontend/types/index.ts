@@ -78,6 +78,7 @@ export interface InboundMessage {
   is_read: boolean;
   received_at: string;
   direction?: "inbound" | "outbound";
+  status?: "sent" | "delivered" | "read" | "failed";
 }
 
 export interface PreflightResult {

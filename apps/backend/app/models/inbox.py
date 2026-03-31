@@ -26,6 +26,7 @@ class InboundMessageResponse(BaseModel):
     is_read: bool
     received_at: datetime
     direction: Direction = "inbound"
+    status: Literal["sent", "delivered", "read", "failed"] | None = None
 
 
 class ConversationResponse(BaseModel):

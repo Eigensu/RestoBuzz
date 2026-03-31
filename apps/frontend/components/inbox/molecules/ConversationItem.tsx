@@ -36,12 +36,12 @@ export function ConversationItem({
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left px-4 py-3 transition flex items-start gap-3",
-        selected ? "bg-[#24422e]/10" : "hover:bg-[#24422e]/5",
+        "w-full text-left px-6 py-4 transition-all flex items-start gap-4 border-b border-gray-100/50",
+        selected ? "bg-[#eff2f0]" : "hover:bg-[#eff2f0]/60",
       )}
     >
       <div
-        className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
+        className="w-11 h-11 rounded-2xl flex items-center justify-center text-xs font-black text-white shrink-0 mt-0.5 shadow-sm"
         style={{ background: BRAND_GRADIENT }}
       >
         {initials(conv.sender_name, conv.from_phone)}
@@ -50,31 +50,36 @@ export function ConversationItem({
         <div className="flex items-center justify-between gap-1">
           <p
             className={cn(
-              "text-sm truncate",
-              conv.unread_count > 0 ? "font-semibold" : "font-medium",
+              "text-sm truncate tracking-tight transition-colors",
+              conv.unread_count > 0 ? "font-black text-gray-900" : "font-bold text-gray-700",
+              selected && "text-[#24422e]"
             )}
           >
             {conv.sender_name ?? conv.from_phone}
           </p>
-          <span className="text-[10px] text-gray-400 shrink-0">
-            {new Date(conv.last_received_at).toLocaleTimeString("en-IN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+          <span className="text-[10px] font-black text-[#24422e]/30 uppercase tracking-widest shrink-0">
+            {(() => {
+              const dStr = String(conv.last_received_at);
+              const d = new Date(dStr.endsWith("Z") ? dStr : dStr + "Z");
+              return d.toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+            })()}
           </span>
         </div>
-        <div className="flex items-center justify-between gap-1 mt-0.5">
+        <div className="flex items-center justify-between gap-2 mt-1">
           <p
             className={cn(
-              "text-xs truncate",
-              conv.unread_count > 0 ? "text-gray-700" : "text-gray-400",
+              "text-xs truncate leading-relaxed",
+              conv.unread_count > 0 ? "text-gray-900 font-bold" : "text-gray-400 font-medium",
             )}
           >
             {getPreview(conv)}
           </p>
           {conv.unread_count > 0 && (
             <span
-              className="w-5 h-5 text-white text-[10px] rounded-full flex items-center justify-center shrink-0 font-semibold"
+              className="px-2 py-0.5 text-white text-[10px] rounded-full flex items-center justify-center shrink-0 font-black shadow-sm"
               style={{ background: BRAND_GRADIENT }}
             >
               {conv.unread_count}

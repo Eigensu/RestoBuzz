@@ -86,15 +86,18 @@ export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
             out ? "text-white/60" : "text-gray-400",
           )}
         >
-          <span className="text-[10px]">
-            {timeIST(msg.received_at)}
-          </span>
-          {out &&
-            (msg.is_read ? (
-              <CheckCheck className="w-3 h-3 text-white/80" />
-            ) : (
-              <Check className="w-3 h-3 text-white/50" />
-            ))}
+          <span className="text-[10px]">{timeIST(msg.received_at)}</span>
+          {out && (
+            <div className="flex items-center">
+              {msg.status === "read" || msg.is_read ? (
+                <CheckCheck className="w-3.5 h-3.5 text-[#34B7F1]" />
+              ) : msg.status === "delivered" ? (
+                <CheckCheck className="w-3.5 h-3.5 text-white/80" />
+              ) : (
+                <Check className="w-3.5 h-3.5 text-white/60" />
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
