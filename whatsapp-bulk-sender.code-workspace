@@ -53,6 +53,7 @@
       "typescript": "javascript",
       "typescriptreact": "javascript",
     },
+    "typescript.autoClosingTags": false,
   },
   "extensions": {
     "recommendations": [

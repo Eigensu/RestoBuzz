@@ -1,14 +1,29 @@
 "use client";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { Template } from "@/types";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, LayoutTemplate, Plus } from "lucide-react";
+import { TemplateSearchBar } from "@/components/templates/molecules/TemplateSearchBar";
+import {
+  TemplateGrid,
+  TemplateEmptyState,
+} from "@/components/templates/organisms/TemplateGrid";
+import { TemplateFormModal } from "@/components/templates/molecules/TemplateFormModal";
+
+const GREEN = { darkest: "#24422e", dark: "#3a6b47" };
+
+type FilterStatus = "ALL" | "APPROVED" | "PENDING";
 
 export default function TemplatesPage() {
   const qc = useQueryClient();
-  const { data: templates, isLoading } = useQuery<Template[]>({
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>("ALL");
+  const [creating, setCreating] = useState(false);
+
+  const { data: templates = [], isLoading } = useQuery<Template[]>({
     queryKey: ["templates"],
     queryFn: () => api.get("/templates").then((r) => r.data),
   });
@@ -22,66 +37,81 @@ export default function TemplatesPage() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Templates</h1>
-        <button
-          onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
-          className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md disabled:opacity-50"
-        >
-          <RefreshCw
-            className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`}
-          />
-          Sync Templates
-        </button>
-      </div>
+  const filtered = templates.filter((t) => {
+    const matchesSearch = t.name.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus =
+      filterStatus === "ALL" ||
+      (filterStatus === "APPROVED" && t.status === "APPROVED") ||
+      (filterStatus === "PENDING" && t.status !== "APPROVED");
+    return matchesSearch && matchesStatus;
+  });
 
-      {isLoading ? (
-        <p className="text-sm text-gray-400">Loading...</p>
-      ) : (templates ?? []).length === 0 ? (
-        <div className="bg-white rounded-xl border p-12 text-center">
-          <p className="text-gray-400 text-sm">
-            No templates found. Click "Sync Templates" to fetch from Meta.
+  if (isLoading) {
+    return (
+      <div className="h-[80vh] flex flex-col items-center justify-center text-gray-400 gap-4">
+        <div className="w-12 h-12 border-4 border-gray-200 border-t-[#24422e] rounded-full animate-spin" />
+        <p className="text-sm font-medium animate-pulse">
+          Loading Templates...
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
+      {creating && <TemplateFormModal onClose={() => setCreating(false)} />}
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[#eff2f0] rounded-lg">
+              <LayoutTemplate className="w-6 h-6 text-[#24422e]" />
+            </div>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+              Message Templates
+            </h1>
+          </div>
+          <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
+            {templates.length} templates synced from Meta
           </p>
         </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(templates ?? []).map((t) => (
-            <div
-              key={t.name}
-              className="bg-white rounded-xl border p-4 space-y-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className="font-medium text-sm">{t.name}</p>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
-                    t.status === "APPROVED"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-yellow-100 text-yellow-700"
-                  }`}
-                >
-                  {t.status}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${t.category === "UTILITY" ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"}`}
-                >
-                  {t.category}
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                  {t.language}
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 line-clamp-2">
-                {t.components.find((c) => c.type === "BODY")?.text ??
-                  "No body text"}
-              </p>
-            </div>
-          ))}
+        <div className="flex gap-3">
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-2 text-sm font-bold px-5 py-3 rounded-xl border-2 border-[#24422e] text-[#24422e] hover:bg-[#24422e] hover:text-white transition"
+          >
+            <Plus className="w-4 h-4" />
+            New Template
+          </button>
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50"
+            style={{
+              background: `linear-gradient(135deg, ${GREEN.darkest}, ${GREEN.dark})`,
+            }}
+          >
+            <RefreshCw
+              className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`}
+            />
+            Sync Templates
+          </button>
         </div>
+      </div>
+
+      {/* Search & Filter */}
+      <TemplateSearchBar
+        search={search}
+        onSearchChange={setSearch}
+        filterStatus={filterStatus}
+        onFilterChange={setFilterStatus}
+      />
+
+      {/* Content */}
+      {templates.length === 0 ? (
+        <TemplateEmptyState />
+      ) : (
+        <TemplateGrid templates={filtered} />
       )}
     </div>
   );

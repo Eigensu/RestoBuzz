@@ -13,7 +13,6 @@ router = APIRouter(prefix="/restaurants", tags=["restaurants"])
 
 
 @router.get("", response_model=list[RestaurantResponse])
-@router.get("/", response_model=list[RestaurantResponse])
 async def list_restaurants(
     allowed_ids: Annotated[set[str], Depends(get_user_restaurant_ids)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
@@ -58,7 +57,12 @@ async def assign_user(
         {"$set": {"role": body.role}},
         upsert=True,
     )
-    return {"status": "assigned", "restaurant_id": restaurant_id, "user_id": body.user_id, "role": body.role}
+    return {
+        "status": "assigned",
+        "restaurant_id": restaurant_id,
+        "user_id": body.user_id,
+        "role": body.role,
+    }
 
 
 @router.delete("/{restaurant_id}/unassign/{user_id}")
@@ -74,7 +78,9 @@ async def unassign_user(
         {"user_id": user_oid, "restaurant_id": restaurant_id}
     )
     if result.deleted_count == 0:
-        raise NotFoundError(f"No assignment found for user '{user_id}' at restaurant '{restaurant_id}'")
+        raise NotFoundError(
+            f"No assignment found for user '{user_id}' at restaurant '{restaurant_id}'"
+        )
     return {"status": "unassigned"}
 
 

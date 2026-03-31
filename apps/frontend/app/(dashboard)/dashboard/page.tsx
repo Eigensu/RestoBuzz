@@ -194,6 +194,15 @@ export default function DashboardPage() {
     enabled: !!restaurant,
   });
 
+  const { data: analyticsData, isLoading: analyticsLoading } = useQuery({
+    queryKey: ["dashboard-analytics", restaurant?.id],
+    queryFn: () =>
+      api
+        .get(`/campaigns/analytics?restaurant_id=${restaurant?.id}`)
+        .then((r) => r.data),
+    enabled: !!restaurant,
+  });
+
   const campaigns: Campaign[] = data?.items ?? [];
 
   // Data Aggregation & Decision Analytics Logic
@@ -288,36 +297,18 @@ export default function DashboardPage() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
-    // 4. Failure Breakdown (Weighted Simulation based on totals)
-    const failureBreakdown = [
-      { reason: "Invalid Number", value: Math.floor(totals.failed * 0.45) },
-      { reason: "Blocked by User", value: Math.floor(totals.failed * 0.25) },
-      { reason: "Provider Error", value: Math.floor(totals.failed * 0.15) },
-      { reason: "Rejected by WA", value: Math.floor(totals.failed * 0.1) },
-      { reason: "Network Issue", value: Math.floor(totals.failed * 0.05) },
-    ].sort((a, b) => b.value - a.value);
+    // 4. Failure Breakdown — real data from /campaigns/analytics
+    const failureBreakdown: { reason: string; value: number }[] =
+      analyticsData?.failure_breakdown ?? [];
 
-    // 5. Hourly Best Time (X = Hour, Y = Read Rate)
-    const hourlyMap: Record<number, { read: number; delivered: number }> = {};
-    campaigns.forEach((c) => {
-      const hour = new Date(c.created_at).getHours();
-      if (!hourlyMap[hour]) hourlyMap[hour] = { read: 0, delivered: 0 };
-      hourlyMap[hour].read += c.read_count;
-      hourlyMap[hour].delivered += c.delivered_count;
-    });
-
-    const hourlyPerformance = Array.from({ length: 24 }, (_, i) => {
-      const stats = hourlyMap[i] || { read: 0, delivered: 0 };
-      const rate =
-        stats.delivered > 0 ? (stats.read / stats.delivered) * 100 : 0;
-      const period = i >= 12 ? "PM" : "AM";
-      const displayHour = i % 12 || 12;
-      return {
-        hour: `${displayHour} ${period}`,
-        rate,
-        delivered: stats.delivered,
-      };
-    });
+    // 5. Hourly Best Time — real data from /campaigns/analytics
+    const hourlyPerformance: HourlyStat[] =
+      analyticsData?.hourly_performance ??
+      Array.from({ length: 24 }, (_, i) => {
+        const period = i >= 12 ? "PM" : "AM";
+        const displayHour = i % 12 || 12;
+        return { hour: `${displayHour} ${period}`, rate: 0, delivered: 0 };
+      });
 
     // 6. Priority Comparison
     const priorityStats = campaigns.reduce(
@@ -339,12 +330,12 @@ export default function DashboardPage() {
       delivery_rate: s.sent > 0 ? (s.delivered / s.sent) * 100 : 0,
     }));
 
-    // 7. Time-to-Read (TTR) Histogram Distribution
-    const ttrDistribution = [
-      { range: "0-5 min", count: Math.floor(totals.read * 0.4) },
-      { range: "5-30 min", count: Math.floor(totals.read * 0.25) },
-      { range: "30-120 min", count: Math.floor(totals.read * 0.2) },
-      { range: "2h+", count: Math.floor(totals.read * 0.15) },
+    // 7. Time-to-Read (TTR) — real data from /campaigns/analytics
+    const ttrDistribution: TTRStat[] = analyticsData?.ttr_distribution ?? [
+      { range: "0-5 min", count: 0 },
+      { range: "5-30 min", count: 0 },
+      { range: "30-120 min", count: 0 },
+      { range: "2h+", count: 0 },
     ];
 
     // Status Pie
@@ -412,9 +403,9 @@ export default function DashboardPage() {
       pieData,
       timeSeriesData,
     };
-  }, [campaigns]);
+  }, [campaigns, analyticsData]);
 
-  if (!restaurant || isLoading) {
+  if (!restaurant || isLoading || analyticsLoading) {
     return (
       <div className="h-[80vh] flex flex-col items-center justify-center text-gray-400 gap-4">
         <div className="w-12 h-12 border-4 border-gray-200 border-t-[#24422e] rounded-full animate-spin" />

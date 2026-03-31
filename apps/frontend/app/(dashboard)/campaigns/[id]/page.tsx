@@ -4,29 +4,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useSSE } from "@/lib/sse";
 import type { Campaign, CampaignProgress } from "@/types";
-import { MessageLogsTable } from "./MessageLogsTable";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { Download, Play, Pause, XCircle } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
-
-const STATUS_COLORS: Record<string, string> = {
-  queued: "bg-blue-100 text-blue-700",
-  sending: "bg-yellow-100 text-yellow-700",
-  sent: "bg-green-100 text-green-700",
-  delivered: "bg-emerald-100 text-emerald-700",
-  read: "bg-purple-100 text-purple-700",
-  failed: "bg-red-100 text-red-700",
-};
+import { FailureChart } from "@/components/campaigns/molecules/FailureChart";
+import { MessageLogsTable } from "@/components/campaigns/molecules/MessageLogsTable";
 
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -46,7 +28,6 @@ export default function CampaignDetailPage() {
     enabled: !!campaign && (campaign.failed_count ?? 0) > 0,
   });
 
-  // Live progress via SSE
   const { data: progress } = useSSE<CampaignProgress>(
     campaign &&
       !["completed", "failed", "cancelled", "draft"].includes(campaign.status)
@@ -70,7 +51,6 @@ export default function CampaignDetailPage() {
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
-
   const pauseMutation = useMutation({
     mutationFn: () => api.post(`/campaigns/${id}/pause`),
     onSuccess: () => {
@@ -78,7 +58,6 @@ export default function CampaignDetailPage() {
       qc.invalidateQueries({ queryKey: ["campaign", id] });
     },
   });
-
   const cancelMutation = useMutation({
     mutationFn: () => api.post(`/campaigns/${id}/cancel`),
     onSuccess: () => {
@@ -86,7 +65,6 @@ export default function CampaignDetailPage() {
       qc.invalidateQueries({ queryKey: ["campaign", id] });
     },
   });
-
   const retryMutation = useMutation({
     mutationFn: () => api.post(`/campaigns/${id}/retry-failed`),
     onSuccess: (res) => {
@@ -200,55 +178,10 @@ export default function CampaignDetailPage() {
         </div>
       </div>
 
-      {/* Failure breakdown chart */}
       {failureBreakdown && failureBreakdown.length > 0 && (
         <FailureChart data={failureBreakdown} />
       )}
-
-      {/* Message logs */}
       <MessageLogsTable campaignId={id} />
-    </div>
-  );
-}
-
-function FailureChart({ data }: { data: { reason: string; count: number }[] }) {
-  // Shorten long labels for the Y axis
-  const chartData = data.map((d) => ({
-    ...d,
-    label: d.reason.length > 40 ? d.reason.slice(0, 40) + "…" : d.reason,
-  }));
-
-  return (
-    <div className="bg-white rounded-xl border p-5 space-y-3">
-      <h2 className="font-medium text-sm">Failure Reasons</h2>
-      <ResponsiveContainer
-        width="100%"
-        height={Math.max(120, chartData.length * 52)}
-      >
-        <BarChart
-          data={chartData}
-          layout="vertical"
-          margin={{ top: 4, right: 48, left: 8, bottom: 4 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-          <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
-          <YAxis
-            type="category"
-            dataKey="label"
-            width={260}
-            tick={{ fontSize: 11 }}
-          />
-          <Tooltip
-            formatter={(value) => [value, "Count"]}
-            labelFormatter={(label) => String(label)}
-          />
-          <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-            {chartData.map((_, i) => (
-              <Cell key={i} fill={i === 0 ? "#f87171" : "#fca5a5"} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
     </div>
   );
 }

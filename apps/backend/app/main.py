@@ -38,6 +38,7 @@ app = FastAPI(
     title="WhatsApp Bulk Sender API",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # IMPORTANT: Starlette runs middleware in REVERSE registration order (LIFO).

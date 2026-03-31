@@ -46,7 +46,7 @@ def _serialize(doc: dict) -> MemberResponse:
     )
 
 
-@router.get("/", response_model=MemberListResponse)
+@router.get("", response_model=MemberListResponse)
 async def list_members(
     restaurant_id: Annotated[str, Query()],
     type: Annotated[str | None, Query()] = None,
@@ -74,7 +74,7 @@ async def list_members(
     return MemberListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
-@router.post("/", response_model=MemberResponse, status_code=201)
+@router.post("", response_model=MemberResponse, status_code=201)
 async def create_member(
     body: MemberCreate,
     current_user: Annotated[dict, Depends(require_role("admin"))],

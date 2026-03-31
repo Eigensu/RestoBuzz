@@ -16,11 +16,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const PAGE_SIZE = 50;
 
-interface Props {
-  campaignId: string;
-}
-
-export function MessageLogsTable({ campaignId }: Props) {
+export function MessageLogsTable({ campaignId }: { campaignId: string }) {
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery<{ items: MessageLog[]; total: number }>({
@@ -46,25 +42,17 @@ export function MessageLogsTable({ campaignId }: Props) {
           <span className="text-xs text-gray-400">{total} total</span>
         )}
       </div>
-
       <table className="w-full text-sm">
         <thead className="bg-gray-50 border-b">
           <tr>
-            <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-              Phone
-            </th>
-            <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-              Name
-            </th>
-            <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-              Status
-            </th>
-            <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-              Retries
-            </th>
-            <th className="text-left px-4 py-2.5 font-medium text-gray-500">
-              Error
-            </th>
+            {["Phone", "Name", "Status", "Retries", "Error"].map((h) => (
+              <th
+                key={h}
+                className="text-left px-4 py-2.5 font-medium text-gray-500"
+              >
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -111,7 +99,6 @@ export function MessageLogsTable({ campaignId }: Props) {
           )}
         </tbody>
       </table>
-
       {totalPages > 1 && (
         <div className="px-4 py-3 border-t flex items-center justify-between text-xs text-gray-500">
           <span>
@@ -121,7 +108,7 @@ export function MessageLogsTable({ campaignId }: Props) {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
               aria-label="Previous page"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -137,18 +124,14 @@ export function MessageLogsTable({ campaignId }: Props) {
               }, [])
               .map((p, i) =>
                 p === "…" ? (
-                  <span key={`ellipsis-${i}`} className="px-1">
+                  <span key={`e-${i}`} className="px-1">
                     …
                   </span>
                 ) : (
                   <button
                     key={p}
                     onClick={() => setPage(p as number)}
-                    className={`w-7 h-7 rounded text-xs font-medium transition ${
-                      page === p
-                        ? "bg-gray-900 text-white"
-                        : "hover:bg-gray-100"
-                    }`}
+                    className={`w-7 h-7 rounded text-xs font-medium transition ${page === p ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
                   >
                     {p}
                   </button>
@@ -157,7 +140,7 @@ export function MessageLogsTable({ campaignId }: Props) {
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="p-1 rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
               aria-label="Next page"
             >
               <ChevronRight className="w-4 h-4" />

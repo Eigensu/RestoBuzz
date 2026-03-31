@@ -117,6 +117,38 @@ async def fetch_templates(waba_id: str, token: str) -> list[dict]:
     return templates
 
 
+async def create_template(waba_id: str, token: str, payload: dict) -> dict:
+    """Create a new message template via the Business Management API.
+    Returns the created template dict (includes id, name, status)."""
+    url = f"{META_BASE}/{waba_id}/message_templates"
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        data = resp.json()
+        if resp.status_code not in (200, 201):
+            error = data.get("error", {})
+            raise MetaAPIError(
+                str(error.get("code", "unknown")), error.get("message", str(data))
+            )
+        return data
+
+
+async def edit_template(template_id: str, token: str, components: list) -> dict:
+    """Edit an existing template's components (body text only for APPROVED templates).
+    Meta allows 1 edit/day, max 10/month per template."""
+    url = f"{META_BASE}/{template_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(url, json={"components": components}, headers=headers)
+        data = resp.json()
+        if resp.status_code != 200:
+            error = data.get("error", {})
+            raise MetaAPIError(
+                str(error.get("code", "unknown")), error.get("message", str(data))
+            )
+        return data
+
+
 async def send_text_message(to: str, body: str, phone_id: str, token: str) -> str:
     url = f"{META_BASE}/{phone_id}/messages"
     payload = {
