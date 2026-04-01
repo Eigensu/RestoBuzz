@@ -1,7 +1,7 @@
 import { Wifi, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function MemberTypeBadge({ type }: { type: "nfc" | "ecard" }) {
+export function MemberTypeBadge({ type }: Readonly<{ type: "nfc" | "ecard" }>) {
   return (
     <span
       className={cn(

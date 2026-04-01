@@ -9,7 +9,7 @@ interface MemberRowProps {
   onDelete: (m: Member) => void;
 }
 
-export function MemberRow({ member: m, onEdit, onDelete }: MemberRowProps) {
+export function MemberRow({ member: m, onEdit, onDelete }: Readonly<MemberRowProps>) {
   return (
     <tr className="hover:bg-gray-50 transition">
       <td className="px-4 py-3">

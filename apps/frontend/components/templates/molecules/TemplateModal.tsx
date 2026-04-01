@@ -1,3 +1,4 @@
+"use client";
 import { useState } from "react";
 import { X, ImageIcon, ExternalLink, Pencil } from "lucide-react";
 import type { Template } from "@/types";
@@ -13,7 +14,7 @@ interface TemplateModalProps {
   onClose: () => void;
 }
 
-export function TemplateModal({ template: t, onClose }: TemplateModalProps) {
+export function TemplateModal({ template: t, onClose }: Readonly<TemplateModalProps>) {
   const [editing, setEditing] = useState(false);
 
   const header = t.components.find((c) => c.type === "HEADER");
@@ -25,8 +26,12 @@ export function TemplateModal({ template: t, onClose }: TemplateModalProps) {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Template: ${t.name}`}
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
       onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
       {editing && (
         <TemplateFormModal editing={t} onClose={() => setEditing(false)} />
@@ -34,6 +39,7 @@ export function TemplateModal({ template: t, onClose }: TemplateModalProps) {
       <div
         className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
       >
         {/* Modal header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
@@ -117,7 +123,7 @@ export function TemplateModal({ template: t, onClose }: TemplateModalProps) {
                   <div className="space-y-1.5">
                     {buttonsComp.buttons.map((btn, i) => (
                       <div
-                        key={i}
+                        key={`btn-${i}`}
                         className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2"
                       >
                         <ExternalLink className="w-3.5 h-3.5 text-[#24422e] shrink-0" />
@@ -175,7 +181,7 @@ export function TemplateModal({ template: t, onClose }: TemplateModalProps) {
                     {/* Body */}
                     {body?.text && (
                       <div className="px-3 py-2">
-                        <p className="text-xs text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
+                        <p className="text-xs text-gray-800 leading-relaxed whitespace-pre-wrap wrap-break-word">
                           {body.text}
                         </p>
                       </div>

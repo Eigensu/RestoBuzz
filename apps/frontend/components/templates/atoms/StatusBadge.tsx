@@ -2,7 +2,7 @@ interface StatusBadgeProps {
   status: string;
 }
 
-export function StatusBadge({ status }: StatusBadgeProps) {
+export function StatusBadge({ status }: Readonly<StatusBadgeProps>) {
   const approved = status === "APPROVED";
   return (
     <span

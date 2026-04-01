@@ -3,7 +3,7 @@ interface ProgressBarProps {
   total: number;
 }
 
-export function ProgressBar({ sent, total }: ProgressBarProps) {
+export function ProgressBar({ sent, total }: Readonly<ProgressBarProps>) {
   const pct = total > 0 ? Math.round((sent / total) * 100) : 0;
   return (
     <div className="flex items-center gap-2">

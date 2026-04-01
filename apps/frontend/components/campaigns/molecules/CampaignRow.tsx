@@ -11,7 +11,7 @@ interface CampaignRowProps {
   onDelete: (id: string) => void;
 }
 
-export function CampaignRow({ campaign: c, onDelete }: CampaignRowProps) {
+export function CampaignRow({ campaign: c, onDelete }: Readonly<CampaignRowProps>) {
   return (
     <tr className="hover:bg-gray-50 transition">
       <td className="px-4 py-3">

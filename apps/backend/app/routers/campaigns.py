@@ -32,6 +32,13 @@ from app.models.message import (
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 logger = get_logger(__name__)
 
+# ── MongoDB aggregation stage key constants ───────────────────────────────────
+_MATCH = "$match"
+_GROUP = "$group"
+_SORT = "$sort"
+_CREATED_AT = "$created_at"
+
+
 
 def _serialize_campaign(doc: dict) -> CampaignResponse:
     return CampaignResponse(
@@ -211,14 +218,14 @@ async def get_analytics(
     # ── 1. Failure Breakdown ──────────────────────────────────────────────────
     failure_cursor = db.message_logs.aggregate(
         [
-            {"$match": {**base_match, "status": "failed"}},
-            {"$group": {"_id": "$error_message", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
+            {_MATCH: {**base_match, "status": "failed"}},
+            {_GROUP: {"_id": "$error_message", "count": {"$sum": 1}}},
+            {_SORT: {"count": -1}},
             {"$limit": 10},
         ]
     )
     failure_results = [
-        {"reason": r["_id"] or "Unknown", "value": r["count"]}
+        {"reason": r["_id"] or "Unknown", "count": r["count"]}
         async for r in failure_cursor
     ]
 
@@ -227,16 +234,16 @@ async def get_analytics(
     # first "read" entry in status_history and diff against created_at.
     ttr_cursor = db.message_logs.aggregate(
         [
-            {"$match": {**base_match, "status": "read"}},
+            {_MATCH: {**base_match, "status": "read"}},
             # Unwind status_history to find the first "read" event
             {"$unwind": "$status_history"},
-            {"$match": {"status_history.status": "read"}},
+            {_MATCH: {"status_history.status": "read"}},
             # Keep only the earliest read event per message
-            {"$sort": {"status_history.timestamp": 1}},
+            {_SORT: {"status_history.timestamp": 1}},
             {
-                "$group": {
+                _GROUP: {
                     "_id": "$_id",
-                    "created_at": {"$first": "$created_at"},
+                    "created_at": {"$first": _CREATED_AT},
                     "read_at": {"$first": "$status_history.timestamp"},
                 }
             },
@@ -245,7 +252,7 @@ async def get_analytics(
                 "$addFields": {
                     "minutes": {
                         "$divide": [
-                            {"$subtract": ["$read_at", "$created_at"]},
+                            {"$subtract": ["$read_at", _CREATED_AT]},
                             60000,  # ms -> minutes
                         ]
                     }
@@ -276,10 +283,10 @@ async def get_analytics(
     # counting delivered and read messages per hour.
     hourly_cursor = db.message_logs.aggregate(
         [
-            {"$match": {**base_match, "status": {"$in": ["delivered", "read"]}}},
-            {"$addFields": {"hour": {"$hour": "$created_at"}}},
+            {_MATCH: {**base_match, "status": {"$in": ["delivered", "read"]}}},
+            {"$addFields": {"hour": {"$hour": _CREATED_AT}}},
             {
-                "$group": {
+                _GROUP: {
                     "_id": "$hour",
                     "delivered": {"$sum": 1},
                     "read": {"$sum": {"$cond": [{"$eq": ["$status", "read"]}, 1, 0]}},
@@ -475,9 +482,9 @@ async def failure_breakdown(
 
     cursor = db.message_logs.aggregate(
         [
-            {"$match": {"job_id": to_object_id(campaign_id), "status": "failed"}},
-            {"$group": {"_id": "$error_message", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
+            {_MATCH: {"job_id": to_object_id(campaign_id), "status": "failed"}},
+            {_GROUP: {"_id": "$error_message", "count": {"$sum": 1}}},
+            {_SORT: {"count": -1}},
             {"$limit": 10},
         ]
     )

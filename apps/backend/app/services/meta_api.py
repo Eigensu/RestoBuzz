@@ -148,15 +148,24 @@ async def create_template(waba_id: str, token: str, payload: dict) -> dict:
     Returns the created template dict (includes id, name, status)."""
     url = f"{META_BASE}/{waba_id}/message_templates"
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(url, json=payload, headers=headers)
-        data = resp.json()
-        if resp.status_code not in (200, 201):
-            error = data.get("error", {})
-            raise MetaAPIError(
-                str(error.get("code", "unknown")), error.get("message", str(data))
-            )
-        return data
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            try:
+                data = resp.json()
+            except Exception as esc:
+                raise MetaAPIError(
+                    "invalid_response",
+                    f"Non-JSON response from Meta (status {resp.status_code})",
+                ) from esc
+            if resp.status_code not in (200, 201):
+                error = data.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")), error.get("message", str(data))
+                )
+            return data
+    except httpx.RequestError as e:
+        raise MetaAPIError("network_error", str(e)) from e
 
 
 async def create_media_handle_from_url(
@@ -242,15 +251,26 @@ async def edit_template(template_id: str, token: str, components: list) -> dict:
     Meta allows 1 edit/day, max 10/month per template."""
     url = f"{META_BASE}/{template_id}"
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(url, json={"components": components}, headers=headers)
-        data = resp.json()
-        if resp.status_code != 200:
-            error = data.get("error", {})
-            raise MetaAPIError(
-                str(error.get("code", "unknown")), error.get("message", str(data))
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                url, json={"components": components}, headers=headers
             )
-        return data
+            try:
+                data = resp.json()
+            except Exception:
+                raise MetaAPIError(
+                    "invalid_response",
+                    f"Non-JSON response from Meta (status {resp.status_code})",
+                )
+            if resp.status_code != 200:
+                error = data.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")), error.get("message", str(data))
+                )
+            return data
+    except httpx.RequestError as e:
+        raise MetaAPIError("network_error", str(e)) from e
 
 
 async def send_text_message(to: str, body: str, phone_id: str, token: str) -> str:

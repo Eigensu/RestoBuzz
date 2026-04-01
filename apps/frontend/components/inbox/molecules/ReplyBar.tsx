@@ -9,7 +9,7 @@ interface ReplyBarProps {
   disabled?: boolean;
 }
 
-export function ReplyBar({ value, onChange, onSend, disabled }: ReplyBarProps) {
+export function ReplyBar({ value, onChange, onSend, disabled }: Readonly<ReplyBarProps>) {
   return (
     <div className="px-4 py-3 flex gap-2 items-center">
       <input
@@ -21,8 +21,9 @@ export function ReplyBar({ value, onChange, onSend, disabled }: ReplyBarProps) {
             onSend();
           }
         }}
+        disabled={disabled}
         placeholder="Type a message…"
-        className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/25 focus:border-[#24422e]/40 transition"
+        className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/25 focus:border-[#24422e]/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
       />
       <button
         onClick={onSend}

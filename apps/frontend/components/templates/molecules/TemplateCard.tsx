@@ -1,3 +1,4 @@
+"use client";
 import { useState } from "react";
 import { FileText } from "lucide-react";
 import type { Template } from "@/types";
@@ -10,7 +11,7 @@ interface TemplateCardProps {
   template: Template;
 }
 
-export function TemplateCard({ template: t }: TemplateCardProps) {
+export function TemplateCard({ template: t }: Readonly<TemplateCardProps>) {
   const [open, setOpen] = useState(false);
   const bodyText = t.components.find((c) => c.type === "BODY")?.text;
   const hasHeader = t.components.some((c) => c.type === "HEADER");
@@ -20,7 +21,10 @@ export function TemplateCard({ template: t }: TemplateCardProps) {
     <>
       {open && <TemplateModal template={t} onClose={() => setOpen(false)} />}
       <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(true)}
+        onKeyDown={(e) => e.key === "Enter" && setOpen(true)}
         className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all flex flex-col gap-4 cursor-pointer"
       >
         {/* Header row */}

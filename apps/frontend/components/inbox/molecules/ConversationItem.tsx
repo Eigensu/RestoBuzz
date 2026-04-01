@@ -31,7 +31,7 @@ export function ConversationItem({
   conv,
   selected,
   onClick,
-}: ConversationItemProps) {
+}: Readonly<ConversationItemProps>) {
   return (
     <button
       onClick={onClick}

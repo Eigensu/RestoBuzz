@@ -12,7 +12,7 @@ interface SuppressionRowProps {
   onRemove: (phone: string) => void;
 }
 
-export function SuppressionRow({ item, onRemove }: SuppressionRowProps) {
+export function SuppressionRow({ item, onRemove }: Readonly<SuppressionRowProps>) {
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <span className="font-mono text-sm flex-1">{item.phone}</span>

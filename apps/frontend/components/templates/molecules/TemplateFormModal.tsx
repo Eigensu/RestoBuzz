@@ -191,6 +191,7 @@ export function TemplateFormModal({
           : "rounded-2xl border border-gray-100 shadow-sm max-w-4xl"
       }`}
       onClick={(e) => isModal && e.stopPropagation()}
+      onKeyDown={(e) => isModal && e.stopPropagation()}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b">
@@ -531,7 +532,7 @@ export function TemplateFormModal({
                   ) : null}
 
                   <div className="px-3 py-3">
-                    <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
+                    <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap wrap-break-word">
                       {previewBodyText ||
                         "Your body content will appear here as you type."}
                     </p>
@@ -561,8 +562,12 @@ export function TemplateFormModal({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={isEdit ? `Edit template ${editing?.name}` : "New template"}
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
       onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
       {content}
     </div>

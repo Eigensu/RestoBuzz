@@ -139,7 +139,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-300 mx-auto p-4 md:p-8 pb-16">
+    <div className="space-y-6 max-w-7xl mx-auto p-4 md:p-8 pb-16">
       <div className="flex items-center gap-3">
         <div className="p-2 bg-[#eff2f0] rounded-lg">
           <Shield className="w-6 h-6 text-[#24422e]" />
@@ -162,10 +162,11 @@ export default function AdminPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label htmlFor="admin-email" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
               Email
             </label>
             <input
+              id="admin-email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@yourcompany.com"
@@ -175,10 +176,11 @@ export default function AdminPage() {
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label htmlFor="admin-password" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
               Password
             </label>
             <input
+              id="admin-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Minimum 6 characters"
@@ -188,10 +190,11 @@ export default function AdminPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label htmlFor="admin-first-name" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
               First Name
             </label>
             <input
+              id="admin-first-name"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               className={INPUT_CLS}
@@ -200,10 +203,11 @@ export default function AdminPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label htmlFor="admin-last-name" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
               Last Name
             </label>
             <input
+              id="admin-last-name"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
               className={INPUT_CLS}
@@ -212,10 +216,11 @@ export default function AdminPage() {
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label htmlFor="admin-phone" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
               Phone (optional)
             </label>
             <input
+              id="admin-phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className={INPUT_CLS}

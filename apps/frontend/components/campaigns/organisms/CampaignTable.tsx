@@ -6,7 +6,7 @@ interface CampaignTableProps {
   onDelete: (id: string) => void;
 }
 
-export function CampaignTable({ campaigns, onDelete }: CampaignTableProps) {
+export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTableProps>) {
   return (
     <div className="bg-white rounded-xl border overflow-hidden">
       <table className="w-full text-sm">

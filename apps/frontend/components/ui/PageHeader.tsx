@@ -10,7 +10,7 @@ export function PageHeader({
   title,
   subtitle,
   action,
-}: PageHeaderProps) {
+}: Readonly<PageHeaderProps>) {
   return (
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
       <div>

@@ -6,7 +6,7 @@ interface TemplateGridProps {
   templates: Template[];
 }
 
-export function TemplateGrid({ templates }: TemplateGridProps) {
+export function TemplateGrid({ templates }: Readonly<TemplateGridProps>) {
   if (templates.length === 0) {
     return (
       <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center shadow-sm">
@@ -20,7 +20,7 @@ export function TemplateGrid({ templates }: TemplateGridProps) {
   return (
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
       {templates.map((t) => (
-        <TemplateCard key={t.name} template={t} />
+        <TemplateCard key={`${t.name}:${t.language}`} template={t} />
       ))}
     </div>
   );

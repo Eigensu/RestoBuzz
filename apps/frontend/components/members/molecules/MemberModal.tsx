@@ -20,7 +20,7 @@ export function MemberModal({
   editing,
   defaultType,
   onClose,
-}: MemberModalProps) {
+}: Readonly<MemberModalProps>) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
     type: (editing?.type ?? (defaultType === "all" ? "nfc" : defaultType)) as
@@ -84,7 +84,7 @@ export function MemberModal({
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition",
                     form.type === t
-                      ? "text-white bg-gradient-to-r from-[#24422e] to-[#3a6b47]"
+                      ? "text-white bg-linear-to-r from-[#24422e] to-[#3a6b47]"
                       : "text-[#24422e] hover:bg-[#24422e]/10",
                   )}
                 >
@@ -100,10 +100,11 @@ export function MemberModal({
           )}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="member-name" className="block text-xs font-medium text-gray-600 mb-1">
                 Full Name *
               </label>
               <input
+                id="member-name"
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
                 className={inputCls}
@@ -111,10 +112,11 @@ export function MemberModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="member-phone" className="block text-xs font-medium text-gray-600 mb-1">
                 Phone *
               </label>
               <input
+                id="member-phone"
                 value={form.phone}
                 onChange={(e) => set("phone", e.target.value)}
                 className={inputCls}
@@ -122,10 +124,11 @@ export function MemberModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="member-email" className="block text-xs font-medium text-gray-600 mb-1">
                 Email
               </label>
               <input
+                id="member-email"
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
                 className={inputCls}
@@ -133,10 +136,11 @@ export function MemberModal({
               />
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="member-card" className="block text-xs font-medium text-gray-600 mb-1">
                 {form.type === "nfc" ? "NFC Card UID *" : "E-Card Code *"}
               </label>
               <input
+                id="member-card"
                 value={form.type === "nfc" ? form.card_uid : form.ecard_code}
                 onChange={(e) =>
                   set(
@@ -149,10 +153,11 @@ export function MemberModal({
               />
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">
+              <label htmlFor="member-notes" className="block text-xs font-medium text-gray-600 mb-1">
                 Notes
               </label>
               <textarea
+                id="member-notes"
                 value={form.notes}
                 onChange={(e) => set("notes", e.target.value)}
                 rows={2}
@@ -172,13 +177,9 @@ export function MemberModal({
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || !form.name || !form.phone}
-            className="flex-1 bg-gradient-to-r from-[#24422e] to-[#2a5038] text-white rounded-lg py-2 text-sm font-medium transition disabled:opacity-50"
+            className="flex-1 bg-linear-to-r from-[#24422e] to-[#2a5038] text-white rounded-lg py-2 text-sm font-medium transition disabled:opacity-50"
           >
-            {mutation.isPending
-              ? "Saving..."
-              : editing
-                ? "Save Changes"
-                : "Add Member"}
+            {mutation.isPending ? "Saving..." : editing ? "Save Changes" : "Add Member"}
           </button>
         </div>
       </div>

@@ -8,7 +8,7 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-gray-100 text-gray-500",
 };
 
-export function CampaignStatusBadge({ status }: { status: string }) {
+export function CampaignStatusBadge({ status }: Readonly<{ status: string }>) {
   return (
     <span
       className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[status] ?? "bg-gray-100 text-gray-600"}`}

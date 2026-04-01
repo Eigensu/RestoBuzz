@@ -77,7 +77,7 @@ export function QuickReplies({
   lastMessage,
   onSelect,
   disabled,
-}: QuickRepliesProps) {
+}: Readonly<QuickRepliesProps>) {
   const suggestions = getQuickReplies(lastMessage);
   if (!suggestions.length) return null;
   return (

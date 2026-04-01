@@ -8,9 +8,11 @@ import {
 import { cn } from "@/lib/utils";
 import type { InboundMessage } from "@/types";
 
+import { timeIST } from "@/lib/date";
+
 const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
 
-export function MessageBubble({ msg }: { msg: InboundMessage }) {
+export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
   const out = msg.direction === "outbound";
   return (
     <div className={cn("flex", out ? "justify-end" : "justify-start")}>
@@ -85,10 +87,7 @@ export function MessageBubble({ msg }: { msg: InboundMessage }) {
           )}
         >
           <span className="text-[10px]">
-            {new Date(msg.received_at).toLocaleTimeString("en-IN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            {timeIST(msg.received_at)}
           </span>
           {out &&
             (msg.is_read ? (

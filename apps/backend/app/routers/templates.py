@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 import re
 from pydantic import BaseModel, Field
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_db
 from app.dependencies import require_role
 from app.services.meta_api import (
@@ -135,7 +136,7 @@ async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
                     isinstance(handles, list)
                     and handles
                     and isinstance(handles[0], str)
-                    and handles[0].strip().startswith(("http://", "https://"))
+                    and handles[0].strip().startswith("https://")
                 ):
                     if not settings.meta_primary_access_token:
                         raise ValidationError(
@@ -156,8 +157,8 @@ async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
 
 @router.get("")
 async def list_templates(
-    _current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    _current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     cursor = db.templates.find({}, {"_id": 0}).sort("name", 1)
     return [doc async for doc in cursor]
@@ -166,8 +167,8 @@ async def list_templates(
 @router.post("", status_code=201)
 async def create_new_template(
     body: CreateTemplateRequest,
-    _current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    _current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     normalized_components = [_normalize_component_for_meta(c) for c in body.components]
     normalized_components = await _resolve_media_header_handles(normalized_components)
@@ -187,6 +188,14 @@ async def create_new_template(
         )
     except MetaAPIError as exc:
         raise ValidationError(f"Meta rejected template payload: {exc.message}") from exc
+
+    meta_id = result.get("id")
+    if not meta_id:
+        raise ValidationError(
+            "Meta did not return a template ID — the template may not have been created. "
+            "Check your WABA settings and try again."
+        )
+
     # Persist locally so it shows up immediately without a sync
     now = datetime.now(timezone.utc)
     doc = {
@@ -195,7 +204,7 @@ async def create_new_template(
         "language": _normalize_language_code(body.language),
         "status": result.get("status", "PENDING"),
         "components": payload["components"],
-        "meta_id": str(result.get("id", "")),
+        "meta_id": str(meta_id),
         "synced_at": now,
     }
     await db.templates.update_one(
@@ -210,8 +219,8 @@ async def create_new_template(
 async def edit_existing_template(
     template_name: str,
     body: EditTemplateRequest,
-    _current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    _current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     doc = await db.templates.find_one({"name": template_name})
     if not doc:
@@ -226,19 +235,20 @@ async def edit_existing_template(
     components = [_normalize_component_for_meta(c) for c in body.components]
     await edit_template(meta_id, settings.meta_primary_access_token, components)
 
-    # Update local copy
+    # Update local copy — use meta_id to target the exact document,
+    # avoiding ambiguity when multiple language variants share a name.
     await db.templates.update_one(
-        {"name": template_name},
+        {"meta_id": meta_id},
         {"$set": {"components": components, "synced_at": datetime.now(timezone.utc)}},
     )
-    updated = await db.templates.find_one({"name": template_name}, {"_id": 0})
+    updated = await db.templates.find_one({"meta_id": meta_id}, {"_id": 0})
     return updated
 
 
 @router.post("/sync", status_code=200)
 async def sync_templates(
-    _current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    _current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     templates = await fetch_templates(
         settings.meta_waba_id,

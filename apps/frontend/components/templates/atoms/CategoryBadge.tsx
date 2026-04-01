@@ -2,7 +2,7 @@ interface CategoryBadgeProps {
   category: string;
 }
 
-export function CategoryBadge({ category }: CategoryBadgeProps) {
+export function CategoryBadge({ category }: Readonly<CategoryBadgeProps>) {
   const isUtility = category === "UTILITY";
   return (
     <span

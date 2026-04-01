@@ -41,25 +41,23 @@ api.interceptors.response.use(
           volatileRefreshToken ?? localStorage.getItem("refresh_token");
         if (refresh) {
           try {
-            if (!refreshInFlight) {
-              // Use the global axios (no interceptors) to avoid recursive
-              // interceptor calls. Use relative path so the request is same-origin
-              // and forwarded by Next.js to the real backend.
-              refreshInFlight = axios
-                .post(
-                  `/api/auth/refresh`,
-                  {
-                    refresh_token: refresh,
-                  },
-                  {
-                    headers: { "ngrok-skip-browser-warning": "1" },
-                  },
-                )
-                .then((r) => r.data)
-                .finally(() => {
-                  refreshInFlight = null;
-                });
-            }
+            // Use the global axios (no interceptors) to avoid recursive
+            // interceptor calls. Use relative path so the request is same-origin
+            // and forwarded by Next.js to the real backend.
+            refreshInFlight ??= axios
+              .post(
+                `/api/auth/refresh`,
+                {
+                  refresh_token: refresh,
+                },
+                {
+                  headers: { "ngrok-skip-browser-warning": "1" },
+                },
+              )
+              .then((r) => r.data)
+              .finally(() => {
+                refreshInFlight = null;
+              });
 
             const data = await refreshInFlight;
             volatileAccessToken = data.access_token;

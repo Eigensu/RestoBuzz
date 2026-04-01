@@ -13,7 +13,7 @@ interface FailureChartProps {
   data: { reason: string; count: number }[];
 }
 
-export function FailureChart({ data }: FailureChartProps) {
+export function FailureChart({ data }: Readonly<FailureChartProps>) {
   const chartData = data.map((d) => ({
     ...d,
     label: d.reason.length > 40 ? d.reason.slice(0, 40) + "…" : d.reason,
@@ -41,11 +41,11 @@ export function FailureChart({ data }: FailureChartProps) {
           />
           <Tooltip
             formatter={(value) => [value, "Count"]}
-            labelFormatter={(l) => String(l)}
+            labelFormatter={String}
           />
           <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-            {chartData.map((_, i) => (
-              <Cell key={i} fill={i === 0 ? "#f87171" : "#fca5a5"} />
+            {chartData.map((entry, i) => (
+              <Cell key={entry.reason} fill={i === 0 ? "#f87171" : "#fca5a5"} />
             ))}
           </Bar>
         </BarChart>

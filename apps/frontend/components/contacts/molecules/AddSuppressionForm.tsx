@@ -18,7 +18,7 @@ export function AddSuppressionForm({
   onReasonChange,
   onAdd,
   isPending,
-}: AddSuppressionFormProps) {
+}: Readonly<AddSuppressionFormProps>) {
   return (
     <div className="bg-white rounded-xl border p-4 space-y-3">
       <h2 className="text-sm font-medium">Add Number</h2>
@@ -41,7 +41,7 @@ export function AddSuppressionForm({
         <button
           onClick={onAdd}
           disabled={!phone || isPending}
-          className="flex items-center gap-1.5 bg-gradient-to-r from-[#24422e] to-[#1a3022] text-white text-sm px-4 py-2 rounded-lg transition disabled:opacity-50"
+          className="flex items-center gap-1.5 bg-linear-to-r from-[#24422e] to-[#1a3022] text-white text-sm px-4 py-2 rounded-lg transition disabled:opacity-50"
         >
           <Plus className="w-4 h-4" /> Add
         </button>

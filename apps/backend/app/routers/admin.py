@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, EmailStr, Field
 
 from app.core.errors import EmailAlreadyExistsError
@@ -46,7 +47,10 @@ async def create_admin_user(
         "created_by": str(current_user["_id"]),
     }
 
-    result = await db.users.insert_one(user_doc)
+    try:
+        result = await db.users.insert_one(user_doc)
+    except DuplicateKeyError as exc:
+        raise EmailAlreadyExistsError(f"User with email {body.email} already exists") from exc
     user_doc["_id"] = result.inserted_id
 
     return UserResponse(

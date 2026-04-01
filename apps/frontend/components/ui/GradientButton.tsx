@@ -16,7 +16,7 @@ export function GradientButton({
   disabled,
   className = "",
   type = "button",
-}: GradientButtonProps) {
+}: Readonly<GradientButtonProps>) {
   return (
     <button
       type={type}

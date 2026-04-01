@@ -15,7 +15,7 @@ export function MembersTable({
   onEdit,
   onDelete,
   onAddFirst,
-}: MembersTableProps) {
+}: Readonly<MembersTableProps>) {
   if (members.length === 0) {
     return (
       <div className="bg-white rounded-xl border text-center py-16">

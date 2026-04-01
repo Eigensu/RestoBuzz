@@ -298,7 +298,7 @@ export default function DashboardPage() {
       .slice(0, 5);
 
     // 4. Failure Breakdown — real data from /campaigns/analytics
-    const failureBreakdown: { reason: string; value: number }[] =
+    const failureBreakdown: { reason: string; count: number }[] =
       analyticsData?.failure_breakdown ?? [];
 
     // 5. Hourly Best Time — real data from /campaigns/analytics
@@ -766,7 +766,7 @@ export default function DashboardPage() {
               </span>{" "}
               is responsible for{" "}
               {(
-                (failureBreakdown[0]?.value / (totals.failed || 1)) *
+                (failureBreakdown[0]?.count / (totals.failed || 1)) *
                 100
               ).toFixed(1)}
               % of all unsuccessful deliveries. Reviewing your contact list for

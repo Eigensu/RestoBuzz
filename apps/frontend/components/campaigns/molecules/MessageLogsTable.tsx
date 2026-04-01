@@ -16,7 +16,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const PAGE_SIZE = 50;
 
-export function MessageLogsTable({ campaignId }: { campaignId: string }) {
+export function MessageLogsTable({ campaignId }: Readonly<{ campaignId: string }>) {
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery<{ items: MessageLog[]; total: number }>({
@@ -75,27 +75,32 @@ export function MessageLogsTable({ campaignId }: { campaignId: string }) {
               </td>
             </tr>
           ) : (
-            logs.map((m) => (
-              <tr key={m.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2.5 font-mono text-xs">
-                  {m.recipient_phone}
-                </td>
-                <td className="px-4 py-2.5 text-gray-600">
-                  {m.recipient_name || "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[m.status] ?? "bg-gray-100 text-gray-600"}`}
-                  >
-                    {m.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-gray-400">{m.retry_count}</td>
-                <td className="px-4 py-2.5 text-red-500 text-xs">
-                  {m.error_code ? `${m.error_code}: ${m.error_message}` : "—"}
-                </td>
-              </tr>
-            ))
+            logs.map((m) => {
+              const errorText = m.error_code
+                ? `${m.error_code}: ${m.error_message}`
+                : "—";
+              return (
+                <tr key={m.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-2.5 font-mono text-xs">
+                    {m.recipient_phone}
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-600">
+                    {m.recipient_name || "—"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[m.status] ?? "bg-gray-100 text-gray-600"}`}
+                    >
+                      {m.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-400">{m.retry_count}</td>
+                  <td className="px-4 py-2.5 text-red-500 text-xs">
+                    {errorText}
+                  </td>
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>
@@ -122,12 +127,15 @@ export function MessageLogsTable({ campaignId }: { campaignId: string }) {
                 acc.push(p);
                 return acc;
               }, [])
-              .map((p, i) =>
-                p === "…" ? (
-                  <span key={`e-${i}`} className="px-1">
-                    …
-                  </span>
-                ) : (
+              .map((p, i) => {
+                if (p === "…") {
+                  return (
+                    <span key={`e-${i}`} className="px-1">
+                      …
+                    </span>
+                  );
+                }
+                return (
                   <button
                     key={p}
                     onClick={() => setPage(p as number)}
@@ -135,8 +143,8 @@ export function MessageLogsTable({ campaignId }: { campaignId: string }) {
                   >
                     {p}
                   </button>
-                ),
-              )}
+                );
+              })}
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
