@@ -1,8 +1,24 @@
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from app.config import settings
+from urllib.parse import urlparse
 
 _client: AsyncIOMotorClient | None = None
+
+
+def _resolve_db_name() -> str:
+    configured = (settings.mongodb_db_name or "").strip()
+    if configured:
+        return configured
+
+    parsed = urlparse(settings.mongodb_url)
+    uri_db = parsed.path.lstrip("/").strip()
+    if uri_db:
+        return uri_db
+
+    raise ValueError(
+        "MongoDB database name is missing. Set mongodb_db_name or include /<db> in mongodb_url."
+    )
 
 
 def get_client() -> AsyncIOMotorClient:
@@ -13,7 +29,7 @@ def get_client() -> AsyncIOMotorClient:
 
 
 def get_db() -> AsyncIOMotorDatabase:
-    return get_client().get_default_database(settings.mongodb_db_name)
+    return get_client().get_database(_resolve_db_name())
 
 
 def get_fresh_db() -> AsyncIOMotorDatabase:
@@ -21,7 +37,7 @@ def get_fresh_db() -> AsyncIOMotorDatabase:
     Celery forks processes and the parent's event loop is closed in the child,
     so we must never reuse the global _client across fork boundaries."""
     client = AsyncIOMotorClient(settings.mongodb_url)
-    return client.get_default_database(settings.mongodb_db_name)
+    return client.get_database(_resolve_db_name())
 
 
 async def init_indexes() -> None:
