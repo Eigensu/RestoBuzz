@@ -10,6 +10,13 @@ import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { CampaignTable } from "@/components/campaigns/organisms/CampaignTable";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CampaignStatus } from "@/types/common/enums";
+
+const ACTIVE_STATUSES = [
+  CampaignStatus.QUEUED,
+  CampaignStatus.RUNNING,
+  CampaignStatus.PAUSED,
+];
 
 export default function CampaignsPage() {
   const qc = useQueryClient();
@@ -22,6 +29,13 @@ export default function CampaignsPage() {
         .get(`/campaigns?restaurant_id=${restaurant!.id}&page=1&page_size=50`)
         .then((r) => r.data),
     enabled: !!restaurant,
+    refetchInterval: (query) => {
+      const campaigns: Campaign[] = query.state.data?.items ?? [];
+      const hasActive = campaigns.some((c) =>
+        ACTIVE_STATUSES.includes(c.status as CampaignStatus),
+      );
+      return hasActive ? 5000 : false;
+    },
   });
 
   const deleteMutation = useMutation({

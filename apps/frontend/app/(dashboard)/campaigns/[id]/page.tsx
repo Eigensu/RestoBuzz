@@ -9,14 +9,40 @@ import { parseApiError } from "@/lib/errors";
 import { Download, Play, Pause, XCircle } from "lucide-react";
 import { FailureChart } from "@/components/campaigns/molecules/FailureChart";
 import { MessageLogsTable } from "@/components/campaigns/molecules/MessageLogsTable";
+import { CampaignStatus } from "@/types/common/enums";
+
+const ACTIVE_STATUSES = [
+  CampaignStatus.QUEUED,
+  CampaignStatus.RUNNING,
+  CampaignStatus.PAUSED,
+];
+const CANCELLABLE_STATUSES = [
+  CampaignStatus.DRAFT,
+  CampaignStatus.QUEUED,
+  CampaignStatus.RUNNING,
+  CampaignStatus.PAUSED,
+];
+const INACTIVE_STATUSES = [
+  CampaignStatus.COMPLETED,
+  CampaignStatus.FAILED,
+  CampaignStatus.CANCELLED,
+  CampaignStatus.DRAFT,
+];
 
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
 
+  const isActiveCampaign = (status?: string) =>
+    ACTIVE_STATUSES.includes(status as CampaignStatus);
+
   const { data: campaign } = useQuery<Campaign>({
     queryKey: ["campaign", id],
     queryFn: () => api.get(`/campaigns/${id}`).then((r) => r.data),
+    refetchInterval: (query) => {
+      const status = (query.state.data as Campaign | undefined)?.status;
+      return isActiveCampaign(status) ? 5000 : false;
+    },
   });
 
   const { data: failureBreakdown } = useQuery<
@@ -29,8 +55,7 @@ export default function CampaignDetailPage() {
   });
 
   const { data: progress } = useSSE<CampaignProgress>(
-    campaign &&
-      !["completed", "failed", "cancelled", "draft"].includes(campaign.status)
+    campaign && !INACTIVE_STATUSES.includes(campaign.status as CampaignStatus)
       ? `/campaigns/${id}/stream`
       : null,
   );
@@ -86,7 +111,7 @@ export default function CampaignDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {campaign?.status === "draft" && (
+          {campaign?.status === CampaignStatus.DRAFT && (
             <button
               onClick={() => startMutation.mutate()}
               className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-sm px-3 py-1.5 rounded-lg transition"
@@ -94,7 +119,7 @@ export default function CampaignDetailPage() {
               <Play className="w-3.5 h-3.5" /> Start
             </button>
           )}
-          {campaign?.status === "running" && (
+          {campaign?.status === CampaignStatus.RUNNING && (
             <button
               onClick={() => pauseMutation.mutate()}
               className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-sm px-3 py-1.5 rounded-lg transition"
@@ -102,8 +127,8 @@ export default function CampaignDetailPage() {
               <Pause className="w-3.5 h-3.5" /> Pause
             </button>
           )}
-          {["draft", "queued", "running", "paused"].includes(
-            campaign?.status ?? "",
+          {CANCELLABLE_STATUSES.includes(
+            campaign?.status as CampaignStatus,
           ) && (
             <button
               onClick={() => cancelMutation.mutate()}
@@ -113,7 +138,9 @@ export default function CampaignDetailPage() {
             </button>
           )}
           {(campaign?.failed_count ?? 0) > 0 &&
-            !["running", "queued"].includes(campaign?.status ?? "") && (
+            ![CampaignStatus.RUNNING, CampaignStatus.QUEUED].includes(
+              campaign?.status as CampaignStatus,
+            ) && (
               <button
                 onClick={() => retryMutation.mutate()}
                 disabled={retryMutation.isPending}
@@ -181,7 +208,10 @@ export default function CampaignDetailPage() {
       {failureBreakdown && failureBreakdown.length > 0 && (
         <FailureChart data={failureBreakdown} />
       )}
-      <MessageLogsTable campaignId={id} />
+      <MessageLogsTable
+        campaignId={id}
+        pollMs={isActiveCampaign(campaign?.status) ? 5000 : false}
+      />
     </div>
   );
 }
