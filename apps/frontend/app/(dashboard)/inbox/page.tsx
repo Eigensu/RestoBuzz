@@ -6,7 +6,7 @@ import { useUIStore } from "@/lib/ui-store";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import type { Conversation, InboundMessage } from "@/types";
-import { Send, ArrowLeft } from "lucide-react";
+import { Send, ArrowLeft, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MessageBubble } from "@/components/inbox/atoms/MessageBubble";
 import { ConversationItem } from "@/components/inbox/molecules/ConversationItem";
@@ -52,6 +52,7 @@ function DateSeparator({ date }: { date: string }) {
 export default function InboxPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [reply, setReply] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const setInboxUnread = useUIStore((s) => s.setInboxUnread);
@@ -67,6 +68,16 @@ export default function InboxPage() {
   });
 
   const convs = useMemo(() => convsData?.items ?? [], [convsData]);
+
+  const filteredConvs = useMemo(() => {
+    if (!searchQuery.trim()) return convs;
+    const q = searchQuery.toLowerCase();
+    return convs.filter(
+      (c) =>
+        (c.sender_name?.toLowerCase() || "").includes(q) ||
+        c.from_phone.includes(q)
+    );
+  }, [convs, searchQuery]);
 
   useEffect(() => {
     setInboxUnread(convs.reduce((sum, c) => sum + c.unread_count, 0));
@@ -132,7 +143,17 @@ export default function InboxPage() {
             </div>
             <h2 className="text-xl font-black text-gray-900 tracking-tight">Inbox</h2>
           </div>
-          <div className="flex items-center justify-between mt-3">
+          <div className="mt-4 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by name or number..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#eff2f0]/50 border-none rounded-xl pl-9 pr-4 py-2.5 text-sm font-medium text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-[#24422e]/20 transition-all outline-none"
+            />
+          </div>
+          <div className="flex items-center justify-between mt-4">
             <p className="text-[10px] font-black text-[#24422e]/40 uppercase tracking-widest">
               Recent Chats
             </p>
@@ -142,14 +163,14 @@ export default function InboxPage() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-          {convs.length === 0 && (
+          {filteredConvs.length === 0 && (
             <div className="flex flex-col items-center justify-center h-40 text-center px-4">
               <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                No conversations yet
+                No conversations found
               </p>
             </div>
           )}
-          {convs.map((c) => (
+          {filteredConvs.map((c) => (
             <ConversationItem
               key={c.from_phone}
               conv={c}

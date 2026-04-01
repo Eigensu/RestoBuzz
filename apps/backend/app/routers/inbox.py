@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query
 from datetime import datetime, timedelta, timezone
-from bson import ObjectId
 from app.database import get_db
 from app.dependencies import require_role
 from app.models.inbox import (
@@ -24,7 +23,9 @@ async def list_conversations(
     db=Depends(get_db),
 ):
     skip = (page - 1) * page_size
+    since = datetime.now(timezone.utc) - timedelta(days=30)
     pipeline = [
+        {"$match": {"received_at": {"$gte": since}}},
         {"$sort": {"received_at": -1}},
         {
             "$group": {
@@ -80,61 +81,71 @@ async def get_conversation(
     # Limit to last 30 days
     since = datetime.now(timezone.utc) - timedelta(days=30)
 
-    # Inbound messages
-    inbound_cursor = (
-        db.inbound_messages.find({"from_phone": phone, "received_at": {"$gte": since}})
-        .sort("received_at", -1)
-        .skip(skip)
-        .limit(page_size)
-    )
-    async for doc in inbound_cursor:
-        loc = doc.get("location")
-        items.append(
-            InboundMessageResponse(
-                id=str(doc["_id"]),
-                wa_message_id=doc["wa_message_id"],
-                from_phone=doc["from_phone"],
-                sender_name=doc.get("sender_name"),
-                message_type=doc.get("message_type", "unknown"),
-                body=doc.get("body"),
-                media_url=doc.get("media_url"),
-                media_mime_type=doc.get("media_mime_type"),
-                location=LocationData(**loc) if loc else None,
-                is_read=doc.get("is_read", False),
-                received_at=doc["received_at"],
-                direction="inbound",
-                status=None,
-            )
-        )
+    pipeline = [
+        {"$match": {"from_phone": phone, "received_at": {"$gte": since}}},
+        {"$addFields": {"direction": "inbound"}},
+        {
+            "$unionWith": {
+                "coll": "outbound_messages",
+                "pipeline": [
+                    {"$match": {"to_phone": phone, "sent_at": {"$gte": since}}},
+                    {
+                        "$addFields": {
+                            "direction": "outbound",
+                            "received_at": "$sent_at",
+                            "from_phone": phone,
+                            "sender_name": "You",
+                        }
+                    },
+                ],
+            }
+        },
+        {"$sort": {"received_at": -1}},
+        {"$skip": skip},
+        {"$limit": page_size},
+    ]
 
-    # Outbound replies
-    outbound_cursor = (
-        db.outbound_messages.find({"to_phone": phone, "sent_at": {"$gte": since}})
-        .sort("sent_at", -1)
-        .limit(page_size)
-    )
-    async for doc in outbound_cursor:
-        items.append(
-            InboundMessageResponse(
-                id=str(doc["_id"]),
-                wa_message_id=doc.get("wa_message_id", ""),
-                from_phone=phone,
-                sender_name="You",
-                message_type=doc.get("message_type", "text"),
-                body=doc.get("body"),
-                media_url=None,
-                media_mime_type=None,
-                location=None,
-                is_read=doc.get("status") == "read",
-                received_at=doc["sent_at"],
-                direction="outbound",
-                status=doc.get("status", "sent"),
+    async for doc in db.inbound_messages.aggregate(pipeline):
+        direction = doc.get("direction", "inbound")
+        if direction == "inbound":
+            loc = doc.get("location")
+            items.append(
+                InboundMessageResponse(
+                    id=str(doc["_id"]),
+                    wa_message_id=doc.get("wa_message_id", ""),
+                    from_phone=doc["from_phone"],
+                    sender_name=doc.get("sender_name"),
+                    message_type=doc.get("message_type", "unknown"),
+                    body=doc.get("body"),
+                    media_url=doc.get("media_url"),
+                    media_mime_type=doc.get("media_mime_type"),
+                    location=LocationData(**loc) if loc else None,
+                    is_read=doc.get("is_read", False),
+                    received_at=doc["received_at"],
+                    direction="inbound",
+                    status=None,
+                )
             )
-        )
+        else:
+            items.append(
+                InboundMessageResponse(
+                    id=str(doc["_id"]),
+                    wa_message_id=doc.get("wa_message_id", ""),
+                    from_phone=doc["from_phone"],
+                    sender_name=doc.get("sender_name", "You"),
+                    message_type=doc.get("message_type", "text"),
+                    body=doc.get("body"),
+                    media_url=doc.get("media_url"),
+                    media_mime_type=doc.get("media_mime_type"),
+                    location=None,
+                    is_read=doc.get("status") == "read",
+                    received_at=doc["received_at"],
+                    direction="outbound",
+                    status=doc.get("status", "sent"),
+                )
+            )
 
-    # Merge and sort descending (frontend reverses for display)
-    items.sort(key=lambda x: x.received_at, reverse=True)
-    return items[:page_size]
+    return items
 
 
 @router.post("/conversations/{phone}/read")

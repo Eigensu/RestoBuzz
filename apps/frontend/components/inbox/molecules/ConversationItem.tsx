@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
+import { inboxShortDateIST } from "@/lib/date";
 
 const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
 
@@ -58,14 +59,7 @@ export function ConversationItem({
             {conv.sender_name ?? conv.from_phone}
           </p>
           <span className="text-[10px] font-black text-[#24422e]/30 uppercase tracking-widest shrink-0">
-            {(() => {
-              const dStr = String(conv.last_received_at);
-              const d = new Date(dStr.endsWith("Z") ? dStr : dStr + "Z");
-              return d.toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-            })()}
+            {inboxShortDateIST(conv.last_received_at)}
           </span>
         </div>
         <div className="flex items-center justify-between gap-2 mt-1">

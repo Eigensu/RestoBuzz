@@ -1,3 +1,5 @@
+import { CampaignStatus, MessageStatus } from "./common/enums";
+
 export interface Restaurant {
   id: string;
   name: string;
@@ -13,14 +15,7 @@ export interface Campaign {
   template_id: string;
   template_name: string;
   priority: "MARKETING" | "UTILITY";
-  status:
-    | "draft"
-    | "queued"
-    | "running"
-    | "paused"
-    | "completed"
-    | "failed"
-    | "cancelled";
+  status: CampaignStatus;
   total_count: number;
   sent_count: number;
   delivered_count: number;
@@ -40,7 +35,7 @@ export interface MessageLog {
   recipient_phone: string;
   recipient_name: string;
   wa_message_id: string | null;
-  status: "queued" | "sending" | "sent" | "delivered" | "read" | "failed";
+  status: MessageStatus;
   retry_count: number;
   endpoint_used: "primary" | "fallback" | null;
   fallback_used: boolean;
@@ -78,7 +73,7 @@ export interface InboundMessage {
   is_read: boolean;
   received_at: string;
   direction?: "inbound" | "outbound";
-  status?: "sent" | "delivered" | "read" | "failed";
+  status?: MessageStatus | null;
 }
 
 export interface PreflightResult {

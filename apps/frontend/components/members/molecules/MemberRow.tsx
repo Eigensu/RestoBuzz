@@ -26,8 +26,10 @@ export function MemberRow({ member: m, onEdit, onDelete }: Readonly<MemberRowPro
       <td className="px-6 py-4">
         <MemberTypeBadge type={m.type} />
       </td>
-      <td className="px-6 py-4 font-mono text-[10px] text-gray-500 bg-[#eff2f0]/20 rounded px-1.5 py-0.5 inline-block mt-3.5">
-        {m.type === "nfc" ? m.card_uid : m.ecard_code}
+      <td className="px-6 py-4">
+        <span className="font-mono text-[10px] text-gray-500 bg-[#eff2f0]/20 rounded px-1.5 py-0.5 inline-block mt-3.5">
+          {m.type === "nfc" ? m.card_uid : m.ecard_code}
+        </span>
       </td>
       <td className="px-6 py-4 text-gray-700 font-black text-sm">
         {m.visit_count}

@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InboundMessage } from "@/types";
-
+import { MessageStatus } from "@/types/common/enums";
 import { timeIST } from "@/lib/date";
 
 const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
@@ -89,9 +89,9 @@ export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
           <span className="text-[10px]">{timeIST(msg.received_at)}</span>
           {out && (
             <div className="flex items-center">
-              {msg.status === "read" || msg.is_read ? (
+              {msg.status === MessageStatus.READ || msg.is_read ? (
                 <CheckCheck className="w-3.5 h-3.5 text-[#34B7F1]" />
-              ) : msg.status === "delivered" ? (
+              ) : msg.status === MessageStatus.DELIVERED ? (
                 <CheckCheck className="w-3.5 h-3.5 text-white/80" />
               ) : (
                 <Check className="w-3.5 h-3.5 text-white/60" />
