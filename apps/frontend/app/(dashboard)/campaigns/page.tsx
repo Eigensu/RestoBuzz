@@ -35,14 +35,28 @@ export default function CampaignsPage() {
   const campaigns: Campaign[] = data?.items ?? [];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Campaigns</h1>
+    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[#eff2f0] rounded-lg">
+              <Send className="w-6 h-6 text-[#24422e]" />
+            </div>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+              Campaigns
+            </h1>
+          </div>
+          <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
+            Manage and monitor your automated messaging performance
+          </p>
+        </div>
         <Link
           href="/campaigns/new"
-          className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md"
+          className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
+          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
         >
-          <Plus className="w-4 h-4" /> New Campaign
+          <Plus className="w-4 h-4" />
+          NEW CAMPAIGN
         </Link>
       </div>
 
@@ -59,10 +73,12 @@ export default function CampaignsPage() {
           />
         </div>
       ) : (
-        <CampaignTable
-          campaigns={campaigns}
-          onDelete={(id) => deleteMutation.mutate(id)}
-        />
+        <div className="overflow-x-auto rounded-3xl border border-gray-100 shadow-sm custom-scrollbar">
+          <CampaignTable
+            campaigns={campaigns}
+            onDelete={(id) => deleteMutation.mutate(id)}
+          />
+        </div>
       )}
     </div>
   );

@@ -8,15 +8,15 @@ interface CampaignTableProps {
 
 export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTableProps>) {
   return (
-    <div className="bg-white rounded-xl border overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50 border-b">
-          <tr>
+    <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+      <table className="w-full text-left">
+        <thead>
+          <tr className="border-b border-gray-50 bg-[#eff2f0]/30">
             {["Name", "Status", "Progress", "Priority", "Created", ""].map(
               (h) => (
                 <th
                   key={h}
-                  className="text-left px-4 py-3 font-medium text-gray-500"
+                  className="px-6 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest"
                 >
                   {h}
                 </th>
@@ -24,7 +24,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
             )}
           </tr>
         </thead>
-        <tbody className="divide-y">
+        <tbody className="divide-y divide-gray-50">
           {campaigns.map((c) => (
             <CampaignRow key={c.id} campaign={c} onDelete={onDelete} />
           ))}

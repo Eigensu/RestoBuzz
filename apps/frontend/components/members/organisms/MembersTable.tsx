@@ -31,21 +31,21 @@ export function MembersTable({
   }
 
   return (
-    <div className="bg-white rounded-xl border overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50 border-b">
-          <tr>
+    <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+      <table className="w-full text-left">
+        <thead>
+          <tr className="border-b border-gray-50 bg-[#eff2f0]/30">
             {["Member", "Type", "Card ID", "Visits", "Joined", ""].map((h) => (
               <th
                 key={h}
-                className="text-left px-4 py-3 font-medium text-gray-500"
+                className="px-6 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest"
               >
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y">
+        <tbody className="divide-y divide-gray-50">
           {members.map((m) => (
             <MemberRow
               key={m.id}

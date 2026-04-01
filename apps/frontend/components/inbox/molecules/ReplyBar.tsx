@@ -9,9 +9,14 @@ interface ReplyBarProps {
   disabled?: boolean;
 }
 
-export function ReplyBar({ value, onChange, onSend, disabled }: Readonly<ReplyBarProps>) {
+export function ReplyBar({
+  value,
+  onChange,
+  onSend,
+  disabled,
+}: Readonly<ReplyBarProps>) {
   return (
-    <div className="px-4 py-3 flex gap-2 items-center">
+    <div className="px-6 py-4 flex gap-3 items-center bg-white border-t border-gray-100">
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -28,10 +33,10 @@ export function ReplyBar({ value, onChange, onSend, disabled }: Readonly<ReplyBa
       <button
         onClick={onSend}
         disabled={!value.trim() || disabled}
-        className="w-9 h-9 text-white rounded-full flex items-center justify-center transition-all disabled:opacity-30 hover:scale-105"
+        className="w-12 h-12 text-white rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 hover:scale-105 active:scale-95 shadow-lg shadow-green-900/10"
         style={{ background: BRAND_GRADIENT }}
       >
-        <Send className="w-4 h-4" />
+        <Send className="w-5 h-5" />
       </button>
     </div>
   );

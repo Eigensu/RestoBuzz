@@ -162,7 +162,10 @@ export default function AdminPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
-            <label htmlFor="admin-email" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label
+              htmlFor="admin-email"
+              className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5"
+            >
               Email
             </label>
             <input
@@ -176,7 +179,10 @@ export default function AdminPage() {
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="admin-password" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label
+              htmlFor="admin-password"
+              className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5"
+            >
               Password
             </label>
             <input
@@ -190,7 +196,10 @@ export default function AdminPage() {
           </div>
 
           <div>
-            <label htmlFor="admin-first-name" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label
+              htmlFor="admin-first-name"
+              className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5"
+            >
               First Name
             </label>
             <input
@@ -203,7 +212,10 @@ export default function AdminPage() {
           </div>
 
           <div>
-            <label htmlFor="admin-last-name" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label
+              htmlFor="admin-last-name"
+              className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5"
+            >
               Last Name
             </label>
             <input
@@ -216,7 +228,10 @@ export default function AdminPage() {
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="admin-phone" className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+            <label
+              htmlFor="admin-phone"
+              className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5"
+            >
               Phone (optional)
             </label>
             <input

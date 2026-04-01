@@ -20,19 +20,24 @@ export function AddSuppressionForm({
   isPending,
 }: Readonly<AddSuppressionFormProps>) {
   return (
-    <div className="bg-white rounded-xl border p-4 space-y-3">
-      <h2 className="text-sm font-medium">Add Number</h2>
-      <div className="flex gap-2">
+    <div className="bg-[#eff2f0]/50 rounded-2xl border border-[#24422e]/10 p-6 space-y-4 shadow-sm">
+      <div className="flex items-center gap-2">
+        <Plus className="w-4 h-4 text-[#24422e]" />
+        <h2 className="text-sm font-black text-[#24422e] uppercase tracking-widest">
+          Add Number
+        </h2>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3">
         <input
           value={phone}
           onChange={(e) => onPhoneChange(e.target.value)}
           placeholder="+12125551234"
-          className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e]"
+          className="flex-1 border-gray-100 border bg-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 shadow-sm"
         />
         <select
           value={reason}
           onChange={(e) => onReasonChange(e.target.value as Reason)}
-          className="border rounded-lg px-3 py-2 text-sm focus:outline-none"
+          className="sm:w-40 border-gray-100 border bg-white rounded-xl px-4 py-3 text-sm focus:outline-none shadow-sm"
         >
           <option value="blocked">Blocked</option>
           <option value="opt_out">Opt-out</option>
@@ -43,7 +48,7 @@ export function AddSuppressionForm({
           disabled={!phone || isPending}
           className="flex items-center gap-1.5 bg-linear-to-r from-[#24422e] to-[#1a3022] text-white text-sm px-4 py-2 rounded-lg transition disabled:opacity-50"
         >
-          <Plus className="w-4 h-4" /> Add
+          {isPending ? "ADDING..." : "ADD"}
         </button>
       </div>
     </div>

@@ -97,7 +97,7 @@ export default function MembersPage() {
   if (!restaurant) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
       {modal.open && (
         <MemberModal
           restaurantId={restaurant.id}
@@ -107,11 +107,18 @@ export default function MembersPage() {
         />
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Members</h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {restaurant.name} · {restaurant.location}
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[#eff2f0] rounded-lg">
+              <CheckCircle2 className="w-6 h-6 text-[#24422e]" />
+            </div>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+              Members
+            </h1>
+          </div>
+          <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
+            Manage your restaurant's loyalty database and membership types
           </p>
         </div>
         <div className="flex gap-2">
@@ -136,45 +143,51 @@ export default function MembersPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importMutation.isPending}
-            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-gradient-to-r hover:from-[#24422e] hover:to-[#3a6b47] hover:text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50 transition-all duration-300"
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-sm font-bold px-6 py-3 rounded-xl disabled:opacity-50 transition-all duration-300"
           >
             <Upload className="w-4 h-4" />
-            {importMutation.isPending ? "Importing..." : "Import Excel"}
+            {importMutation.isPending ? "Importing..." : "IMPORT EXCEL"}
           </button>
           <button
             onClick={() => setModal({ open: true, editing: null })}
-            className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md"
+            className="flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
+            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
           >
-            <Plus className="w-4 h-4" /> Add Member
+            <Plus className="w-4 h-4" /> ADD MEMBER
           </button>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex rounded-lg border bg-white overflow-hidden">
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex p-1 bg-[#eff2f0] rounded-xl">
           {TABS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setTab(key)}
               className={cn(
-                "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition",
+                "flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg",
                 tab === key
-                  ? "text-white bg-gradient-to-r from-[#24422e] to-[#3a6b47]"
-                  : "text-[#24422e] hover:bg-[#24422e]/10",
+                  ? "text-white shadow-sm"
+                  : "text-[#24422e]/60 hover:text-[#24422e]",
               )}
+              style={
+                tab === key
+                  ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
+                  : undefined
+              }
             >
               <Icon className="w-3.5 h-3.5" />
               {label}
             </button>
           ))}
         </div>
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, phone, email..."
-            className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/40 border-gray-200 focus:border-[#24422e] bg-white"
+            className="w-full border-gray-100 border bg-white rounded-xl pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 focus:border-[#24422e]/30 shadow-sm"
           />
         </div>
       </div>
@@ -184,15 +197,17 @@ export default function MembersPage() {
           Loading...
         </div>
       ) : (
-        <MembersTable
-          members={members}
-          total={total}
-          onEdit={(m) => setModal({ open: true, editing: m })}
-          onDelete={(m) => {
-            if (confirm(`Remove ${m.name}?`)) deleteMutation.mutate(m.id);
-          }}
-          onAddFirst={() => setModal({ open: true, editing: null })}
-        />
+        <div className="overflow-x-auto rounded-3xl border border-gray-100 shadow-sm custom-scrollbar">
+          <MembersTable
+            members={members}
+            total={total}
+            onEdit={(m) => setModal({ open: true, editing: m })}
+            onDelete={(m) => {
+              if (confirm(`Remove ${m.name}?`)) deleteMutation.mutate(m.id);
+            }}
+            onAddFirst={() => setModal({ open: true, editing: null })}
+          />
+        </div>
       )}
 
       {!isLoading && total > 0 && (
