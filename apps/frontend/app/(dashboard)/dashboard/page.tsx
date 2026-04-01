@@ -556,8 +556,9 @@ export default function DashboardPage() {
                     fontWeight={700}
                     formatter={(v) => {
                       // Split "Label: 1,234" → show only the number so it fits narrow segments
-                      const match = String(v).match(/:\s*(.+)$/);
-                      return match ? match[1] : String(v);
+                      const s = String(v);
+                      const idx = s.indexOf(": ");
+                      return idx !== -1 ? s.slice(idx + 2) : s;
                     }}
                   />
                 </Funnel>
@@ -740,7 +741,6 @@ export default function DashboardPage() {
                     fontWeight: 700,
                     fill: "#9ca3af",
                   }}
-
                 />
                 <YAxis
                   dataKey="reason"
@@ -768,7 +768,7 @@ export default function DashboardPage() {
                   }}
                 />
                 <Bar
-                  dataKey="value"
+                  dataKey="count"
                   radius={[0, 4, 4, 0]}
                   barSize={24}
                   name="Failures"
@@ -976,7 +976,6 @@ export default function DashboardPage() {
                     fontWeight: 700,
                     fill: "#9ca3af",
                   }}
-
                 />
                 <YAxis
                   axisLine={false}
