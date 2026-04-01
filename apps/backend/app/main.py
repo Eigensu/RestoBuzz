@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="WhatsApp Bulk Sender API",
+    title="DishPatch API",
     version="1.0.0",
     lifespan=lifespan,
     redirect_slashes=False,

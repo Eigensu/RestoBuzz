@@ -47,7 +47,7 @@ export function WizardTemplatePreview({
             <span className="text-white text-[8px] font-bold">R</span>
           </div>
           <span className="text-white text-[10px] font-medium flex-1">
-            RestoBuzz
+            DishPatch
           </span>
         </div>
         <div className="p-3 flex-1 overflow-y-auto">

@@ -157,7 +157,7 @@ export function TemplateModal({ template: t, onClose }: Readonly<TemplateModalPr
                     <span className="text-white text-[8px] font-bold">R</span>
                   </div>
                   <span className="text-white text-[10px] font-medium flex-1">
-                    RestoBuzz
+                    DishPatch
                   </span>
                 </div>
 

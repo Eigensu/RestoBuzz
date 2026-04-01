@@ -118,14 +118,14 @@ export default function DashboardLayout({
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: BRAND_GRADIENT }}
-          >
-            <MessageSquare className="w-4 h-4 text-white" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo-final.webp"
+            alt="DishPatch"
+            className="w-8 h-8 rounded-lg object-cover"
+          />
           <span className="font-semibold text-sm text-[#24422e]">
-            RestoBuzz
+            DishPatch
           </span>
         </div>
 
@@ -250,7 +250,7 @@ export default function DashboardLayout({
           <span className="font-bold text-[#24422e] tracking-tight">
             {restaurant
               ? `${restaurant.emoji} ${restaurant.name}`
-              : "RestoBuzz"}
+              : "DishPatch"}
           </span>
         </header>
         <main className="flex-1 overflow-y-auto">{children}</main>
