@@ -208,7 +208,7 @@ async def create_new_template(
         "synced_at": now,
     }
     await db.templates.update_one(
-        {"name": body.name, "language": body.language},
+        {"name": body.name, "language": doc["language"]},
         {"$set": doc},
         upsert=True,
     )
@@ -254,9 +254,12 @@ async def sync_templates(
         settings.meta_waba_id,
         settings.meta_primary_access_token,
     )
-    keys: list[dict[str, str | None]] = []
+    keys: list[dict[str, str]] = []
     for t in templates:
-        key = {"name": t["name"], "language": t.get("language")}
+        lang = t.get("language")
+        key: dict[str, str] = {"name": t["name"]}
+        if lang:
+            key["language"] = lang
         keys.append(key)
         await db.templates.update_one(
             key,

@@ -134,6 +134,7 @@ async def _send(task: Task, message_log_id: str) -> None:
                     template_name=msg.get("template_name", ""),
                     variables=msg.get("template_variables", {}),
                     media_url=msg.get("media_url"),
+                    language=job.get("language", msg.get("language", "en")),
                 )
                 await mark_seen(redis, wa_id)
                 await db.message_logs.update_one(

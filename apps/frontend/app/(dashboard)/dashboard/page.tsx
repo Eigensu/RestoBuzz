@@ -165,7 +165,7 @@ export default function DashboardPage() {
     enabled: !!restaurant,
   });
 
-  const { data: analyticsData, isLoading: analyticsLoading } = useQuery({
+  const { data: analyticsData, isLoading: analyticsLoading, isError: analyticsError } = useQuery({
     queryKey: ["dashboard-analytics", restaurant?.id],
     queryFn: () =>
       api
@@ -174,7 +174,7 @@ export default function DashboardPage() {
     enabled: !!restaurant,
   });
 
-  const campaigns: Campaign[] = data?.items ?? [];
+  const campaigns: Campaign[] = useMemo(() => data?.items ?? [], [data?.items]);
 
   // Data Aggregation & Decision Analytics Logic
   const analytics: DashboardAnalytics | null = useMemo(() => {
@@ -273,13 +273,13 @@ export default function DashboardPage() {
       analyticsData?.failure_breakdown ?? [];
 
     // 5. Hourly Best Time — real data from /campaigns/analytics
-    const hourlyPerformance: HourlyStat[] =
-      analyticsData?.hourly_performance ??
+    const hourlyPerformance: HourlyStat[] = analyticsError ? [] :
+      (analyticsData?.hourly_performance ??
       Array.from({ length: 24 }, (_, i) => {
         const period = i >= 12 ? "PM" : "AM";
         const displayHour = i % 12 || 12;
         return { hour: `${displayHour} ${period}`, rate: 0, delivered: 0 };
-      });
+      }));
 
     // 6. Priority Comparison
     const priorityStats = campaigns.reduce(
@@ -302,12 +302,12 @@ export default function DashboardPage() {
     }));
 
     // 7. Time-to-Read (TTR) — real data from /campaigns/analytics
-    const baseTTR: TTRStat[] = analyticsData?.ttr_distribution ?? [
+    const baseTTR: TTRStat[] = analyticsError ? [] : (analyticsData?.ttr_distribution ?? [
       { range: "0-5 min", count: 0 },
       { range: "5-30 min", count: 0 },
       { range: "30-120 min", count: 0 },
       { range: "2h+", count: 0 },
-    ];
+    ]);
 
     const sumTTR = baseTTR.reduce((acc, d) => acc + d.count, 0);
     const ttrDistribution =
@@ -383,7 +383,7 @@ export default function DashboardPage() {
       pieData,
       timeSeriesData,
     };
-  }, [campaigns, analyticsData]);
+  }, [campaigns, analyticsData, analyticsError]);
 
   if (!restaurant || isLoading || analyticsLoading) {
     return (
@@ -428,9 +428,7 @@ export default function DashboardPage() {
     templateLeaderboard,
     failureBreakdown,
     hourlyPerformance,
-    priorityData,
     ttrDistribution,
-    pieData,
     timeSeriesData,
   } = analytics!;
 
@@ -838,8 +836,8 @@ export default function DashboardPage() {
                     border: "none",
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
-                  formatter={(value: unknown) => [
-                    `${Number(value).toFixed(1)}%`,
+                  formatter={(value) => [
+                    `${Number(value || 0).toFixed(1)}%`,
                     "Read Rate",
                   ]}
                 />
@@ -868,7 +866,7 @@ export default function DashboardPage() {
                   <LabelList
                     dataKey="delivered"
                     position="top"
-                    formatter={(v: unknown) =>
+                    formatter={(v) =>
                       typeof v === "number" && v > 0
                         ? `${v.toLocaleString()}`
                         : ""
@@ -964,7 +962,7 @@ export default function DashboardPage() {
                     border: "none",
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
-                  formatter={(value: unknown) => [value, "Total Reads"]}
+                  formatter={(value) => [value as React.ReactNode, "Total Reads"]}
                 />
                 <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
                   {ttrDistribution.map((_entry: TTRStat, index: number) => (

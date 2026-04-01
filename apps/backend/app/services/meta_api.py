@@ -21,15 +21,24 @@ async def _resolve_app_id(token: str, configured_app_id: str | None = None) -> s
 
     url = f"{META_BASE}/debug_token"
     params = {"input_token": token, "access_token": token}
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(url, params=params)
-        data = resp.json()
-        if resp.status_code != 200:
-            error = data.get("error", {})
-            raise MetaAPIError(
-                str(error.get("code", "unknown")),
-                error.get("message", str(data)),
-            )
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, params=params)
+            try:
+                data = resp.json()
+            except Exception as esc:
+                raise MetaAPIError(
+                    "parse_error",
+                    f"Non-JSON response from Meta (status {resp.status_code})"
+                ) from esc
+            if resp.status_code != 200:
+                error = data.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")),
+                    error.get("message", str(data)),
+                )
+    except httpx.RequestError as e:
+        raise MetaAPIError("network_error", str(e)) from e
 
     app_id = data.get("data", {}).get("app_id")
     if not app_id:
@@ -168,6 +177,8 @@ async def create_template(waba_id: str, token: str, payload: dict) -> dict:
         raise MetaAPIError("network_error", str(e)) from e
 
 
+MAX_MEDIA_BYTES = 10 * 1024 * 1024  # 10MB limit
+
 async def create_media_handle_from_url(
     media_url: str,
     app_id: str,
@@ -176,74 +187,92 @@ async def create_media_handle_from_url(
     """Download media and create a template upload handle (header_handle) via Graph uploads."""
     app_id = await _resolve_app_id(token, app_id)
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        fetch_resp = await client.get(media_url)
-        if fetch_resp.status_code != 200:
-            raise MetaAPIError(
-                "media_fetch_failed",
-                f"Unable to fetch media from URL (status {fetch_resp.status_code})",
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            async with client.stream("GET", media_url) as fetch_resp:
+                if fetch_resp.status_code != 200:
+                    raise MetaAPIError(
+                        "media_fetch_failed",
+                        f"Unable to fetch media from URL (status {fetch_resp.status_code})",
+                    )
+
+                content = b""
+                async for chunk in fetch_resp.aiter_bytes():
+                    content += chunk
+                    if len(content) > MAX_MEDIA_BYTES:
+                        raise MetaAPIError("media_too_large", f"Media exceeds limit of {MAX_MEDIA_BYTES} bytes")
+
+                content_type = (
+                    fetch_resp.headers.get("content-type", "application/octet-stream")
+                    .split(";")[0]
+                    .strip()
+                )
+
+            ext = mimetypes.guess_extension(content_type) or ".bin"
+            filename = f"template_header{ext}"
+            file_length = len(content)
+
+            create_upload_url = f"{META_BASE}/{app_id}/uploads"
+            headers = {"Authorization": f"Bearer {token}"}
+            params = {
+                "file_name": filename,
+                "file_length": str(file_length),
+                "file_type": content_type,
+            }
+
+            create_resp = await client.post(
+                create_upload_url, headers=headers, params=params
             )
+            try:
+                create_data = create_resp.json()
+            except Exception as esc:
+                raise MetaAPIError("parse_error", "Failed to parse create upload session response") from esc
 
-        content = fetch_resp.content
-        content_type = (
-            fetch_resp.headers.get("content-type", "application/octet-stream")
-            .split(";")[0]
-            .strip()
-        )
-        ext = mimetypes.guess_extension(content_type) or ".bin"
-        filename = f"template_header{ext}"
+            if create_resp.status_code not in (200, 201):
+                error = create_data.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")),
+                    error.get("message", str(create_data)),
+                )
 
-        create_upload_url = f"{META_BASE}/{app_id}/uploads"
-        headers = {"Authorization": f"Bearer {token}"}
-        params = {
-            "file_name": filename,
-            "file_length": str(len(content)),
-            "file_type": content_type,
-        }
+            upload_session_id = create_data.get("id")
+            if not upload_session_id:
+                raise MetaAPIError(
+                    "upload_session_failed",
+                    "Upload session creation returned no id",
+                )
 
-        create_resp = await client.post(
-            create_upload_url, headers=headers, params=params
-        )
-        create_data = create_resp.json()
-        if create_resp.status_code not in (200, 201):
-            error = create_data.get("error", {})
-            raise MetaAPIError(
-                str(error.get("code", "unknown")),
-                error.get("message", str(create_data)),
+            upload_data_url = f"{META_BASE}/{upload_session_id}"
+            upload_headers = {
+                "Authorization": f"Bearer {token}",
+                "file_offset": "0",
+                "Content-Type": "application/octet-stream",
+            }
+            upload_resp = await client.post(
+                upload_data_url, headers=upload_headers, content=content
             )
+            try:
+                uploaded = upload_resp.json()
+            except Exception as esc:
+                raise MetaAPIError("parse_error", "Failed to parse upload session response") from esc
 
-        upload_session_id = create_data.get("id")
-        if not upload_session_id:
-            raise MetaAPIError(
-                "upload_session_failed",
-                "Upload session creation returned no id",
-            )
+            if upload_resp.status_code not in (200, 201):
+                error = uploaded.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")),
+                    error.get("message", str(uploaded)),
+                )
 
-        upload_data_url = f"{META_BASE}/{upload_session_id}"
-        upload_headers = {
-            "Authorization": f"Bearer {token}",
-            "file_offset": "0",
-            "Content-Type": "application/octet-stream",
-        }
-        upload_resp = await client.post(
-            upload_data_url, headers=upload_headers, content=content
-        )
-        uploaded = upload_resp.json()
-        if upload_resp.status_code not in (200, 201):
-            error = uploaded.get("error", {})
-            raise MetaAPIError(
-                str(error.get("code", "unknown")),
-                error.get("message", str(uploaded)),
-            )
+            handle = uploaded.get("h")
+            if not handle:
+                raise MetaAPIError(
+                    "upload_handle_missing",
+                    "Upload completed but response did not include handle",
+                )
 
-        handle = uploaded.get("h")
-        if not handle:
-            raise MetaAPIError(
-                "upload_handle_missing",
-                "Upload completed but response did not include handle",
-            )
-
-        return str(handle)
+            return str(handle)
+    except httpx.RequestError as e:
+        raise MetaAPIError("network_error", str(e)) from e
 
 
 async def edit_template(template_id: str, token: str, components: list) -> dict:

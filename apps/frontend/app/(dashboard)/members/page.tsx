@@ -118,7 +118,7 @@ export default function MembersPage() {
             </h1>
           </div>
           <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
-            Manage your restaurant's loyalty database and membership types
+            Manage your restaurant&apos;s loyalty database and membership types
           </p>
         </div>
         <div className="flex gap-2">
@@ -132,7 +132,7 @@ export default function MembersPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

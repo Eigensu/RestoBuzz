@@ -118,7 +118,7 @@ export function TemplateFormModal({
 
   const componentHasPayload = (comp: ComponentRow) => {
     if (comp.type === "HEADER" && comp.format && comp.format !== "TEXT") {
-      return !!getHeaderImageUrl(comp).trim() || !!comp.text.trim();
+      return !!getHeaderImageUrl(comp).trim();
     }
     return !!comp.text.trim();
   };
@@ -191,7 +191,9 @@ export function TemplateFormModal({
           : "rounded-2xl border border-gray-100 shadow-sm max-w-4xl"
       }`}
       onClick={(e) => isModal && e.stopPropagation()}
-      onKeyDown={(e) => isModal && e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (isModal && e.key !== "Escape") e.stopPropagation();
+      }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b">
@@ -340,6 +342,8 @@ export function TemplateFormModal({
                     setComp(i, "format", nextFormat);
                     if (nextFormat === "TEXT") {
                       setComp(i, "example", undefined);
+                    } else if (comp.format === "TEXT" || !comp.format) {
+                      setComp(i, "text", "");
                     }
                   }}
                   className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none w-full bg-white"
@@ -437,9 +441,11 @@ export function TemplateFormModal({
                   )
                 }
                 rows={comp.type === "BODY" ? 4 : 2}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/20 focus:border-[#24422e] resize-none bg-white"
+                className={`w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/20 focus:border-[#24422e] resize-none ${isEdit && comp.type !== "BODY" ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "bg-white"}`}
                 maxLength={comp.type === "BODY" ? 1024 : undefined}
-                disabled={comp.type === "HEADER" && comp.format === "IMAGE"}
+                disabled={comp.type === "HEADER" && comp.format === "IMAGE" || (isEdit && comp.type !== "BODY")}
+                readOnly={isEdit && comp.type !== "BODY"}
+                aria-readonly={isEdit && comp.type !== "BODY"}
                 placeholder={
                   comp.type === "BODY"
                     ? "Message body — use {{1}}, {{2}} for variables"

@@ -94,7 +94,7 @@ async def list_admin_users(
             last_name=doc.get("last_name"),
             phone=doc.get("phone"),
             is_active=doc.get("is_active", True),
-            created_at=doc["created_at"],
+            created_at=doc.get("created_at"),
         )
         for doc in rows
     ]

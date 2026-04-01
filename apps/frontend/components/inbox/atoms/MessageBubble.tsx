@@ -64,21 +64,30 @@ export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
             )}
           </div>
         )}
-        {msg.message_type === "location" && msg.location && (
+        {msg.message_type === "location" && (
           <div className="flex items-center gap-2 text-sm">
             <MapPin className="w-4 h-4 shrink-0" />
-            <a
-              href={`https://maps.google.com/?q=${msg.location.lat},${msg.location.lng}`}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(
-                "underline",
-                out ? "text-white/70" : "text-[#24422e]",
-              )}
-            >
-              {msg.location.name ?? `${msg.location.lat}, ${msg.location.lng}`}
-            </a>
+            {msg.location ? (
+              <a
+                href={`https://maps.google.com/?q=${msg.location.lat},${msg.location.lng}`}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  "underline",
+                  out ? "text-white/70" : "text-[#24422e]",
+                )}
+              >
+                {msg.location.name ?? `${msg.location.lat}, ${msg.location.lng}`}
+              </a>
+            ) : (
+              <span className="italic opacity-80">Location unavailable</span>
+            )}
           </div>
+        )}
+        {!["text", "image", "document", "location"].includes(msg.message_type) && (
+          <p className="text-sm italic opacity-80">
+            {msg.body || "Unsupported message"}
+          </p>
         )}
         <div
           className={cn(

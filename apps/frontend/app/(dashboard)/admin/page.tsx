@@ -319,6 +319,8 @@ export default function AdminPage() {
                     <td className="px-5 py-3">
                       <div className="flex gap-2">
                         <select
+                          id={`restaurant-select-${a.id}`}
+                          aria-label={`Select restaurant for ${a.first_name || a.email}`}
                           value={selectedRestaurantByUser[a.id] ?? ""}
                           onChange={(e) =>
                             setSelectedRestaurantByUser((prev) => ({
