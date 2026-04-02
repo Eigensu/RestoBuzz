@@ -4,68 +4,104 @@ import { parseApiError } from "./errors";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const isBrowser = globalThis.window !== undefined;
-let volatileAccessToken: string | null = null;
-let refreshInFlight: Promise<{ access_token: string }> | null = null;
 
-// In the browser, use a relative path so requests go to the Next.js dev server
-// (/api/*) which is rewritten server-side to the real backend. This avoids
-// browser CORS preflights and ngrok interstitial pages. On the server we use
-// the absolute API URL.
+// In-memory access token — avoids repeated localStorage reads and is cleared
+// on tab close (more secure than persisting in localStorage long-term).
+let volatileAccessToken: string | null = null;
+
+// Deduplication: if a refresh is already in flight, all concurrent 401s wait
+// for the same promise instead of each firing their own refresh request.
+let refreshInFlight: Promise<string> | null = null;
+
 export const api = axios.create({
   baseURL: isBrowser ? "/api" : `${API_URL}/api`,
   headers: { "Content-Type": "application/json" },
 });
 
-// Attach access token + ngrok bypass header
+// ── Request interceptor: attach access token ──────────────────────────────
 api.interceptors.request.use((config) => {
   if (isBrowser) {
     const token = volatileAccessToken ?? localStorage.getItem("access_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      volatileAccessToken = token; // cache in memory after first read
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
-  // ngrok free tier shows a browser warning page — this header skips it
   config.headers["ngrok-skip-browser-warning"] = "1";
   return config;
 });
 
-// Auto-refresh on 401
+// ── Response interceptor: refresh on 401 ─────────────────────────────────
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
-      original._retry = true;
-      if (isBrowser) {
-        try {
-          // Use the global axios (no interceptors) to avoid recursive
-          // interceptor calls. Use relative path so the request is same-origin
-          // and forwarded by Next.js to the real backend.
-          refreshInFlight ??= axios
-            .post(
-              `/api/auth/refresh`,
-              {},
-              {
-                withCredentials: true,
-                headers: { "ngrok-skip-browser-warning": "1" },
-              },
-            )
-            .then((r) => r.data)
-            .finally(() => {
-              refreshInFlight = null;
-            });
 
-          const data = await refreshInFlight;
-          volatileAccessToken = data.access_token;
-          localStorage.setItem("access_token", data.access_token);
-          original.headers.Authorization = `Bearer ${data.access_token}`;
-          return api(original);
-        } catch (error) {
-          volatileAccessToken = null;
-          localStorage.removeItem("access_token");
-          globalThis.window.location.href = "/login";
-          throw parseApiError(error);
-        }
-      }
+    // Only attempt refresh once per request, and only on 401
+    if (error.response?.status !== 401 || original._retry) {
+      throw parseApiError(error);
     }
-    throw parseApiError(error);
+
+    original._retry = true;
+
+    if (!isBrowser) throw parseApiError(error);
+
+    const refreshToken = localStorage.getItem("refresh_token");
+    if (!refreshToken) {
+      // No refresh token stored — send to login
+      _redirectToLogin();
+      throw parseApiError(error);
+    }
+
+    try {
+      // Deduplicate: reuse an in-flight refresh if one is already running
+      if (!refreshInFlight) {
+        refreshInFlight = axios
+          .post<{ access_token: string; refresh_token: string }>(
+            `/api/auth/refresh`,
+            { refresh_token: refreshToken },
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "ngrok-skip-browser-warning": "1",
+              },
+            },
+          )
+          .then((r) => {
+            const { access_token, refresh_token: newRefresh } = r.data;
+            // Persist both new tokens
+            volatileAccessToken = access_token;
+            localStorage.setItem("access_token", access_token);
+            localStorage.setItem("refresh_token", newRefresh);
+            return access_token;
+          })
+          .catch((err) => {
+            // Refresh itself failed — clear everything and redirect
+            _redirectToLogin();
+            throw err;
+          })
+          .finally(() => {
+            refreshInFlight = null;
+          });
+      }
+
+      const newAccessToken = await refreshInFlight;
+      original.headers.Authorization = `Bearer ${newAccessToken}`;
+      return api(original);
+    } catch (refreshError) {
+      throw parseApiError(refreshError);
+    }
   },
 );
+
+function _redirectToLogin() {
+  volatileAccessToken = null;
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
+  globalThis.window.location.href = "/login";
+}
+
+/** Call this on logout to clear the in-memory token cache. */
+export function clearVolatileToken() {
+  volatileAccessToken = null;
+}

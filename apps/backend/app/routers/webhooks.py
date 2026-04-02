@@ -7,6 +7,7 @@ from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
 from app.core.errors import WebhookSignatureError
+from app.services.message_types import normalize_message_type
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -112,7 +113,7 @@ async def _process_payload(db, payload: dict) -> None:
 
                 from_phone = msg.get("from")
                 sender_name = contacts.get(from_phone)
-                msg_type = msg.get("type", "unknown")
+                msg_type = normalize_message_type(msg.get("type"))
                 body_text = None
                 media_url = None
                 media_mime = None

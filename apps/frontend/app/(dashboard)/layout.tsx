@@ -55,21 +55,29 @@ export default function DashboardLayout({
   });
 
   useEffect(() => {
-    if (!_hydrated) return; // wait for localStorage rehydration
+    if (!_hydrated) return;
     let cancelled = false;
 
-    if (user) return;
-
-    getMe().then((u) => {
-      if (cancelled) return;
-      if (!u) router.push("/login");
-      else setUser(u);
-    });
+    // Always verify the session on mount — the request interceptor will
+    // silently refresh the access token if it's expired. Only redirect to
+    // /login if the server explicitly rejects auth (getMe returns null).
+    getMe()
+      .then((u) => {
+        if (cancelled) return;
+        if (!u) {
+          router.push("/login");
+        } else if (!user) {
+          setUser(u);
+        }
+      })
+      .catch(() => {
+        // Network / server error — don't wipe the session, just stay put
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [_hydrated, user, router, setUser]);
+  }, [_hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!_hydrated) return;

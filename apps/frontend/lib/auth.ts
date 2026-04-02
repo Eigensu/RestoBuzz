@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, clearVolatileToken } from "./api";
 
 export interface User {
   id: string;
@@ -38,13 +38,22 @@ export async function registerUser(payload: {
 export async function logout() {
   localStorage.removeItem("access_token");
   localStorage.removeItem("refresh_token");
+  // Also clear the in-memory cache so stale token isn't reused
+  clearVolatileToken();
 }
 
 export async function getMe(): Promise<User | null> {
   try {
     const { data } = await api.get("/auth/me");
     return data;
-  } catch {
-    return null;
+  } catch (err: unknown) {
+    // Only treat as "not logged in" if the server explicitly rejected auth
+    // (401 after refresh also failed). Network errors / 5xx should not
+    // wipe the session — the interceptor already handles redirect on hard 401.
+    const status = (err as { response?: { status?: number } })?.response
+      ?.status;
+    if (status === 401 || status === 403) return null;
+    // For any other error (network, 5xx) re-throw so the caller can decide
+    throw err;
   }
 }

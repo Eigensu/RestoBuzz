@@ -1,11 +1,11 @@
 import asyncio
 from datetime import datetime, timezone
-from bson import ObjectId
 from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
 from app.services.deduplication import is_duplicate, mark_seen
 from app.services.suppression import add_suppression
+from app.services.message_types import normalize_message_type
 
 logger = get_logger(__name__)
 
@@ -93,7 +93,7 @@ async def _handle_messages(db, redis, value: dict) -> None:
 
         from_phone = msg.get("from")
         sender_name = contacts.get(from_phone)
-        msg_type = msg.get("type", "unknown")
+        msg_type = normalize_message_type(msg.get("type"))
         body = None
         media_url = None
         media_mime = None

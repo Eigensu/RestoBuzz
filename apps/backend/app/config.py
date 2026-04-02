@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     )
 
     # MongoDB
-    mongodb_url: str = "mongodb://localhost:27017/restobuzz"
-    mongodb_db_name: str = "restobuzz"
+    mongodb_url: str = "mongodb://localhost:27017/dishpatch"
+    mongodb_db_name: str = ""  # leave blank to derive from URL path
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
