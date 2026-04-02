@@ -1,7 +1,9 @@
 import json
 import hashlib
+import io
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi.responses import StreamingResponse
 from app.database import get_db
 from app.dependencies import require_role
 from app.core.errors import InvalidFileFormatError, ValidationError, NotFoundError
@@ -24,6 +26,51 @@ async def _cache_file_ref(file_ref: str, valid_rows: list) -> None:
         ex=3600,
     )
     await redis.aclose()
+
+
+@router.get("/template")
+async def download_template(
+    current_user: dict = Depends(require_role("admin")),
+):
+    """Return a pre-formatted XLSX template the user can fill and re-upload."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Contacts"
+
+    # Header row
+    headers = ["Name", "Number"]
+    for col, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="24422E")
+        cell.alignment = Alignment(horizontal="center")
+
+    # Sample rows so users know the expected format
+    samples = [
+        ("Jane Doe", "9820000001"),
+        ("John Smith", "9820000002"),
+    ]
+    for row_idx, (name, number) in enumerate(samples, start=2):
+        ws.cell(row=row_idx, column=1, value=name)
+        # Store as text to avoid float conversion
+        cell = ws.cell(row=row_idx, column=2, value=number)
+        cell.number_format = "@"
+
+    ws.column_dimensions["A"].width = 25
+    ws.column_dimensions["B"].width = 20
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=contacts_template.xlsx"},
+    )
 
 
 @router.post("/upload", response_model=PreflightResult)

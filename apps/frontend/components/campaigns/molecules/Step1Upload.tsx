@@ -7,10 +7,13 @@ import {
   Users,
   RefreshCw,
   ChevronRight,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GradientButton } from "@/components/ui/GradientButton";
-
+import { api } from "@/lib/api";
+import { toast } from "sonner";
+import { parseApiError } from "@/lib/errors";
 import { BRAND_GRADIENT } from "@/lib/brand";
 
 interface SavedFile {
@@ -64,6 +67,24 @@ export function Step1Upload({
   onSelectMembers,
 }: Step1UploadProps) {
   const [source, setSource] = useState<"file" | "members">("file");
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadTemplate = async () => {
+    setDownloading(true);
+    try {
+      const res = await api.get("/contacts/template", { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "contacts_template.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(parseApiError(e).message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -93,6 +114,18 @@ export function Step1Upload({
 
       {source === "file" ? (
         <>
+          {/* Template download */}
+          <div className="flex items-center justify-between px-1">
+            <p className="text-xs text-gray-400">Need the right format?</p>
+            <button
+              onClick={downloadTemplate}
+              disabled={downloading}
+              className="flex items-center gap-1.5 text-xs font-bold text-[#24422e] hover:underline disabled:opacity-50"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {downloading ? "Downloading..." : "Download Template"}
+            </button>
+          </div>
           <div
             {...getRootProps()}
             className={cn(
