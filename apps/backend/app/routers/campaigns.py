@@ -39,7 +39,6 @@ _SORT = "$sort"
 _CREATED_AT = "$created_at"
 
 
-
 def _serialize_campaign(doc: dict) -> CampaignResponse:
     return CampaignResponse(
         id=str(doc["_id"]),
@@ -60,6 +59,9 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
         created_by=str(doc["created_by"]),
         include_unsubscribe=doc.get("include_unsubscribe", True),
         created_at=doc["created_at"],
+        parent_campaign_id=(
+            str(doc["parent_campaign_id"]) if doc.get("parent_campaign_id") else None
+        ),
     )
 
 
@@ -323,6 +325,54 @@ async def get_analytics(
     }
 
 
+@router.get("/{campaign_id}/group")
+async def get_campaign_group(
+    campaign_id: str,
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """
+    Returns the full retry chain for a campaign plus aggregate effective-reach stats.
+    The root campaign is the one with no parent_campaign_id.
+    All retries share the same parent_campaign_id pointing to the root.
+    """
+    campaign_oid = to_object_id(campaign_id)
+    doc = await db.campaign_jobs.find_one({"_id": campaign_oid})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
+    # Resolve root
+    root_oid = doc.get("parent_campaign_id") or campaign_oid
+
+    # Fetch root + all retries
+    cursor = db.campaign_jobs.find(
+        {"$or": [{"_id": root_oid}, {"parent_campaign_id": root_oid}]}
+    ).sort("created_at", 1)
+    chain = [_serialize_campaign(d) async for d in cursor]
+
+    if not chain:
+        chain = [_serialize_campaign(doc)]
+
+    root = chain[0]
+    # Effective reach = original total minus the final campaign's remaining failures
+    last = chain[-1]
+    effective_sent = root.total_count - last.failed_count
+
+    return {
+        "root_id": str(root_oid),
+        "original_total": root.total_count,
+        "effective_sent": max(0, effective_sent),
+        "effective_pct": (
+            round(max(0, effective_sent) / root.total_count * 100, 1)
+            if root.total_count > 0
+            else 0
+        ),
+        "retry_count": len(chain) - 1,
+        "campaigns": chain,
+    }
+
+
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 async def get_campaign(
     campaign_id: str,
@@ -521,6 +571,9 @@ async def retry_failed(
 
     now = datetime.now(timezone.utc)
 
+    # Walk up to find the root campaign so all retries share the same root
+    root_id = original.get("parent_campaign_id") or campaign_oid
+
     job_doc = {
         "restaurant_id": retry_restaurant_id,
         "name": f"{original['name']} (retry)",
@@ -539,6 +592,7 @@ async def retry_failed(
         "created_by": current_user["_id"],
         "include_unsubscribe": original.get("include_unsubscribe", False),
         "media_url": original.get("media_url"),
+        "parent_campaign_id": root_id,
         "created_at": now,
     }
     result = await db.campaign_jobs.insert_one(job_doc)

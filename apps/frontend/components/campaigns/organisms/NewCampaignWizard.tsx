@@ -67,7 +67,9 @@ export function NewCampaignWizard() {
     enabled: step === 0,
   });
 
-  const { data: savedFiles } = useQuery<SavedFile[]>({
+  const { data: savedFiles, refetch: refetchSavedFiles } = useQuery<
+    SavedFile[]
+  >({
     queryKey: ["contact-files"],
     queryFn: () => api.get("/contacts/files").then((r) => r.data),
     enabled: step === 1,
@@ -113,6 +115,16 @@ export function NewCampaignWizard() {
       toast.error(parseApiError(e).message);
     } finally {
       setLoadingMembers(false);
+    }
+  };
+
+  const deleteFile = async (fileRef: string) => {
+    try {
+      await api.delete(`/contacts/files/${fileRef}`);
+      toast.success("File deleted");
+      refetchSavedFiles();
+    } catch (e) {
+      toast.error(parseApiError(e).message);
     }
   };
 
@@ -209,6 +221,7 @@ export function NewCampaignWizard() {
               reuseFile={reuseFile}
               loadingMembers={loadingMembers}
               onSelectMembers={useMembersAsContacts}
+              onDeleteFile={deleteFile}
             />
           )}
           {step === 2 && preflight && <Step2Preflight preflight={preflight} />}

@@ -159,6 +159,20 @@ async def list_contact_files(
     ]
 
 
+@router.delete("/files/{file_ref}", status_code=204)
+async def delete_contact_file(
+    file_ref: str,
+    current_user: dict = Depends(require_role("admin")),
+    db=Depends(get_db),
+):
+    uploader_id = str(current_user["_id"])
+    result = await db.contact_files.delete_one(
+        {"result.file_ref": file_ref, "uploaded_by": uploader_id}
+    )
+    if result.deleted_count == 0:
+        raise NotFoundError(f"Contact file '{file_ref}' not found")
+
+
 @router.post("/files/{file_ref}/use", response_model=PreflightResult)
 async def reuse_contact_file(
     file_ref: str,

@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ChevronRight,
   Download,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GradientButton } from "@/components/ui/GradientButton";
@@ -37,6 +38,7 @@ interface Step1UploadProps {
   reuseFile: (ref: string) => void;
   loadingMembers: boolean;
   onSelectMembers: (type: "all" | "nfc" | "ecard") => void;
+  onDeleteFile: (ref: string) => void;
 }
 
 const MEMBER_TYPES: {
@@ -65,6 +67,7 @@ export function Step1Upload({
   reuseFile,
   loadingMembers,
   onSelectMembers,
+  onDeleteFile,
 }: Step1UploadProps) {
   const [source, setSource] = useState<"file" | "members">("file");
   const [downloading, setDownloading] = useState(false);
@@ -177,23 +180,31 @@ export function Step1Upload({
               </div>
               <div className="max-h-48 overflow-y-auto space-y-2">
                 {savedFiles.map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => reuseFile(f.file_ref)}
-                    disabled={reusingFile}
-                    className="w-full flex items-center gap-3 p-3 border rounded-lg hover:border-[#24422e]/40 hover:bg-[#24422e]/5 transition text-left disabled:opacity-50"
-                  >
-                    <FileSpreadsheet className="w-5 h-5 text-gray-400 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {f.filename}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {f.valid_count} valid ·{" "}
-                        {new Date(f.uploaded_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </button>
+                  <div key={f.id} className="flex items-center gap-2">
+                    <button
+                      onClick={() => reuseFile(f.file_ref)}
+                      disabled={reusingFile}
+                      className="flex-1 flex items-center gap-3 p-3 border rounded-lg hover:border-[#24422e]/40 hover:bg-[#24422e]/5 transition text-left disabled:opacity-50 min-w-0"
+                    >
+                      <FileSpreadsheet className="w-5 h-5 text-gray-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {f.filename}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {f.valid_count} valid ·{" "}
+                          {new Date(f.uploaded_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => onDeleteFile(f.file_ref)}
+                      className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition shrink-0"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 ))}
               </div>
             </>
