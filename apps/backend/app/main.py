@@ -8,6 +8,7 @@ from app.core.logging import setup_logging, CorrelationIdMiddleware, get_logger
 from app.core.errors import AppError
 from app.config import settings
 from app.routers import (
+    admin,
     auth,
     campaigns,
     contacts,
@@ -35,9 +36,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="WhatsApp Bulk Sender API",
+    title="DishPatch API",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # IMPORTANT: Starlette runs middleware in REVERSE registration order (LIFO).
@@ -51,7 +53,7 @@ _origins = settings.cors_origins_list
 if "*" in _origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -81,6 +83,7 @@ async def global_exception_handler(_request: Request, exc: Exception):
 
 # Mount routers
 app.include_router(auth.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 app.include_router(campaigns.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(templates.router, prefix="/api")

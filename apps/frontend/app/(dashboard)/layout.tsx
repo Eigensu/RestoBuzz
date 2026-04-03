@@ -7,13 +7,14 @@ import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
 import { getRestaurants } from "@/lib/restaurants";
 import { useUIStore } from "@/lib/ui-store";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   LayoutDashboard,
   Send,
   Inbox,
   FileText,
   Users,
-  Settings,
+  Shield,
   LogOut,
   MessageSquare,
   Menu,
@@ -31,7 +32,6 @@ const NAV = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/contacts", label: "Suppression", icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function DashboardLayout({
@@ -55,22 +55,29 @@ export default function DashboardLayout({
   });
 
   useEffect(() => {
-    if (!_hydrated) return; // wait for localStorage rehydration
+    if (!_hydrated) return;
     let cancelled = false;
 
-    if (user) return;
-
+    // Always verify the session on mount — the request interceptor will
+    // silently refresh the access token if it's expired. Only redirect to
+    // /login if the server explicitly rejects auth (getMe returns null).
     getMe()
       .then((u) => {
         if (cancelled) return;
-        if (!u) router.push("/login");
-        else setUser(u);
+        if (!u) {
+          router.push("/login");
+        } else if (!user) {
+          setUser(u);
+        }
+      })
+      .catch(() => {
+        // Network / server error — don't wipe the session, just stay put
       });
 
     return () => {
       cancelled = true;
     };
-  }, [_hydrated, user, router, setUser]);
+  }, [_hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!_hydrated) return;
@@ -97,6 +104,11 @@ export default function DashboardLayout({
     router.push("/login");
   };
 
+  const navItems =
+    user?.role === "super_admin"
+      ? [...NAV, { href: "/admin", label: "Admin", icon: Shield }]
+      : NAV;
+
   return (
     <div className="flex h-screen bg-gray-50">
       {sidebarOpen && (
@@ -114,14 +126,14 @@ export default function DashboardLayout({
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
-          >
-            <MessageSquare className="w-4 h-4 text-white" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo-final.webp"
+            alt="DishPatch"
+            className="w-8 h-8 rounded-lg object-cover"
+          />
           <span className="font-semibold text-sm text-[#24422e]">
-            RestoBuzz
+            DishPatch
           </span>
         </div>
 
@@ -181,7 +193,7 @@ export default function DashboardLayout({
         )}
 
         <nav className="flex-1 p-3 space-y-0.5 mt-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
+          {navItems.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -201,7 +213,7 @@ export default function DashboardLayout({
                 <span
                   className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
                   style={{
-                    background: "linear-gradient(135deg, #24422e, #3a6b47)",
+                    background: BRAND_GRADIENT,
                   }}
                 >
                   {inboxUnread > 9 ? "9+" : inboxUnread}
@@ -216,7 +228,7 @@ export default function DashboardLayout({
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white"
               style={{
-                background: "linear-gradient(135deg, #24422e, #3a6b47)",
+                background: BRAND_GRADIENT,
               }}
             >
               {user?.email?.[0]?.toUpperCase()}
@@ -238,18 +250,18 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 bg-white border-b flex items-center px-4 gap-3 lg:hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="h-14 bg-white border-b flex items-center px-4 gap-3 lg:hidden shrink-0">
           <button onClick={() => setSidebarOpen(true)}>
-            <Menu className="w-5 h-5" />
+            <Menu className="w-5 h-5 text-gray-600" />
           </button>
-          <span className="font-semibold text-sm">
+          <span className="font-bold text-[#24422e] tracking-tight">
             {restaurant
               ? `${restaurant.emoji} ${restaurant.name}`
-              : "RestoBuzz"}
+              : "DishPatch"}
           </span>
         </header>
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

@@ -32,6 +32,12 @@ from app.models.message import (
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 logger = get_logger(__name__)
 
+# ── MongoDB aggregation stage key constants ───────────────────────────────────
+_MATCH = "$match"
+_GROUP = "$group"
+_SORT = "$sort"
+_CREATED_AT = "$created_at"
+
 
 def _serialize_campaign(doc: dict) -> CampaignResponse:
     return CampaignResponse(
@@ -53,16 +59,14 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
         created_by=str(doc["created_by"]),
         include_unsubscribe=doc.get("include_unsubscribe", True),
         created_at=doc["created_at"],
+        parent_campaign_id=(
+            str(doc["parent_campaign_id"]) if doc.get("parent_campaign_id") else None
+        ),
     )
 
 
 @router.get(
     "",
-    response_model=CampaignListResponse,
-    dependencies=[Depends(require_role("viewer"))],
-)
-@router.get(
-    "/",
     response_model=CampaignListResponse,
     dependencies=[Depends(require_role("viewer"))],
 )
@@ -85,7 +89,6 @@ async def list_campaigns(
 
 
 @router.post("", response_model=CampaignResponse, status_code=201)
-@router.post("/", response_model=CampaignResponse, status_code=201)
 async def create_campaign(
     body: CampaignCreate,
     current_user: Annotated[dict, Depends(require_role("admin"))],
@@ -172,6 +175,202 @@ async def create_campaign(
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
+
+
+@router.get("/analytics")
+async def get_analytics(
+    validated_rid: Annotated[str, Depends(require_restaurant_access())],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """
+    Returns real aggregated analytics for the restaurant:
+    - failure_breakdown: actual error_message counts from message_logs
+    - ttr_distribution: real time-to-read buckets from status_history
+    - hourly_performance: actual send-hour distribution from message_logs
+    """
+    # Get all campaign job IDs for this restaurant
+    campaign_ids = [
+        doc["_id"]
+        async for doc in db.campaign_jobs.find(
+            {"restaurant_id": validated_rid}, {"_id": 1}
+        )
+    ]
+
+    if not campaign_ids:
+        return {
+            "failure_breakdown": [],
+            "ttr_distribution": [
+                {"range": "0-5 min", "count": 0},
+                {"range": "5-30 min", "count": 0},
+                {"range": "30-120 min", "count": 0},
+                {"range": "2h+", "count": 0},
+            ],
+            "hourly_performance": [
+                {
+                    "hour": f"{h % 12 or 12} {'AM' if h < 12 else 'PM'}",
+                    "rate": 0,
+                    "delivered": 0,
+                }
+                for h in range(24)
+            ],
+        }
+
+    base_match = {"job_id": {"$in": campaign_ids}}
+
+    # ── 1. Failure Breakdown ──────────────────────────────────────────────────
+    failure_cursor = db.message_logs.aggregate(
+        [
+            {_MATCH: {**base_match, "status": "failed"}},
+            {_GROUP: {"_id": "$error_message", "count": {"$sum": 1}}},
+            {_SORT: {"count": -1}},
+            {"$limit": 10},
+        ]
+    )
+    failure_results = [
+        {"reason": r["_id"] or "Unknown", "count": r["count"]}
+        async for r in failure_cursor
+    ]
+
+    # ── 2. TTR Distribution ───────────────────────────────────────────────────
+    # For each message that reached "read" status, find the timestamp of the
+    # first "read" entry in status_history and diff against created_at.
+    ttr_cursor = db.message_logs.aggregate(
+        [
+            {_MATCH: {**base_match, "status": "read"}},
+            # Unwind status_history to find the first "read" event
+            {"$unwind": "$status_history"},
+            {_MATCH: {"status_history.status": "read"}},
+            # Keep only the earliest read event per message
+            {_SORT: {"status_history.timestamp": 1}},
+            {
+                _GROUP: {
+                    "_id": "$_id",
+                    "created_at": {"$first": _CREATED_AT},
+                    "read_at": {"$first": "$status_history.timestamp"},
+                }
+            },
+            # Compute diff in minutes
+            {
+                "$addFields": {
+                    "minutes": {
+                        "$divide": [
+                            {"$subtract": ["$read_at", _CREATED_AT]},
+                            60000,  # ms -> minutes
+                        ]
+                    }
+                }
+            },
+            # Bucket into ranges
+            {
+                "$bucket": {
+                    "groupBy": "$minutes",
+                    "boundaries": [0, 5, 30, 120],
+                    "default": "2h+",
+                    "output": {"count": {"$sum": 1}},
+                }
+            },
+        ]
+    )
+
+    ttr_raw = {r["_id"]: r["count"] async for r in ttr_cursor}
+    ttr_distribution = [
+        {"range": "0-5 min", "count": ttr_raw.get(0, 0)},
+        {"range": "5-30 min", "count": ttr_raw.get(5, 0)},
+        {"range": "30-120 min", "count": ttr_raw.get(30, 0)},
+        {"range": "2h+", "count": ttr_raw.get("2h+", 0)},
+    ]
+
+    # ── 3. Hourly Performance ─────────────────────────────────────────────────
+    # Group message_logs by the hour of their created_at (actual send time),
+    # counting delivered and read messages per hour.
+    hourly_cursor = db.message_logs.aggregate(
+        [
+            {_MATCH: {**base_match, "status": {"$in": ["delivered", "read"]}}},
+            {"$addFields": {"hour": {"$hour": "$updated_at"}}},
+            {
+                _GROUP: {
+                    "_id": "$hour",
+                    "delivered": {"$sum": 1},
+                    "read": {"$sum": {"$cond": [{"$eq": ["$status", "read"]}, 1, 0]}},
+                }
+            },
+        ]
+    )
+
+    hourly_map: dict[int, dict] = {
+        r["_id"]: {"delivered": r["delivered"], "read": r["read"]}
+        async for r in hourly_cursor
+    }
+
+    hourly_performance = []
+    for h in range(24):
+        stats = hourly_map.get(h, {"delivered": 0, "read": 0})
+        rate = (
+            (stats["read"] / stats["delivered"] * 100) if stats["delivered"] > 0 else 0
+        )
+        period = "AM" if h < 12 else "PM"
+        display_hour = h % 12 or 12
+        hourly_performance.append(
+            {
+                "hour": f"{display_hour} {period}",
+                "rate": round(rate, 2),
+                "delivered": stats["delivered"],
+            }
+        )
+
+    return {
+        "failure_breakdown": failure_results,
+        "ttr_distribution": ttr_distribution,
+        "hourly_performance": hourly_performance,
+    }
+
+
+@router.get("/{campaign_id}/group")
+async def get_campaign_group(
+    campaign_id: str,
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """
+    Returns the full retry chain for a campaign plus aggregate effective-reach stats.
+    The root campaign is the one with no parent_campaign_id.
+    All retries share the same parent_campaign_id pointing to the root.
+    """
+    campaign_oid = to_object_id(campaign_id)
+    doc = await db.campaign_jobs.find_one({"_id": campaign_oid})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
+    # Resolve root
+    root_oid = doc.get("parent_campaign_id") or campaign_oid
+
+    # Fetch root + all retries
+    cursor = db.campaign_jobs.find(
+        {"$or": [{"_id": root_oid}, {"parent_campaign_id": root_oid}]}
+    ).sort("created_at", 1)
+    chain = [_serialize_campaign(d) async for d in cursor]
+
+    if not chain:
+        chain = [_serialize_campaign(doc)]
+
+    root = chain[0]
+    # Effective reach = original total minus the final campaign's remaining failures
+    last = chain[-1]
+    effective_sent = root.total_count - last.failed_count
+
+    return {
+        "root_id": str(root_oid),
+        "original_total": root.total_count,
+        "effective_sent": max(0, effective_sent),
+        "effective_pct": (
+            round(max(0, effective_sent) / root.total_count * 100, 1)
+            if root.total_count > 0
+            else 0
+        ),
+        "retry_count": len(chain) - 1,
+        "campaigns": chain,
+    }
 
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
@@ -333,9 +532,9 @@ async def failure_breakdown(
 
     cursor = db.message_logs.aggregate(
         [
-            {"$match": {"job_id": to_object_id(campaign_id), "status": "failed"}},
-            {"$group": {"_id": "$error_message", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}},
+            {_MATCH: {"job_id": to_object_id(campaign_id), "status": "failed"}},
+            {_GROUP: {"_id": "$error_message", "count": {"$sum": 1}}},
+            {_SORT: {"count": -1}},
             {"$limit": 10},
         ]
     )
@@ -372,6 +571,9 @@ async def retry_failed(
 
     now = datetime.now(timezone.utc)
 
+    # Walk up to find the root campaign so all retries share the same root
+    root_id = original.get("parent_campaign_id") or campaign_oid
+
     job_doc = {
         "restaurant_id": retry_restaurant_id,
         "name": f"{original['name']} (retry)",
@@ -390,6 +592,7 @@ async def retry_failed(
         "created_by": current_user["_id"],
         "include_unsubscribe": original.get("include_unsubscribe", False),
         "media_url": original.get("media_url"),
+        "parent_campaign_id": root_id,
         "created_at": now,
     }
     result = await db.campaign_jobs.insert_one(job_doc)

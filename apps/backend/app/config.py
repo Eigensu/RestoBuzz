@@ -18,26 +18,27 @@ class Settings(BaseSettings):
     )
 
     # MongoDB
-    mongodb_url: str = "mongodb://localhost:27017/restobuzz"
-    mongodb_db_name: str = "restobuzz"
+    mongodb_url: str = "mongodb://localhost:27017/dishpatch"
+    mongodb_db_name: str = ""  # leave blank to derive from URL path
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
     # JWT
-    jwt_secret: str = "change_me"
+    jwt_secret: str = "change_me"  # NOSONAR
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
     # Meta Cloud API
     meta_api_version: str = "v25.0"
+    meta_app_id: str = ""
     meta_waba_id: str = ""
     meta_primary_phone_id: str = ""
     meta_primary_access_token: str = ""
     meta_fallback_phone_id: str = ""
     meta_fallback_access_token: str = ""
-    meta_webhook_verify_token: str = "verify_token"
+    meta_webhook_verify_token: str = "verify_token"  # NOSONAR
     meta_webhook_secret: str = ""
 
     # Cloudinary

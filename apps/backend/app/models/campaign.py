@@ -3,7 +3,9 @@ from typing import Literal
 from datetime import datetime
 
 
-CampaignStatus = Literal["draft", "queued", "running", "paused", "completed", "failed", "cancelled"]
+CampaignStatus = Literal[
+    "draft", "queued", "running", "paused", "completed", "failed", "cancelled"
+]
 Priority = Literal["MARKETING", "UTILITY"]
 
 
@@ -39,6 +41,7 @@ class CampaignResponse(BaseModel):
     created_by: str
     include_unsubscribe: bool
     created_at: datetime
+    parent_campaign_id: str | None = None  # set on retry campaigns
 
 
 class CampaignListResponse(BaseModel):

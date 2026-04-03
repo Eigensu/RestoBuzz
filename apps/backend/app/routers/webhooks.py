@@ -7,6 +7,7 @@ from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
 from app.core.errors import WebhookSignatureError
+from app.services.message_types import normalize_message_type
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -112,7 +113,7 @@ async def _process_payload(db, payload: dict) -> None:
 
                 from_phone = msg.get("from")
                 sender_name = contacts.get(from_phone)
-                msg_type = msg.get("type", "unknown")
+                msg_type = normalize_message_type(msg.get("type"))
                 body_text = None
                 media_url = None
                 media_mime = None
@@ -183,3 +184,22 @@ async def _process_payload(db, payload: dict) -> None:
                             upsert=True,
                         )
                         logger.info("auto_suppressed", phone=from_phone)
+
+            # Handle status updates (delivered, read, failed)
+            statuses = value.get("statuses", [])
+            for status in statuses:
+                wa_id = status.get("id")
+                wa_status = status.get("status")
+                if not wa_id or not wa_status:
+                    continue
+
+                # Update outbound_messages (inbox replies) in real time;
+                # campaign-related status handling (message_logs, status_history,
+                # counters, etc.) is delegated to the Celery worker.
+                result = await db.outbound_messages.update_one(
+                    {"wa_message_id": wa_id}, {"$set": {"status": wa_status}}
+                )
+                if result.modified_count > 0:
+                    logger.info(
+                        "outbound_status_updated", wa_id=wa_id, status=wa_status
+                    )

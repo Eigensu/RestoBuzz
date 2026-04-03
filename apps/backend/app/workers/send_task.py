@@ -129,11 +129,19 @@ async def _send(task: Task, message_log_id: str) -> None:
 
             # Send via Meta API
             try:
+                language = msg.get("language")
+                if not language:
+                    tpl = await db.templates.find_one(
+                        {"name": msg.get("template_name", "")}, {"language": 1}
+                    )
+                    language = (tpl or {}).get("language") or "en_US"
+
                 wa_id, endpoint = await send_template_message(
                     to=msg["recipient_phone"],
                     template_name=msg.get("template_name", ""),
                     variables=msg.get("template_variables", {}),
                     media_url=msg.get("media_url"),
+                    language=language,
                 )
                 await mark_seen(redis, wa_id)
                 await db.message_logs.update_one(

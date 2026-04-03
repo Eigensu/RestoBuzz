@@ -11,7 +11,6 @@ import {
   Megaphone,
   AlertTriangle,
   TrendingUp,
-  BarChart3,
   Clock,
   LayoutDashboard,
 } from "lucide-react";
@@ -27,33 +26,13 @@ import {
   FunnelChart,
   Funnel,
   LabelList,
-  PieChart,
-  Pie,
   Cell,
   Legend,
   BarChart,
   Bar,
 } from "recharts";
 
-/* ─── Shared Styles & Colors ─────────────────────────────────── */
-const GREEN_PALETTE = {
-  darkest: "#24422e",
-  dark: "#3a6b47",
-  medium: "#509160",
-  light: "#6bb97b",
-  lightest: "#a0b9a8",
-  muted: "#eff2f0",
-};
-
-const PIE_COLORS: Record<string, string> = {
-  draft: GREEN_PALETTE.lightest,
-  queued: GREEN_PALETTE.light,
-  running: GREEN_PALETTE.medium,
-  paused: "#88db97",
-  completed: GREEN_PALETTE.darkest,
-  failed: GREEN_PALETTE.dark,
-  cancelled: "#c1d0c5",
-};
+import { BRAND_GRADIENT, GREEN as GREEN_PALETTE } from "@/lib/brand";
 
 /* ─── Components ────────────────────────────────────────────── */
 
@@ -110,22 +89,6 @@ function SectionHeader({
   );
 }
 
-/* ─── Helper Functions ──────────────────────────────────────── */
-
-function formatTooltipNumber(
-  val: number | string | readonly (number | string)[] | undefined,
-): string {
-  if (Array.isArray(val)) {
-    return val
-      .map((item) =>
-        typeof item === "number" ? item.toLocaleString() : String(item),
-      )
-      .join(", ");
-  }
-  if (typeof val === "number") return val.toLocaleString();
-  return val == null ? "" : String(val);
-}
-
 /* ─── Types ────────────────────────────────────────────────── */
 interface TemplateStat {
   name: string;
@@ -172,12 +135,19 @@ interface DashboardAnalytics {
     fill: string;
   }[];
   templateLeaderboard: TemplateStat[];
-  failureBreakdown: { reason: string; value: number }[];
+  failureBreakdown: { reason: string; count: number }[];
   hourlyPerformance: HourlyStat[];
   priorityData: PriorityStat[];
   ttrDistribution: TTRStat[];
   pieData: { name: string; value: number }[];
-  timeSeriesData: any[];
+  timeSeriesData: {
+    date: string;
+    sortKey: number;
+    sent: number;
+    delivered: number;
+    read: number;
+    failed: number;
+  }[];
 }
 
 /* ─── Main Component ────────────────────────────────────────── */
@@ -194,22 +164,75 @@ export default function DashboardPage() {
     enabled: !!restaurant,
   });
 
-  const campaigns: Campaign[] = data?.items ?? [];
+  const {
+    data: analyticsData,
+    isLoading: analyticsLoading,
+    isError: analyticsError,
+  } = useQuery({
+    queryKey: ["dashboard-analytics", restaurant?.id],
+    queryFn: () =>
+      api
+        .get(`/campaigns/analytics?restaurant_id=${restaurant?.id}`)
+        .then((r) => r.data),
+    enabled: !!restaurant,
+  });
+
+  const campaigns: Campaign[] = useMemo(() => data?.items ?? [], [data?.items]);
 
   // Data Aggregation & Decision Analytics Logic
   const analytics: DashboardAnalytics | null = useMemo(() => {
     if (!campaigns.length) return null;
 
-    const totals = campaigns.reduce(
-      (acc, c) => ({
-        total: acc.total + c.total_count,
-        sent: acc.sent + c.sent_count,
-        delivered: acc.delivered + c.delivered_count,
-        read: acc.read + c.read_count,
-        failed: acc.failed + c.failed_count,
-      }),
-      { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 },
-    );
+    // Group campaigns by retry chains
+    const rootCampaigns = campaigns.filter((c) => !c.parent_campaign_id);
+    const retryCampaigns = campaigns.filter((c) => c.parent_campaign_id);
+
+    // Build retry chain map
+    const retryMap = new Map<string, Campaign[]>();
+    retryCampaigns.forEach((c) => {
+      const parentId = c.parent_campaign_id!;
+      if (!retryMap.has(parentId)) {
+        retryMap.set(parentId, []);
+      }
+      retryMap.get(parentId)!.push(c);
+    });
+
+    // Calculate totals considering retry chains
+    let totalAudience = 0;
+    let totalSent = 0;
+    let totalDelivered = 0;
+    let totalRead = 0;
+    let totalFailed = 0;
+
+    rootCampaigns.forEach((root) => {
+      const retries = retryMap.get(root.id) || [];
+      const allInChain = [root, ...retries].sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+
+      // For effective reach: use root's total_count as audience
+      totalAudience += root.total_count;
+
+      // Sum sent, delivered, read across the entire chain
+      allInChain.forEach((c) => {
+        totalSent += c.sent_count;
+        totalDelivered += c.delivered_count;
+        totalRead += c.read_count;
+      });
+
+      // For failed: use the last campaign's failed_count (remaining failures)
+      const lastCampaign = allInChain.at(-1)!;
+      totalFailed += lastCampaign.failed_count;
+    });
+
+    const totals = {
+      total: totalAudience,
+      sent: totalSent,
+      delivered: totalDelivered,
+      read: totalRead,
+      failed: totalFailed,
+    };
 
     // 1. KPI Calculations
     const deliveryRate =
@@ -288,36 +311,19 @@ export default function DashboardPage() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
-    // 4. Failure Breakdown (Weighted Simulation based on totals)
-    const failureBreakdown = [
-      { reason: "Invalid Number", value: Math.floor(totals.failed * 0.45) },
-      { reason: "Blocked by User", value: Math.floor(totals.failed * 0.25) },
-      { reason: "Provider Error", value: Math.floor(totals.failed * 0.15) },
-      { reason: "Rejected by WA", value: Math.floor(totals.failed * 0.1) },
-      { reason: "Network Issue", value: Math.floor(totals.failed * 0.05) },
-    ].sort((a, b) => b.value - a.value);
+    // 4. Failure Breakdown — real data from /campaigns/analytics
+    const failureBreakdown: { reason: string; count: number }[] =
+      analyticsData?.failure_breakdown ?? [];
 
-    // 5. Hourly Best Time (X = Hour, Y = Read Rate)
-    const hourlyMap: Record<number, { read: number; delivered: number }> = {};
-    campaigns.forEach((c) => {
-      const hour = new Date(c.created_at).getHours();
-      if (!hourlyMap[hour]) hourlyMap[hour] = { read: 0, delivered: 0 };
-      hourlyMap[hour].read += c.read_count;
-      hourlyMap[hour].delivered += c.delivered_count;
-    });
-
-    const hourlyPerformance = Array.from({ length: 24 }, (_, i) => {
-      const stats = hourlyMap[i] || { read: 0, delivered: 0 };
-      const rate =
-        stats.delivered > 0 ? (stats.read / stats.delivered) * 100 : 0;
-      const period = i >= 12 ? "PM" : "AM";
-      const displayHour = i % 12 || 12;
-      return {
-        hour: `${displayHour} ${period}`,
-        rate,
-        delivered: stats.delivered,
-      };
-    });
+    // 5. Hourly Best Time — real data from /campaigns/analytics
+    const hourlyPerformance: HourlyStat[] = analyticsError
+      ? []
+      : (analyticsData?.hourly_performance ??
+        Array.from({ length: 24 }, (_, i) => {
+          const period = i >= 12 ? "PM" : "AM";
+          const displayHour = i % 12 || 12;
+          return { hour: `${displayHour} ${period}`, rate: 0, delivered: 0 };
+        }));
 
     // 6. Priority Comparison
     const priorityStats = campaigns.reduce(
@@ -330,7 +336,10 @@ export default function DashboardPage() {
         acc[p].failed += c.failed_count;
         return acc;
       },
-      {} as Record<string, any>,
+      {} as Record<
+        string,
+        { read: number; delivered: number; sent: number; failed: number }
+      >,
     );
 
     const priorityData = Object.entries(priorityStats).map(([name, s]) => ({
@@ -339,13 +348,24 @@ export default function DashboardPage() {
       delivery_rate: s.sent > 0 ? (s.delivered / s.sent) * 100 : 0,
     }));
 
-    // 7. Time-to-Read (TTR) Histogram Distribution
-    const ttrDistribution = [
-      { range: "0-5 min", count: Math.floor(totals.read * 0.4) },
-      { range: "5-30 min", count: Math.floor(totals.read * 0.25) },
-      { range: "30-120 min", count: Math.floor(totals.read * 0.2) },
-      { range: "2h+", count: Math.floor(totals.read * 0.15) },
-    ];
+    // 7. Time-to-Read (TTR) — real data from /campaigns/analytics
+    const baseTTR: TTRStat[] = analyticsError
+      ? []
+      : (analyticsData?.ttr_distribution ?? [
+          { range: "0-5 min", count: 0 },
+          { range: "5-30 min", count: 0 },
+          { range: "30-120 min", count: 0 },
+          { range: "2h+", count: 0 },
+        ]);
+
+    const sumTTR = baseTTR.reduce((acc, d) => acc + d.count, 0);
+    const ttrDistribution =
+      totals.read > sumTTR
+        ? [
+            ...baseTTR,
+            { range: "Unbucketed/Other", count: totals.read - sumTTR },
+          ]
+        : baseTTR;
 
     // Status Pie
     const statusCounts = campaigns.reduce(
@@ -362,7 +382,17 @@ export default function DashboardPage() {
     }));
 
     // Time Series Trend (Ensuring at least 1 week window)
-    const timeSeriesMap: Record<string, any> = {};
+    const timeSeriesMap: Record<
+      string,
+      {
+        date: string;
+        sortKey: number;
+        sent: number;
+        delivered: number;
+        read: number;
+        failed: number;
+      }
+    > = {};
 
     // Pre-fill last 7 days with zeros to ensure window
     for (let i = 6; i >= 0; i--) {
@@ -412,9 +442,9 @@ export default function DashboardPage() {
       pieData,
       timeSeriesData,
     };
-  }, [campaigns]);
+  }, [campaigns, analyticsData, analyticsError]);
 
-  if (!restaurant || isLoading) {
+  if (!restaurant || isLoading || analyticsLoading) {
     return (
       <div className="h-[80vh] flex flex-col items-center justify-center text-gray-400 gap-4">
         <div className="w-12 h-12 border-4 border-gray-200 border-t-[#24422e] rounded-full animate-spin" />
@@ -435,14 +465,14 @@ export default function DashboardPage() {
           No campaign data available for performance analytics
         </h2>
         <p className="text-sm text-gray-500 mt-3 font-medium leading-relaxed">
-          It looks like you haven't launched any WhatsApp campaigns yet. Once
-          you start messaging your audience, real-time engagement intelligence
-          will appear here.
+          It looks like you haven&apos;t launched any WhatsApp campaigns yet.
+          Once you start messaging your audience, real-time engagement
+          intelligence will appear here.
         </p>
         <Link
           href="/campaigns/new"
           className="mt-8 text-white text-sm font-bold px-10 py-4 rounded-2xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           Launch Your First Campaign
         </Link>
@@ -457,14 +487,12 @@ export default function DashboardPage() {
     templateLeaderboard,
     failureBreakdown,
     hourlyPerformance,
-    priorityData,
     ttrDistribution,
-    pieData,
     timeSeriesData,
   } = analytics!;
 
   return (
-    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
+    <div className="space-y-8 pb-20 max-w-[1800px] mx-auto p-4 md:p-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -484,7 +512,7 @@ export default function DashboardPage() {
         <Link
           href="/campaigns/new"
           className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           <Megaphone className="w-4 h-4" />
           LAUNCH CAMPAIGN
@@ -547,14 +575,31 @@ export default function DashboardPage() {
           <div className="h-[400px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <FunnelChart>
+                <Tooltip
+                  formatter={(value, _name, props) => [
+                    Number(value).toLocaleString(),
+                    props?.payload?.name ?? "",
+                  ]}
+                  contentStyle={{
+                    borderRadius: "10px",
+                    border: "none",
+                    boxShadow: "0 4px 12px rgb(0 0 0 / 0.1)",
+                  }}
+                />
                 <Funnel dataKey="value" data={funnelData} isAnimationActive>
                   <LabelList
                     position="inside"
                     fill="#fff"
                     stroke="none"
                     dataKey="display"
-                    fontSize={13}
-                    fontWeight={900}
+                    fontSize={11}
+                    fontWeight={700}
+                    formatter={(v) => {
+                      // Split "Label: 1,234" → show only the number so it fits narrow segments
+                      const s = String(v);
+                      const idx = s.indexOf(": ");
+                      return idx === -1 ? s : s.slice(idx + 2);
+                    }}
                   />
                 </Funnel>
               </FunnelChart>
@@ -702,7 +747,7 @@ export default function DashboardPage() {
             <br />
             The content{" "}
             <span className="font-bold">
-              "{templateLeaderboard[0]?.name}"
+              &quot;{templateLeaderboard[0]?.name}&quot;
             </span>{" "}
             is currently the most effective, maintaining a{" "}
             {templateLeaderboard[0]?.readRate.toFixed(1)}% engagement rate
@@ -723,16 +768,36 @@ export default function DashboardPage() {
               <BarChart
                 layout="vertical"
                 data={failureBreakdown}
-                margin={{ left: 20 }}
+                margin={{ left: 10, right: 30, top: 10, bottom: 20 }}
               >
-                <XAxis type="number" hide />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 10 }}
+                  label={{
+                    value: "FAILURE COUNT",
+                    position: "insideBottom",
+                    offset: -10,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                  }}
+                />
                 <YAxis
                   dataKey="reason"
                   type="category"
-                  width={110}
+                  width={180}
                   tick={{ fontSize: 11, fontWeight: 600 }}
                   axisLine={false}
                   tickLine={false}
+                  label={{
+                    value: "REASON",
+                    angle: -90,
+                    position: "insideLeft",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                    offset: 10,
+                  }}
                 />
                 <Tooltip
                   cursor={{ fill: "#eff2f0" }}
@@ -742,10 +807,15 @@ export default function DashboardPage() {
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
                 />
-                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24}>
+                <Bar
+                  dataKey="count"
+                  radius={[0, 4, 4, 0]}
+                  barSize={24}
+                  name="Failures"
+                >
                   {failureBreakdown.map(
                     (
-                      _entry: { reason: string; value: number },
+                      _entry: { reason: string; count: number },
                       index: number,
                     ) => (
                       <Cell
@@ -755,7 +825,7 @@ export default function DashboardPage() {
                     ),
                   )}
                   <LabelList
-                    dataKey="value"
+                    dataKey="count"
                     position="right"
                     style={{ fontSize: 11, fontWeight: 700, fill: "#4b5563" }}
                   />
@@ -775,7 +845,7 @@ export default function DashboardPage() {
               </span>{" "}
               is responsible for{" "}
               {(
-                (failureBreakdown[0]?.value / (totals.failed || 1)) *
+                (failureBreakdown[0]?.count / (totals.failed || 1)) *
                 100
               ).toFixed(1)}
               % of all unsuccessful deliveries. Reviewing your contact list for
@@ -795,7 +865,10 @@ export default function DashboardPage() {
           />
           <div className="h-[280px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={hourlyPerformance} margin={{ top: 20 }}>
+              <BarChart
+                data={hourlyPerformance}
+                margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
+              >
                 <CartesianGrid
                   strokeDasharray="3 3"
                   vertical={false}
@@ -808,16 +881,46 @@ export default function DashboardPage() {
                   tick={{ fontSize: 10, fontWeight: 600 }}
                   interval="preserveStartEnd"
                   minTickGap={20}
+                  label={{
+                    value: "HOUR OF DAY",
+                    position: "insideBottom",
+                    offset: -20,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                  }}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fill: "#9ca3af" }}
+                  domain={[0, 100]}
+                  label={{
+                    value: "READ RATE %",
+                    angle: -90,
+                    position: "insideLeft",
+                    offset: -5,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                  }}
+                />
+                <Tooltip
+                  cursor={{ fill: "#eff2f0" }}
+                  contentStyle={{
+                    borderRadius: "12px",
+                    border: "none",
+                    boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+                  }}
+                  formatter={(value) => [
+                    `${Number(value).toFixed(1)}%`,
+                    "Read Rate",
+                  ]}
                 />
                 <Bar
                   dataKey="rate"
                   name="rate"
-                  fill={GREEN_PALETTE.medium}
+                  fill={GREEN_PALETTE.darkest}
                   radius={[4, 4, 0, 0]}
                 >
                   {hourlyPerformance.map((entry: HourlyStat, index: number) => {
@@ -831,7 +934,7 @@ export default function DashboardPage() {
                         fill={
                           isWinningPeak
                             ? GREEN_PALETTE.darkest
-                            : GREEN_PALETTE.lightest
+                            : GREEN_PALETTE.dark
                         }
                       />
                     );
@@ -839,7 +942,7 @@ export default function DashboardPage() {
                   <LabelList
                     dataKey="delivered"
                     position="top"
-                    formatter={(v: any) =>
+                    formatter={(v) =>
                       typeof v === "number" && v > 0
                         ? `${v.toLocaleString()}`
                         : ""
@@ -866,14 +969,10 @@ export default function DashboardPage() {
                   return currScore > prevScore ? curr : prev;
                 }, hourlyPerformance[0]);
 
-                const avgVolume = totals.delivered / 24;
-                const isSignificant = peak.delivered > avgVolume;
-
                 return (
                   <>
                     <span className="font-bold">{peak.hour}</span> is your
-                    highest-impact window. While other hours may show 100% read
-                    rates, this window achieved a
+                    highest-impact window. This window achieved a
                     <span className="font-bold">
                       {" "}
                       {peak.rate.toFixed(1)}% interaction
@@ -900,14 +999,38 @@ export default function DashboardPage() {
           />
           <div className="h-[280px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={ttrDistribution}>
+              <BarChart
+                data={ttrDistribution}
+                margin={{ top: 20, right: 30, left: 10, bottom: 40 }}
+              >
                 <XAxis
                   dataKey="range"
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fontWeight: 700 }}
+                  label={{
+                    value: "TIME RANGE",
+                    position: "insideBottom",
+                    offset: -25,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                  }}
                 />
-                <YAxis hide />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 10, fill: "#9ca3af" }}
+                  label={{
+                    value: "READ COUNT",
+                    angle: -90,
+                    position: "insideLeft",
+                    offset: 10,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fill: "#9ca3af",
+                  }}
+                />
                 <Tooltip
                   cursor={{ fill: "#eff2f0" }}
                   contentStyle={{
@@ -915,8 +1038,9 @@ export default function DashboardPage() {
                     border: "none",
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
+                  formatter={(value) => [value, "Total Reads"]}
                 />
-                <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
                   {ttrDistribution.map((_entry: TTRStat, index: number) => (
                     <Cell
                       key={`cell-${index}`}
@@ -940,19 +1064,29 @@ export default function DashboardPage() {
             <Eye className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
             <p className="text-[11px] leading-relaxed text-[#24422e] font-medium">
               <span className="font-bold uppercase tracking-wider">
-                Interaction Insight:
+                Interaction Peak Insight:
               </span>
               <br />
-              <span className="font-bold">
-                {(
-                  (ttrDistribution[0]?.count / (totals.read || 1)) *
-                  100
-                ).toFixed(0)}
-                %
-              </span>{" "}
-              of your readers interact within the first{" "}
-              {ttrDistribution[0]?.range}, showing high immediate brand
-              relevance and content urgency.
+              {(() => {
+                const activeWindows = ttrDistribution.filter(
+                  (d) => d.range !== "Delayed (>24h)",
+                );
+                const peak = activeWindows.reduce(
+                  (prev, curr) => (curr.count > prev.count ? curr : prev),
+                  activeWindows[0] || ttrDistribution[0],
+                );
+                const prob = (peak.count / (totals.read || 1)) * 100;
+                return (
+                  <>
+                    Apart from the delayed reads, the{" "}
+                    <span className="font-bold">{peak.range}</span> window shows
+                    your highest immediate interaction. This timeframe accounts
+                    for <span className="font-bold">{prob.toFixed(1)}%</span> of
+                    total interactions, indicating your most effective
+                    engagement zone for new broadcasts.
+                  </>
+                );
+              })()}
             </p>
           </div>
         </div>
@@ -980,12 +1114,29 @@ export default function DashboardPage() {
                 tick={{ fontSize: 11, fill: "#9ca3af", fontWeight: 600 }}
                 dy={10}
                 minTickGap={30}
+                label={{
+                  value: "DATE",
+                  position: "insideBottomRight",
+                  offset: -10,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  fill: "#9ca3af",
+                }}
               />
               <YAxis
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 11, fill: "#9ca3af" }}
-                width={40}
+                width={80}
+                label={{
+                  value: "MESSAGE COUNT",
+                  angle: -90,
+                  position: "center",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  fill: "#9ca3af",
+                  dx: -35,
+                }}
               />
               <Tooltip
                 contentStyle={{

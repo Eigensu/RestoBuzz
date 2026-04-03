@@ -48,10 +48,13 @@ const fieldInput =
 function Logo() {
   return (
     <div className="flex items-center gap-2 mb-5">
-      <div className="w-8 h-8 bg-[#24422e] rounded flex items-center justify-center shrink-0">
-        <Utensils className="w-4 h-4 text-white" />
-      </div>
-      <span className="text-lg font-semibold text-[#24422e]">RestoBuzz</span>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo-final.webp"
+        alt="DishPatch"
+        className="w-8 h-8 rounded object-cover shrink-0"
+      />
+      <span className="text-lg font-semibold text-[#24422e]">DishPatch</span>
     </div>
   );
 }
@@ -135,7 +138,7 @@ export default function AuthLayout({
           <Logo />
 
           <h1 className="text-2xl md:text-3xl font-light text-[#24422e] leading-snug mb-1">
-            Log In To Your RestoBuzz Account
+            Log In To Your DishPatch Account
           </h1>
           <p className="text-xs text-gray-500 mb-5 leading-relaxed">
             Welcome back — enter your email and password to continue.
@@ -241,7 +244,7 @@ export default function AuthLayout({
           <Logo />
 
           <h1 className="text-2xl md:text-3xl font-light text-[#24422e] leading-snug mb-1">
-            Create Your RestoBuzz Account
+            Create Your DishPatch Account
           </h1>
           <p className="text-xs text-gray-500 mb-4 leading-relaxed">
             Sign up to manage your restaurant effortlessly.

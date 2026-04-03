@@ -3,21 +3,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import type { Campaign } from "@/types";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import Link from "next/link";
-import { relativeIST } from "@/lib/date";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Send } from "lucide-react";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
+import { CampaignTable } from "@/components/campaigns/organisms/CampaignTable";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { CampaignStatus } from "@/types/common/enums";
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-600",
-  queued: "bg-blue-100 text-blue-700",
-  running: "bg-yellow-100 text-yellow-700",
-  paused: "bg-orange-100 text-orange-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  cancelled: "bg-gray-100 text-gray-500",
-};
+const ACTIVE_STATUSES = new Set([
+  CampaignStatus.QUEUED,
+  CampaignStatus.RUNNING,
+  CampaignStatus.PAUSED,
+]);
 
 export default function CampaignsPage() {
   const qc = useQueryClient();
@@ -26,8 +25,17 @@ export default function CampaignsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["campaigns", restaurant?.id],
     queryFn: () =>
-      api.get(`/campaigns?restaurant_id=${restaurant!.id}&page=1&page_size=50`).then((r) => r.data),
+      api
+        .get(`/campaigns?restaurant_id=${restaurant!.id}&page=1&page_size=50`)
+        .then((r) => r.data),
     enabled: !!restaurant,
+    refetchInterval: (query) => {
+      const campaigns: Campaign[] = query.state.data?.items ?? [];
+      const hasActive = campaigns.some((c) =>
+        ACTIVE_STATUSES.has(c.status),
+      );
+      return hasActive ? 5000 : false;
+    },
   });
 
   const deleteMutation = useMutation({
@@ -36,122 +44,57 @@ export default function CampaignsPage() {
       qc.invalidateQueries({ queryKey: ["campaigns", restaurant?.id] });
       toast.success("Campaign deleted");
     },
-    onError: (e: unknown) => {
-      toast.error(parseApiError(e).message);
-    },
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const campaigns: Campaign[] = data?.items ?? [];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Campaigns</h1>
+    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[#eff2f0] rounded-lg">
+              <Send className="w-6 h-6 text-[#24422e]" />
+            </div>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+              Campaigns
+            </h1>
+          </div>
+          <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
+            Manage and monitor your automated messaging performance
+          </p>
+        </div>
         <Link
           href="/campaigns/new"
-          className="flex items-center gap-2 bg-gradient-to-r from-[#24422e] to-[#2a5038] hover:from-[#1a3022] hover:to-[#24422e] text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300 shadow-sm hover:shadow-md"
+          className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
+          style={{ background: BRAND_GRADIENT }}
         >
-          <Plus className="w-4 h-4" /> New Campaign
+          <Plus className="w-4 h-4" />
+          NEW CAMPAIGN
         </Link>
       </div>
 
-      <div className="bg-white rounded-xl border overflow-hidden">
-        {isLoading ? (
-          <p className="text-sm text-gray-400 text-center py-12">Loading...</p>
-        ) : campaigns.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-12">
-            No campaigns yet. Create your first one.
-          </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">
-                  Name
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">
-                  Status
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">
-                  Progress
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">
-                  Priority
-                </th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">
-                  Created
-                </th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {campaigns.map((c) => {
-                const pct =
-                  c.total_count > 0
-                    ? Math.round((c.sent_count / c.total_count) * 100)
-                    : 0;
-                return (
-                  <tr key={c.id} className="hover:bg-gray-50 transition">
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/campaigns/${c.id}`}
-                        className="font-medium hover:text-[#24422e]"
-                      >
-                        {c.name}
-                      </Link>
-                      <p className="text-xs text-gray-400">{c.template_name}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[c.status]}`}
-                      >
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 w-40">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                          <div
-                            className="bg-[#24422e] h-1.5 rounded-full"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-500 w-10 text-right">
-                          {c.sent_count}/{c.total_count}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${c.priority === "UTILITY" ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"}`}
-                      >
-                        {c.priority}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {relativeIST(c.created_at)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {c.status !== "running" && (
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete "${c.name}"?`)) {
-                              deleteMutation.mutate(c.id);
-                            }
-                          }}
-                          className="text-gray-400 hover:text-red-500 transition"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {isLoading ? (
+        <div className="bg-white rounded-xl border p-12 text-center text-sm text-gray-400">
+          Loading...
+        </div>
+      ) : campaigns.length === 0 ? (
+        <div className="bg-white rounded-xl border">
+          <EmptyState
+            icon={Send}
+            title="No campaigns yet"
+            description="Create your first campaign to start messaging your audience."
+          />
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-3xl border border-gray-100 shadow-sm custom-scrollbar">
+          <CampaignTable
+            campaigns={campaigns}
+            onDelete={(id) => deleteMutation.mutate(id)}
+          />
+        </div>
+      )}
     </div>
   );
 }
