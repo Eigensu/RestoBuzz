@@ -368,19 +368,21 @@ async def import_members(
 
 @router.delete("/bulk", status_code=204)
 async def bulk_delete_members(
-    restaurant_id: Annotated[str, Query()],
-    current_user: Annotated[dict, Depends(require_role("admin"))],
-    db: Annotated[Any, Depends(get_db)],
-    source: Annotated[str | None, Query()] = None,
-    delete_all: Annotated[bool, Query(alias="deleteAll")] = False,
+    restaurant_id: str = Query(...),
+    source: str | None = Query(None),
+    deleteAll: bool = Query(False),
+    current_user: dict = Depends(require_role("admin")),
+    db: Any = Depends(get_db),
 ):
     """Bulk delete members for a restaurant. 
     Can delete all members or filter by source (e.g. 'excel')."""
     await validate_restaurant_access(current_user, restaurant_id, db)
 
+    logger.info(f"Bulk Delete Request - RID: {restaurant_id}, Source: {source}, DeleteAll: {deleteAll}")
+
     query = {"restaurant_id": restaurant_id}
     
-    if delete_all:
+    if deleteAll:
         # No additional filters
         pass
     elif source:
@@ -389,4 +391,5 @@ async def bulk_delete_members(
         raise ValidationError("Must specify either 'deleteAll=true' or a 'source' to delete in bulk")
 
     result = await db.members.delete_many(query)
+    logger.info(f"Bulk Deletion Result: {result.deleted_count} documents removed")
     return None

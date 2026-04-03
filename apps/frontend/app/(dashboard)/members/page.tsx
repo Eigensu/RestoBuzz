@@ -248,30 +248,6 @@ export default function MembersPage() {
           </button>
 
           <button
-            onClick={() => {
-              if (confirm("Are you sure you want to delete ALL members for this restaurant? This action cannot be undone.")) {
-                bulkDeleteMutation.mutate({ deleteAll: true });
-              }
-            }}
-            disabled={bulkDeleteMutation.isPending}
-            className="flex items-center gap-2 border border-red-500/40 text-red-600 hover:bg-red-50 text-sm font-bold px-6 py-3 rounded-xl transition-all duration-300 disabled:opacity-50"
-          >
-            <Trash2 className="w-4 h-4" /> DELETE ALL
-          </button>
-
-          <button
-            onClick={() => {
-              if (confirm("Delete all members imported via Excel? Note: This only affects members imported after today's update.")) {
-                bulkDeleteMutation.mutate({ source: "excel" });
-              }
-            }}
-            disabled={bulkDeleteMutation.isPending}
-            className="flex items-center gap-2 border border-orange-500/40 text-orange-600 hover:bg-orange-50 text-sm font-bold px-6 py-3 rounded-xl transition-all duration-300 disabled:opacity-50"
-          >
-            <Trash2 className="w-4 h-4" /> DELETE EXCEL
-          </button>
-
-          <button
             onClick={() => setModal({ open: true, editing: null })}
             className="flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
             style={{ background: BRAND_GRADIENT }}
