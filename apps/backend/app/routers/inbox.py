@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, Query
+from typing import Annotated, Any
 from datetime import datetime, timedelta, timezone
 from app.database import get_db
 from app.dependencies import require_role
+from app.services.message_types import normalize_message_type
 from app.models.inbox import (
     ConversationListResponse,
     ConversationResponse,
@@ -17,10 +19,10 @@ router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(30, ge=1, le=100),
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 30,
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
@@ -56,7 +58,7 @@ async def list_conversations(
             from_phone=d["_id"],
             sender_name=d.get("sender_name"),
             last_message=d.get("last_message"),
-            last_message_type=d.get("last_message_type", "text"),
+            last_message_type=normalize_message_type(d.get("last_message_type")),
             unread_count=d.get("unread_count", 0),
             last_received_at=d["last_received_at"],
         )
@@ -70,10 +72,10 @@ async def list_conversations(
 @router.get("/conversations/{phone}", response_model=list[InboundMessageResponse])
 async def get_conversation(
     phone: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     items = []
@@ -115,7 +117,7 @@ async def get_conversation(
                     wa_message_id=doc.get("wa_message_id", ""),
                     from_phone=doc["from_phone"],
                     sender_name=doc.get("sender_name"),
-                    message_type=doc.get("message_type", "unknown"),
+                    message_type=normalize_message_type(doc.get("message_type")),
                     body=doc.get("body"),
                     media_url=doc.get("media_url"),
                     media_mime_type=doc.get("media_mime_type"),
@@ -133,7 +135,7 @@ async def get_conversation(
                     wa_message_id=doc.get("wa_message_id", ""),
                     from_phone=doc["from_phone"],
                     sender_name=doc.get("sender_name", "You"),
-                    message_type=doc.get("message_type", "text"),
+                    message_type=normalize_message_type(doc.get("message_type")),
                     body=doc.get("body"),
                     media_url=doc.get("media_url"),
                     media_mime_type=doc.get("media_mime_type"),
@@ -151,8 +153,8 @@ async def get_conversation(
 @router.post("/conversations/{phone}/read")
 async def mark_read(
     phone: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     await db.inbound_messages.update_many(
         {"from_phone": phone, "is_read": False},
@@ -165,11 +167,9 @@ async def mark_read(
 async def reply(
     phone: str,
     body: ReplyRequest,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
-    from datetime import datetime, timezone
-
     wa_id = await send_text_message(
         to=phone,
         body=body.body,

@@ -7,7 +7,7 @@ import { parseApiError } from "@/lib/errors";
 import { X, Plus, Trash2, RefreshCw, Image as ImageIcon } from "lucide-react";
 import type { Template } from "@/types";
 
-const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
+import { BRAND_GRADIENT } from "@/lib/brand";
 const INPUT_CLS =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/20 focus:border-[#24422e]";
 

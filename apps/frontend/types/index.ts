@@ -8,7 +8,6 @@ export interface Restaurant {
   color: string; // tailwind bg color class
 }
 
-
 export interface Campaign {
   id: string;
   name: string;
@@ -27,6 +26,7 @@ export interface Campaign {
   created_by: string;
   include_unsubscribe: boolean;
   created_at: string;
+  parent_campaign_id: string | null;
 }
 
 export interface MessageLog {

@@ -4,19 +4,19 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import type { MessageLog } from "@/types";
-
-const STATUS_COLORS: Record<string, string> = {
-  queued: "bg-blue-100 text-blue-700",
-  sending: "bg-yellow-100 text-yellow-700",
-  sent: "bg-green-100 text-green-700",
-  delivered: "bg-emerald-100 text-emerald-700",
-  read: "bg-purple-100 text-purple-700",
-  failed: "bg-red-100 text-red-700",
-};
+import { MESSAGE_STATUS_COLORS } from "@/types/common/constants";
 
 const PAGE_SIZE = 50;
 
-export function MessageLogsTable({ campaignId }: Readonly<{ campaignId: string }>) {
+interface MessageLogsTableProps {
+  campaignId: string;
+  pollMs?: number | false;
+}
+
+export function MessageLogsTable({
+  campaignId,
+  pollMs = false,
+}: Readonly<MessageLogsTableProps>) {
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery<{ items: MessageLog[]; total: number }>({
@@ -28,6 +28,7 @@ export function MessageLogsTable({ campaignId }: Readonly<{ campaignId: string }
         )
         .then((r) => r.data),
     placeholderData: (prev) => prev,
+    refetchInterval: pollMs,
   });
 
   const logs = data?.items ?? [];
@@ -56,22 +57,13 @@ export function MessageLogsTable({ campaignId }: Readonly<{ campaignId: string }
           </tr>
         </thead>
         <tbody className="divide-y">
-          {isLoading && logs.length === 0 ? (
+          {logs.length === 0 ? (
             <tr>
               <td
                 colSpan={5}
                 className="px-4 py-8 text-center text-gray-400 text-xs"
               >
-                Loading…
-              </td>
-            </tr>
-          ) : logs.length === 0 ? (
-            <tr>
-              <td
-                colSpan={5}
-                className="px-4 py-8 text-center text-gray-400 text-xs"
-              >
-                No logs yet
+                {isLoading ? "Loading…" : "No logs yet"}
               </td>
             </tr>
           ) : (
@@ -89,7 +81,7 @@ export function MessageLogsTable({ campaignId }: Readonly<{ campaignId: string }
                   </td>
                   <td className="px-4 py-2.5">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[m.status] ?? "bg-gray-100 text-gray-600"}`}
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${MESSAGE_STATUS_COLORS[m.status] ?? "bg-gray-100 text-gray-600"}`}
                     >
                       {m.status}
                     </span>

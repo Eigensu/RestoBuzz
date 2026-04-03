@@ -56,6 +56,9 @@ def _normalize_phone(raw: str, default_region: str = "IN") -> str | None:
     raw = str(raw).strip()
     # Strip common non-digit prefixes like leading apostrophe from Excel
     raw = raw.lstrip("'")
+    # Excel stores numeric cells as floats — strip trailing .0
+    if raw.endswith(".0") and raw[:-2].isdigit():
+        raw = raw[:-2]
     try:
         parsed = phonenumbers.parse(raw, default_region)
         if phonenumbers.is_valid_number(parsed):
@@ -84,7 +87,16 @@ def _parse_xlsx(content: bytes) -> tuple[list[dict], list[str]]:
     if not rows:
         return [], []
     headers = [str(h).strip() if h is not None else "" for h in rows[0]]
-    return [dict(zip(headers, row)) for row in rows[1:]], headers
+
+    def _cell(v: object) -> str:
+        if v is None:
+            return ""
+        # openpyxl returns numeric phone cells as float — convert cleanly
+        if isinstance(v, float) and v == int(v):
+            return str(int(v))
+        return str(v).strip()
+
+    return [dict(zip(headers, [_cell(c) for c in row])) for row in rows[1:]], headers
 
 
 def _parse_csv(content: bytes) -> tuple[list[dict], list[str]]:

@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { BRAND_GRADIENT } from "@/lib/brand";
 
 type Reason = "opt_out" | "blocked" | "bounce";
 
@@ -46,7 +47,8 @@ export function AddSuppressionForm({
         <button
           onClick={onAdd}
           disabled={!phone || isPending}
-          className="flex items-center gap-1.5 bg-linear-to-r from-[#24422e] to-[#1a3022] text-white text-sm px-4 py-2 rounded-lg transition disabled:opacity-50"
+          className="flex items-center justify-center gap-2 text-white text-sm font-bold px-8 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50"
+          style={{ background: BRAND_GRADIENT }}
         >
           {isPending ? "ADDING..." : "ADD"}
         </button>

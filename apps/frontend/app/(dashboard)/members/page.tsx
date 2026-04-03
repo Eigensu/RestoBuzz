@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import type { Member, MemberListResponse } from "@/types";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
@@ -151,7 +152,7 @@ export default function MembersPage() {
           <button
             onClick={() => setModal({ open: true, editing: null })}
             className="flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+            style={{ background: BRAND_GRADIENT }}
           >
             <Plus className="w-4 h-4" /> ADD MEMBER
           </button>
@@ -170,11 +171,7 @@ export default function MembersPage() {
                   ? "text-white shadow-sm"
                   : "text-[#24422e]/60 hover:text-[#24422e]",
               )}
-              style={
-                tab === key
-                  ? { background: "linear-gradient(135deg, #24422e, #3a6b47)" }
-                  : undefined
-              }
+              style={tab === key ? { background: BRAND_GRADIENT } : undefined}
             >
               <Icon className="w-3.5 h-3.5" />
               {label}

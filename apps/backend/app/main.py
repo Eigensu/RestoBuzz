@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="WhatsApp Bulk Sender API",
+    title="DishPatch API",
     version="1.0.0",
     lifespan=lifespan,
     redirect_slashes=False,
@@ -53,7 +53,7 @@ _origins = settings.cors_origins_list
 if "*" in _origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],

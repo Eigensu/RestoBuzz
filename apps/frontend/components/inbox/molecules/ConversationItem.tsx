@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import type { Conversation } from "@/types";
 import { inboxShortDateIST } from "@/lib/date";
 
-const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
+import { BRAND_GRADIENT } from "@/lib/brand";
 
 function initials(name: string | null, phone: string): string {
   if (!name) return phone.slice(-2);
@@ -52,8 +52,10 @@ export function ConversationItem({
           <p
             className={cn(
               "text-sm truncate tracking-tight transition-colors",
-              conv.unread_count > 0 ? "font-black text-gray-900" : "font-bold text-gray-700",
-              selected && "text-[#24422e]"
+              conv.unread_count > 0
+                ? "font-black text-gray-900"
+                : "font-bold text-gray-700",
+              selected && "text-[#24422e]",
             )}
           >
             {conv.sender_name ?? conv.from_phone}
@@ -66,7 +68,9 @@ export function ConversationItem({
           <p
             className={cn(
               "text-xs truncate leading-relaxed",
-              conv.unread_count > 0 ? "text-gray-900 font-bold" : "text-gray-400 font-medium",
+              conv.unread_count > 0
+                ? "text-gray-900 font-bold"
+                : "text-gray-400 font-medium",
             )}
           >
             {getPreview(conv)}

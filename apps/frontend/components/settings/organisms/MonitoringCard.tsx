@@ -8,7 +8,7 @@ export function MonitoringCard() {
         <a
           href="http://localhost:5555"
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="flex items-center gap-1.5 border text-sm px-3 py-2 rounded-lg hover:bg-gray-50 transition"
         >
           Flower (Celery) <ExternalLink className="w-3.5 h-3.5" />

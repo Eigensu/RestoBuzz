@@ -152,7 +152,7 @@ export default function SelectRestaurantPage() {
               <Utensils className="w-4 h-4 text-white" />
             </div>
             <span className="text-lg font-semibold text-[#24422e]">
-              RestoBuzz
+              DishPatch
             </span>
           </div>
           {user && (

@@ -10,7 +10,7 @@ import type { InboundMessage } from "@/types";
 import { MessageStatus } from "@/types/common/enums";
 import { timeIST } from "@/lib/date";
 
-const BRAND_GRADIENT = "linear-gradient(135deg, #24422e, #3a6b47)";
+import { BRAND_GRADIENT } from "@/lib/brand";
 
 export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
   const out = msg.direction === "outbound";
@@ -71,20 +71,23 @@ export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
               <a
                 href={`https://maps.google.com/?q=${msg.location.lat},${msg.location.lng}`}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className={cn(
                   "underline",
                   out ? "text-white/70" : "text-[#24422e]",
                 )}
               >
-                {msg.location.name ?? `${msg.location.lat}, ${msg.location.lng}`}
+                {msg.location.name ??
+                  `${msg.location.lat}, ${msg.location.lng}`}
               </a>
             ) : (
               <span className="italic opacity-80">Location unavailable</span>
             )}
           </div>
         )}
-        {!["text", "image", "document", "location"].includes(msg.message_type) && (
+        {!["text", "image", "document", "location"].includes(
+          msg.message_type,
+        ) && (
           <p className="text-sm italic opacity-80">
             {msg.body || "Unsupported message"}
           </p>

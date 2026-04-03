@@ -11,7 +11,7 @@ pytestmark = pytest.mark.skipif(
     reason="Set INTEGRATION=1 to run integration tests",
 )
 
-SECRET = "test_secret"
+SECRET = "test_secret"  # NOSONAR
 
 
 def _sign(body: bytes) -> str:

@@ -32,15 +32,7 @@ import {
   Bar,
 } from "recharts";
 
-/* ─── Shared Styles & Colors ─────────────────────────────────── */
-const GREEN_PALETTE = {
-  darkest: "#24422e",
-  dark: "#3a6b47",
-  medium: "#509160",
-  light: "#6bb97b",
-  lightest: "#a0b9a8",
-  muted: "#eff2f0",
-};
+import { BRAND_GRADIENT, GREEN as GREEN_PALETTE } from "@/lib/brand";
 
 /* ─── Components ────────────────────────────────────────────── */
 
@@ -148,7 +140,14 @@ interface DashboardAnalytics {
   priorityData: PriorityStat[];
   ttrDistribution: TTRStat[];
   pieData: { name: string; value: number }[];
-  timeSeriesData: { date: string; sortKey: number; sent: number; delivered: number; read: number; failed: number }[];
+  timeSeriesData: {
+    date: string;
+    sortKey: number;
+    sent: number;
+    delivered: number;
+    read: number;
+    failed: number;
+  }[];
 }
 
 /* ─── Main Component ────────────────────────────────────────── */
@@ -165,7 +164,11 @@ export default function DashboardPage() {
     enabled: !!restaurant,
   });
 
-  const { data: analyticsData, isLoading: analyticsLoading, isError: analyticsError } = useQuery({
+  const {
+    data: analyticsData,
+    isLoading: analyticsLoading,
+    isError: analyticsError,
+  } = useQuery({
     queryKey: ["dashboard-analytics", restaurant?.id],
     queryFn: () =>
       api
@@ -180,16 +183,56 @@ export default function DashboardPage() {
   const analytics: DashboardAnalytics | null = useMemo(() => {
     if (!campaigns.length) return null;
 
-    const totals = campaigns.reduce(
-      (acc, c) => ({
-        total: acc.total + c.total_count,
-        sent: acc.sent + c.sent_count,
-        delivered: acc.delivered + c.delivered_count,
-        read: acc.read + c.read_count,
-        failed: acc.failed + c.failed_count,
-      }),
-      { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 },
-    );
+    // Group campaigns by retry chains
+    const rootCampaigns = campaigns.filter((c) => !c.parent_campaign_id);
+    const retryCampaigns = campaigns.filter((c) => c.parent_campaign_id);
+
+    // Build retry chain map
+    const retryMap = new Map<string, Campaign[]>();
+    retryCampaigns.forEach((c) => {
+      const parentId = c.parent_campaign_id!;
+      if (!retryMap.has(parentId)) {
+        retryMap.set(parentId, []);
+      }
+      retryMap.get(parentId)!.push(c);
+    });
+
+    // Calculate totals considering retry chains
+    let totalAudience = 0;
+    let totalSent = 0;
+    let totalDelivered = 0;
+    let totalRead = 0;
+    let totalFailed = 0;
+
+    rootCampaigns.forEach((root) => {
+      const retries = retryMap.get(root.id) || [];
+      const allInChain = [root, ...retries].sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+
+      // For effective reach: use root's total_count as audience
+      totalAudience += root.total_count;
+
+      // Sum sent, delivered, read across the entire chain
+      allInChain.forEach((c) => {
+        totalSent += c.sent_count;
+        totalDelivered += c.delivered_count;
+        totalRead += c.read_count;
+      });
+
+      // For failed: use the last campaign's failed_count (remaining failures)
+      const lastCampaign = allInChain.at(-1)!;
+      totalFailed += lastCampaign.failed_count;
+    });
+
+    const totals = {
+      total: totalAudience,
+      sent: totalSent,
+      delivered: totalDelivered,
+      read: totalRead,
+      failed: totalFailed,
+    };
 
     // 1. KPI Calculations
     const deliveryRate =
@@ -273,13 +316,14 @@ export default function DashboardPage() {
       analyticsData?.failure_breakdown ?? [];
 
     // 5. Hourly Best Time — real data from /campaigns/analytics
-    const hourlyPerformance: HourlyStat[] = analyticsError ? [] :
-      (analyticsData?.hourly_performance ??
-      Array.from({ length: 24 }, (_, i) => {
-        const period = i >= 12 ? "PM" : "AM";
-        const displayHour = i % 12 || 12;
-        return { hour: `${displayHour} ${period}`, rate: 0, delivered: 0 };
-      }));
+    const hourlyPerformance: HourlyStat[] = analyticsError
+      ? []
+      : (analyticsData?.hourly_performance ??
+        Array.from({ length: 24 }, (_, i) => {
+          const period = i >= 12 ? "PM" : "AM";
+          const displayHour = i % 12 || 12;
+          return { hour: `${displayHour} ${period}`, rate: 0, delivered: 0 };
+        }));
 
     // 6. Priority Comparison
     const priorityStats = campaigns.reduce(
@@ -292,7 +336,10 @@ export default function DashboardPage() {
         acc[p].failed += c.failed_count;
         return acc;
       },
-      {} as Record<string, { read: number; delivered: number; sent: number; failed: number }>,
+      {} as Record<
+        string,
+        { read: number; delivered: number; sent: number; failed: number }
+      >,
     );
 
     const priorityData = Object.entries(priorityStats).map(([name, s]) => ({
@@ -302,12 +349,14 @@ export default function DashboardPage() {
     }));
 
     // 7. Time-to-Read (TTR) — real data from /campaigns/analytics
-    const baseTTR: TTRStat[] = analyticsError ? [] : (analyticsData?.ttr_distribution ?? [
-      { range: "0-5 min", count: 0 },
-      { range: "5-30 min", count: 0 },
-      { range: "30-120 min", count: 0 },
-      { range: "2h+", count: 0 },
-    ]);
+    const baseTTR: TTRStat[] = analyticsError
+      ? []
+      : (analyticsData?.ttr_distribution ?? [
+          { range: "0-5 min", count: 0 },
+          { range: "5-30 min", count: 0 },
+          { range: "30-120 min", count: 0 },
+          { range: "2h+", count: 0 },
+        ]);
 
     const sumTTR = baseTTR.reduce((acc, d) => acc + d.count, 0);
     const ttrDistribution =
@@ -333,7 +382,17 @@ export default function DashboardPage() {
     }));
 
     // Time Series Trend (Ensuring at least 1 week window)
-    const timeSeriesMap: Record<string, { date: string; sortKey: number; sent: number; delivered: number; read: number; failed: number }> = {};
+    const timeSeriesMap: Record<
+      string,
+      {
+        date: string;
+        sortKey: number;
+        sent: number;
+        delivered: number;
+        read: number;
+        failed: number;
+      }
+    > = {};
 
     // Pre-fill last 7 days with zeros to ensure window
     for (let i = 6; i >= 0; i--) {
@@ -413,7 +472,7 @@ export default function DashboardPage() {
         <Link
           href="/campaigns/new"
           className="mt-8 text-white text-sm font-bold px-10 py-4 rounded-2xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           Launch Your First Campaign
         </Link>
@@ -453,7 +512,7 @@ export default function DashboardPage() {
         <Link
           href="/campaigns/new"
           className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           <Megaphone className="w-4 h-4" />
           LAUNCH CAMPAIGN
@@ -516,14 +575,31 @@ export default function DashboardPage() {
           <div className="h-[400px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <FunnelChart>
+                <Tooltip
+                  formatter={(value, _name, props) => [
+                    Number(value).toLocaleString(),
+                    props?.payload?.name ?? "",
+                  ]}
+                  contentStyle={{
+                    borderRadius: "10px",
+                    border: "none",
+                    boxShadow: "0 4px 12px rgb(0 0 0 / 0.1)",
+                  }}
+                />
                 <Funnel dataKey="value" data={funnelData} isAnimationActive>
                   <LabelList
                     position="inside"
                     fill="#fff"
                     stroke="none"
                     dataKey="display"
-                    fontSize={13}
-                    fontWeight={900}
+                    fontSize={11}
+                    fontWeight={700}
+                    formatter={(v) => {
+                      // Split "Label: 1,234" → show only the number so it fits narrow segments
+                      const s = String(v);
+                      const idx = s.indexOf(": ");
+                      return idx === -1 ? s : s.slice(idx + 2);
+                    }}
                   />
                 </Funnel>
               </FunnelChart>
@@ -837,7 +913,7 @@ export default function DashboardPage() {
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
                   formatter={(value) => [
-                    `${Number(value || 0).toFixed(1)}%`,
+                    `${Number(value).toFixed(1)}%`,
                     "Read Rate",
                   ]}
                 />
@@ -962,7 +1038,7 @@ export default function DashboardPage() {
                     border: "none",
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
-                  formatter={(value) => [value as React.ReactNode, "Total Reads"]}
+                  formatter={(value) => [value, "Total Reads"]}
                 />
                 <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
                   {ttrDistribution.map((_entry: TTRStat, index: number) => (

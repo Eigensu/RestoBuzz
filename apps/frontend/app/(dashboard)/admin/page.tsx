@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shield, UserPlus } from "lucide-react";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import { api } from "@/lib/api";
 import { parseApiError } from "@/lib/errors";
 import { toast } from "sonner";
@@ -30,6 +31,98 @@ type RestaurantUserRole = {
 const INPUT_CLS =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/20 focus:border-[#24422e]";
 
+function LinkedRestaurants({
+  loading,
+  assignments,
+}: Readonly<{
+  loading: boolean;
+  assignments: Restaurant[];
+}>) {
+  if (loading) return <span className="text-gray-400">Loading...</span>;
+  if (assignments.length === 0) return <span className="text-gray-400">None</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {assignments.map((restaurant) => (
+        <span
+          key={restaurant.id}
+          className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff2f0] text-[#24422e]"
+        >
+          {restaurant.name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AdminUserRow({
+  admin,
+  restaurants,
+  assignments,
+  loadingAssignments,
+  onLink,
+  isLinking,
+}: Readonly<{
+  admin: AdminUser;
+  restaurants: Restaurant[];
+  assignments: Restaurant[];
+  loadingAssignments: boolean;
+  onLink: (userId: string, restaurantId: string) => void;
+  isLinking: boolean;
+}>) {
+  const [selected, setSelected] = useState("");
+
+  return (
+    <tr className="border-b last:border-b-0">
+      <td className="px-5 py-3">{admin.email}</td>
+      <td className="px-5 py-3">
+        {[admin.first_name, admin.last_name].filter(Boolean).join(" ") || "-"}
+      </td>
+      <td className="px-5 py-3 capitalize">{admin.role.replace("_", " ")}</td>
+      <td className="px-5 py-3">
+        <LinkedRestaurants loading={loadingAssignments} assignments={assignments} />
+      </td>
+      <td className="px-5 py-3">
+        <div className="flex gap-2">
+          <select
+            aria-label={`Select restaurant for ${admin.first_name || admin.email}`}
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs min-w-48"
+          >
+            <option value="">Select restaurant</option>
+            {restaurants.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              onLink(admin.id, selected);
+              setSelected("");
+            }}
+            disabled={!selected || isLinking}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+            style={{ background: BRAND_GRADIENT }}
+          >
+            Link
+          </button>
+        </div>
+      </td>
+      <td className="px-5 py-3">
+        {admin.is_active ? (
+          <span className="text-emerald-700">Active</span>
+        ) : (
+          <span className="text-red-600">Disabled</span>
+        )}
+      </td>
+      <td className="px-5 py-3">
+        {new Date(admin.created_at).toLocaleDateString()}
+      </td>
+    </tr>
+  );
+}
+
 export default function AdminPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -39,9 +132,6 @@ export default function AdminPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
-  const [selectedRestaurantByUser, setSelectedRestaurantByUser] = useState<
-    Record<string, string>
-  >({});
 
   const isSuperAdmin = user?.role === "super_admin";
 
@@ -134,6 +224,50 @@ export default function AdminPage() {
             Only super admins can create new admin users.
           </p>
         </div>
+      </div>
+    );
+  }
+
+  let tableContent = null;
+  if (isLoading) {
+    tableContent = (
+      <div className="px-5 py-6 text-sm text-gray-500">Loading admins...</div>
+    );
+  } else if (admins.length === 0) {
+    tableContent = (
+      <div className="px-5 py-6 text-sm text-gray-500">No admin users found.</div>
+    );
+  } else {
+    tableContent = (
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500 border-b">
+              <th className="px-5 py-3 font-semibold">Email</th>
+              <th className="px-5 py-3 font-semibold">Name</th>
+              <th className="px-5 py-3 font-semibold">Role</th>
+              <th className="px-5 py-3 font-semibold">Linked Restaurants</th>
+              <th className="px-5 py-3 font-semibold">Link to Restaurant</th>
+              <th className="px-5 py-3 font-semibold">Status</th>
+              <th className="px-5 py-3 font-semibold">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {admins.map((a) => (
+              <AdminUserRow
+                key={a.id}
+                admin={a}
+                restaurants={restaurants}
+                assignments={assignmentsByUser[a.id] ?? []}
+                loadingAssignments={loadingAssignments}
+                onLink={(userId, restaurantId) =>
+                  linkRestaurant.mutate({ userId, restaurantId })
+                }
+                isLinking={linkRestaurant.isPending}
+              />
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
@@ -248,7 +382,7 @@ export default function AdminPage() {
           onClick={() => createAdmin.mutate()}
           disabled={!canCreate || createAdmin.isPending}
           className="inline-flex items-center justify-center text-white text-sm font-bold px-5 py-2.5 rounded-xl transition disabled:opacity-50"
-          style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           {createAdmin.isPending ? "Creating..." : "Create Admin"}
         </button>
@@ -261,119 +395,7 @@ export default function AdminPage() {
           </h2>
         </div>
 
-        {isLoading ? (
-          <div className="px-5 py-6 text-sm text-gray-500">
-            Loading admins...
-          </div>
-        ) : admins.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-gray-500">
-            No admin users found.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b">
-                  <th className="px-5 py-3 font-semibold">Email</th>
-                  <th className="px-5 py-3 font-semibold">Name</th>
-                  <th className="px-5 py-3 font-semibold">Role</th>
-                  <th className="px-5 py-3 font-semibold">
-                    Linked Restaurants
-                  </th>
-                  <th className="px-5 py-3 font-semibold">
-                    Link to Restaurant
-                  </th>
-                  <th className="px-5 py-3 font-semibold">Status</th>
-                  <th className="px-5 py-3 font-semibold">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {admins.map((a) => (
-                  <tr key={a.id} className="border-b last:border-b-0">
-                    <td className="px-5 py-3">{a.email}</td>
-                    <td className="px-5 py-3">
-                      {[a.first_name, a.last_name].filter(Boolean).join(" ") ||
-                        "-"}
-                    </td>
-                    <td className="px-5 py-3 capitalize">
-                      {a.role.replace("_", " ")}
-                    </td>
-                    <td className="px-5 py-3">
-                      {loadingAssignments ? (
-                        <span className="text-gray-400">Loading...</span>
-                      ) : (assignmentsByUser[a.id] ?? []).length === 0 ? (
-                        <span className="text-gray-400">None</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {(assignmentsByUser[a.id] ?? []).map((restaurant) => (
-                            <span
-                              key={`${a.id}-${restaurant.id}`}
-                              className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff2f0] text-[#24422e]"
-                            >
-                              {restaurant.name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex gap-2">
-                        <select
-                          id={`restaurant-select-${a.id}`}
-                          aria-label={`Select restaurant for ${a.first_name || a.email}`}
-                          value={selectedRestaurantByUser[a.id] ?? ""}
-                          onChange={(e) =>
-                            setSelectedRestaurantByUser((prev) => ({
-                              ...prev,
-                              [a.id]: e.target.value,
-                            }))
-                          }
-                          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs min-w-48"
-                        >
-                          <option value="">Select restaurant</option>
-                          {restaurants.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() =>
-                            linkRestaurant.mutate({
-                              userId: a.id,
-                              restaurantId: selectedRestaurantByUser[a.id],
-                            })
-                          }
-                          disabled={
-                            !selectedRestaurantByUser[a.id] ||
-                            linkRestaurant.isPending
-                          }
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
-                          style={{
-                            background:
-                              "linear-gradient(135deg, #24422e, #3a6b47)",
-                          }}
-                        >
-                          Link
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3">
-                      {a.is_active ? (
-                        <span className="text-emerald-700">Active</span>
-                      ) : (
-                        <span className="text-red-600">Disabled</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      {new Date(a.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {tableContent}
       </div>
     </div>
   );

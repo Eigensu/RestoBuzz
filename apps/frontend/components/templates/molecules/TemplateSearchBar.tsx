@@ -1,7 +1,6 @@
 import { Search } from "lucide-react";
 
-const GREEN_DARKEST = "#24422e";
-const GREEN_DARK = "#3a6b47";
+import { GREEN } from "@/lib/brand";
 
 type FilterStatus = "ALL" | "APPROVED" | "PENDING";
 
@@ -43,7 +42,7 @@ export function TemplateSearchBar({
             style={
               filterStatus === s
                 ? {
-                    background: `linear-gradient(135deg, ${GREEN_DARKEST}, ${GREEN_DARK})`,
+                    background: `linear-gradient(135deg, ${GREEN.darkest}, ${GREEN.dark})`,
                   }
                 : {}
             }

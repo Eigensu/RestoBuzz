@@ -3,11 +3,19 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "WA Bulk Sender",
-  description: "Enterprise WhatsApp Bulk Messaging Platform",
+  title: "DishPatch",
+  description: "Message your guests. Fill your tables.",
+  icons: {
+    icon: "/logo-final.webp",
+    apple: "/logo-final.webp",
+  },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
