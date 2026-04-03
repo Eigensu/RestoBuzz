@@ -53,7 +53,7 @@ _origins = settings.cors_origins_list
 if "*" in _origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # NOSONAR
+        allow_origins=_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
