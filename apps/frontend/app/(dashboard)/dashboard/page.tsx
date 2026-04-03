@@ -183,16 +183,56 @@ export default function DashboardPage() {
   const analytics: DashboardAnalytics | null = useMemo(() => {
     if (!campaigns.length) return null;
 
-    const totals = campaigns.reduce(
-      (acc, c) => ({
-        total: acc.total + c.total_count,
-        sent: acc.sent + c.sent_count,
-        delivered: acc.delivered + c.delivered_count,
-        read: acc.read + c.read_count,
-        failed: acc.failed + c.failed_count,
-      }),
-      { total: 0, sent: 0, delivered: 0, read: 0, failed: 0 },
-    );
+    // Group campaigns by retry chains
+    const rootCampaigns = campaigns.filter((c) => !c.parent_campaign_id);
+    const retryCampaigns = campaigns.filter((c) => c.parent_campaign_id);
+
+    // Build retry chain map
+    const retryMap = new Map<string, Campaign[]>();
+    retryCampaigns.forEach((c) => {
+      const parentId = c.parent_campaign_id!;
+      if (!retryMap.has(parentId)) {
+        retryMap.set(parentId, []);
+      }
+      retryMap.get(parentId)!.push(c);
+    });
+
+    // Calculate totals considering retry chains
+    let totalAudience = 0;
+    let totalSent = 0;
+    let totalDelivered = 0;
+    let totalRead = 0;
+    let totalFailed = 0;
+
+    rootCampaigns.forEach((root) => {
+      const retries = retryMap.get(root.id) || [];
+      const allInChain = [root, ...retries].sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+
+      // For effective reach: use root's total_count as audience
+      totalAudience += root.total_count;
+
+      // Sum sent, delivered, read across the entire chain
+      allInChain.forEach((c) => {
+        totalSent += c.sent_count;
+        totalDelivered += c.delivered_count;
+        totalRead += c.read_count;
+      });
+
+      // For failed: use the last campaign's failed_count (remaining failures)
+      const lastCampaign = allInChain[allInChain.length - 1];
+      totalFailed += lastCampaign.failed_count;
+    });
+
+    const totals = {
+      total: totalAudience,
+      sent: totalSent,
+      delivered: totalDelivered,
+      read: totalRead,
+      failed: totalFailed,
+    };
 
     // 1. KPI Calculations
     const deliveryRate =
