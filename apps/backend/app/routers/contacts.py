@@ -91,7 +91,7 @@ async def upload_contacts(
         raise ValidationError("File exceeds the 50 MB size limit")
 
     filename = file.filename
-    file_hash = hashlib.md5(content).hexdigest()
+    file_hash = hashlib.sha256(content).hexdigest()
     uploader_id = str(current_user["_id"])
 
     existing = await db.contact_files.find_one(
