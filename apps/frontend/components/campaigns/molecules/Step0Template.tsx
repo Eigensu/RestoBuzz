@@ -38,7 +38,7 @@ export function Step0Template({
   uploadingMedia,
   setUploadingMedia,
   bodyVars,
-}: Step0TemplateProps) {
+}: Readonly<Step0TemplateProps>) {
   return (
     <div className="flex gap-6">
       {/* Left: selection + config */}

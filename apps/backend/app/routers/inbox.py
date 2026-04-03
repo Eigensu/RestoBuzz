@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from typing import Annotated, Any
 from datetime import datetime, timedelta, timezone
 from app.database import get_db
 from app.dependencies import require_role
@@ -18,10 +19,10 @@ router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(30, ge=1, le=100),
-    _current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 30,
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
@@ -71,10 +72,10 @@ async def list_conversations(
 @router.get("/conversations/{phone}", response_model=list[InboundMessageResponse])
 async def get_conversation(
     phone: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    _current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     items = []
@@ -152,8 +153,8 @@ async def get_conversation(
 @router.post("/conversations/{phone}/read")
 async def mark_read(
     phone: str,
-    _current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     await db.inbound_messages.update_many(
         {"from_phone": phone, "is_read": False},
@@ -166,8 +167,8 @@ async def mark_read(
 async def reply(
     phone: str,
     body: ReplyRequest,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     wa_id = await send_text_message(
         to=phone,

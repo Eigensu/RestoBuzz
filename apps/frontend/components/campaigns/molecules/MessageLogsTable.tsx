@@ -57,22 +57,13 @@ export function MessageLogsTable({
           </tr>
         </thead>
         <tbody className="divide-y">
-          {isLoading && logs.length === 0 ? (
+          {logs.length === 0 ? (
             <tr>
               <td
                 colSpan={5}
                 className="px-4 py-8 text-center text-gray-400 text-xs"
               >
-                Loading…
-              </td>
-            </tr>
-          ) : logs.length === 0 ? (
-            <tr>
-              <td
-                colSpan={5}
-                className="px-4 py-8 text-center text-gray-400 text-xs"
-              >
-                No logs yet
+                {isLoading ? "Loading…" : "No logs yet"}
               </td>
             </tr>
           ) : (

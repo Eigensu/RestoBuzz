@@ -5,7 +5,7 @@ interface WizardRightPanelProps {
   preflight: PreflightResult | null;
 }
 
-export function WizardRightPanel({ step, preflight }: WizardRightPanelProps) {
+export function WizardRightPanel({ step, preflight }: Readonly<WizardRightPanelProps>) {
   return (
     <div className="hidden lg:flex w-80 shrink-0 flex-col gap-4">
       {step === 1 && (
@@ -137,8 +137,8 @@ export function WizardRightPanel({ step, preflight }: WizardRightPanelProps) {
                 icon: "📊",
                 body: "Live delivery and read stats will appear on the campaign detail page once started.",
               },
-            ].map(({ icon, body }, i) => (
-              <div key={i} className="flex gap-3">
+            ].map(({ icon, body }) => (
+              <div key={icon} className="flex gap-3">
                 <span className="text-lg">{icon}</span>
                 <p>{body}</p>
               </div>

@@ -222,7 +222,7 @@ export default function DashboardPage() {
       });
 
       // For failed: use the last campaign's failed_count (remaining failures)
-      const lastCampaign = allInChain[allInChain.length - 1];
+      const lastCampaign = allInChain.at(-1)!;
       totalFailed += lastCampaign.failed_count;
     });
 
@@ -598,7 +598,7 @@ export default function DashboardPage() {
                       // Split "Label: 1,234" → show only the number so it fits narrow segments
                       const s = String(v);
                       const idx = s.indexOf(": ");
-                      return idx !== -1 ? s.slice(idx + 2) : s;
+                      return idx === -1 ? s : s.slice(idx + 2);
                     }}
                   />
                 </Funnel>

@@ -300,22 +300,27 @@ export default function AdminPage() {
                       {a.role.replace("_", " ")}
                     </td>
                     <td className="px-5 py-3">
-                      {loadingAssignments ? (
-                        <span className="text-gray-400">Loading...</span>
-                      ) : (assignmentsByUser[a.id] ?? []).length === 0 ? (
-                        <span className="text-gray-400">None</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {(assignmentsByUser[a.id] ?? []).map((restaurant) => (
-                            <span
-                              key={`${a.id}-${restaurant.id}`}
-                              className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff2f0] text-[#24422e]"
-                            >
-                              {restaurant.name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {(() => {
+                        if (loadingAssignments) {
+                          return <span className="text-gray-400">Loading...</span>;
+                        }
+                        const rAssignments = assignmentsByUser[a.id] ?? [];
+                        if (rAssignments.length === 0) {
+                          return <span className="text-gray-400">None</span>;
+                        }
+                        return (
+                          <div className="flex flex-wrap gap-1.5">
+                            {rAssignments.map((restaurant) => (
+                              <span
+                                key={`${a.id}-${restaurant.id}`}
+                                className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff2f0] text-[#24422e]"
+                              >
+                                {restaurant.name}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2">

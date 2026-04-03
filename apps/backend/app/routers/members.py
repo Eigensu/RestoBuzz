@@ -23,6 +23,7 @@ from app.models.member import (
     MemberResponse,
     MemberListResponse,
 )
+from app.models.contact import PreflightResult, ContactRow, InvalidRow
 
 router = APIRouter(prefix="/members", tags=["members"])
 
@@ -191,44 +192,79 @@ async def record_visit(
     return _serialize(doc)
 
 
-@router.post("/as-contacts")
+@router.post("/as-contacts", response_model=PreflightResult)
 async def members_as_contacts(
     restaurant_id: Annotated[str, Query()],
     current_user: Annotated[dict, Depends(require_role("admin"))],
     validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
-    db: Annotated[any, Depends(get_db)] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
     type: Annotated[str | None, Query()] = None,
 ):
     """Convert members into a PreflightResult so they can be used as campaign contacts."""
     import uuid, json
     from redis.asyncio import from_url
     from app.config import settings
+    from app.services.contact_parser import _normalize_phone
 
     query: dict = {"restaurant_id": validated_rid, "is_active": True}
     if type in ("nfc", "ecard"):
         query["type"] = type
 
+    suppressed = set()
+    async for doc in db.suppression_list.find({}, {"phone": 1}):
+        suppressed.add(doc["phone"])
+
     valid_rows = []
+    invalid_rows = []
+    seen_phones = set()
+    duplicate_count = 0
+    suppressed_count = 0
+    
+    row_num = 1
     async for doc in db.members.find(query, {"name": 1, "phone": 1}):
+        row_num += 1
+        raw_phone = doc.get("phone", "").strip() if doc.get("phone") else ""
+        if not raw_phone:
+            invalid_rows.append(InvalidRow(row_number=row_num, raw_phone="", reason="Empty phone"))
+            continue
+        
+        normalized = _normalize_phone(raw_phone)
+        if not normalized:
+            invalid_rows.append(InvalidRow(row_number=row_num, raw_phone=raw_phone, reason="Invalid phone number"))
+            continue
+
+        if normalized in seen_phones:
+            duplicate_count += 1
+            continue
+        seen_phones.add(normalized)
+
+        if normalized in suppressed:
+            suppressed_count += 1
+            continue
+
         valid_rows.append(
-            {"name": doc.get("name", ""), "phone": doc["phone"], "variables": {}}
+            ContactRow(name=doc.get("name", ""), phone=normalized, variables={})
         )
 
     file_ref = str(uuid.uuid4())
 
     redis = from_url(settings.redis_url, decode_responses=True)
-    await redis.set(f"file_ref:{file_ref}", json.dumps(valid_rows), ex=3600)
+    await redis.set(
+        f"file_ref:{file_ref}", 
+        json.dumps([r.model_dump() for r in valid_rows]), 
+        ex=3600
+    )
     await redis.aclose()
 
-    return {
-        "valid_count": len(valid_rows),
-        "invalid_count": 0,
-        "duplicate_count": 0,
-        "suppressed_count": 0,
-        "valid_rows": valid_rows,
-        "invalid_rows": [],
-        "file_ref": file_ref,
-    }
+    return PreflightResult(
+        valid_count=len(valid_rows),
+        invalid_count=len(invalid_rows),
+        duplicate_count=duplicate_count,
+        suppressed_count=suppressed_count,
+        valid_rows=valid_rows,
+        invalid_rows=invalid_rows,
+        file_ref=file_ref,
+    )
 
 
 @router.post("/import")

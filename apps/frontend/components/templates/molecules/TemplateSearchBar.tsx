@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 
-import { BRAND_GRADIENT, GREEN } from "@/lib/brand";
+import { GREEN } from "@/lib/brand";
 
 type FilterStatus = "ALL" | "APPROVED" | "PENDING";
 

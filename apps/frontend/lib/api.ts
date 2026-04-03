@@ -61,7 +61,7 @@ api.interceptors.response.use(
       // Patch the original request with the fresh token and replay it.
       // Set it directly — don't rely on the request interceptor re-reading
       // volatileAccessToken, because the config object may be stale.
-      original.headers = original.headers ?? {};
+      original.headers ??= {};
       original.headers.Authorization = `Bearer ${newAccessToken}`;
       return api(original);
     } catch (refreshError) {

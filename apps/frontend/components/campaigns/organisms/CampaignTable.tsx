@@ -14,11 +14,11 @@ function groupCampaigns(campaigns: Campaign[]): CampaignGroup[] {
   const retryMap: Record<string, Campaign[]> = {};
 
   for (const c of campaigns) {
-    if (!c.parent_campaign_id) {
-      roots.push(c);
-    } else {
+    if (c.parent_campaign_id) {
       if (!retryMap[c.parent_campaign_id]) retryMap[c.parent_campaign_id] = [];
       retryMap[c.parent_campaign_id].push(c);
+    } else {
+      roots.push(c);
     }
   }
 
@@ -36,7 +36,7 @@ function effectiveStats(group: CampaignGroup) {
   const originalTotal = group.root.total_count;
   const last =
     group.retries.length > 0
-      ? group.retries[group.retries.length - 1]
+      ? group.retries.at(-1)!
       : group.root;
   const effectiveSent = Math.max(0, originalTotal - last.failed_count);
   const pct =
@@ -49,7 +49,7 @@ interface CampaignTableProps {
   onDelete: (id: string) => void;
 }
 
-export function CampaignTable({ campaigns, onDelete }: CampaignTableProps) {
+export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTableProps>) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const groups = groupCampaigns(campaigns);
 

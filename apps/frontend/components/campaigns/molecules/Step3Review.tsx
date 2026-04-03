@@ -24,7 +24,7 @@ export function Step3Review({
   setIncludeUnsub,
   selectedTemplate,
   preflight,
-}: Step3ReviewProps) {
+}: Readonly<Step3ReviewProps>) {
   return (
     <div className="space-y-5">
       <h2 className="font-medium">Schedule & Review</h2>

@@ -11,30 +11,30 @@ import { FailureChart } from "@/components/campaigns/molecules/FailureChart";
 import { MessageLogsTable } from "@/components/campaigns/molecules/MessageLogsTable";
 import { CampaignStatus } from "@/types/common/enums";
 
-const ACTIVE_STATUSES = [
+const ACTIVE_STATUSES = new Set([
   CampaignStatus.QUEUED,
   CampaignStatus.RUNNING,
   CampaignStatus.PAUSED,
-];
-const CANCELLABLE_STATUSES = [
+]);
+const CANCELLABLE_STATUSES = new Set([
   CampaignStatus.DRAFT,
   CampaignStatus.QUEUED,
   CampaignStatus.RUNNING,
   CampaignStatus.PAUSED,
-];
-const INACTIVE_STATUSES = [
+]);
+const INACTIVE_STATUSES = new Set([
   CampaignStatus.COMPLETED,
   CampaignStatus.FAILED,
   CampaignStatus.CANCELLED,
   CampaignStatus.DRAFT,
-];
+]);
 
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
 
   const isActiveCampaign = (status?: string) =>
-    ACTIVE_STATUSES.includes(status as CampaignStatus);
+    ACTIVE_STATUSES.has(status as CampaignStatus);
 
   const { data: campaign } = useQuery<Campaign>({
     queryKey: ["campaign", id],
@@ -55,7 +55,7 @@ export default function CampaignDetailPage() {
   });
 
   const { data: progress } = useSSE<CampaignProgress>(
-    campaign && !INACTIVE_STATUSES.includes(campaign.status as CampaignStatus)
+    campaign && !INACTIVE_STATUSES.has(campaign.status as CampaignStatus)
       ? `/campaigns/${id}/stream`
       : null,
   );
@@ -127,7 +127,7 @@ export default function CampaignDetailPage() {
               <Pause className="w-3.5 h-3.5" /> Pause
             </button>
           )}
-          {CANCELLABLE_STATUSES.includes(
+          {CANCELLABLE_STATUSES.has(
             campaign?.status as CampaignStatus,
           ) && (
             <button

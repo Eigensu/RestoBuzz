@@ -13,7 +13,7 @@ export function WizardTemplatePreview({
   template,
   variables,
   mediaUrl,
-}: WizardTemplatePreviewProps) {
+}: Readonly<WizardTemplatePreviewProps>) {
   if (!template) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-3">

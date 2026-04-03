@@ -58,7 +58,7 @@ def decode_jwt(token: str) -> dict:
     return json.loads(base64.urlsafe_b64decode(part))
 
 
-async def run():
+async def run():  # NOSONAR
     async with httpx.AsyncClient(base_url=BASE_URL, headers=HEADERS, timeout=15) as c:
 
         # ── 1. Login ──────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ async def run():
                 ok("Old expired token correctly rejected")
             else:
                 warn(
-                    f"Old token still accepted (stateless JWT — expected if not blacklisted)"
+                    "Old token still accepted (stateless JWT — expected if not blacklisted)"
                 )
         else:
             section("8. Skipped (access token not short-lived)")
@@ -213,7 +213,7 @@ async def run():
 
 
 if __name__ == "__main__":
-    print(f"\nDishPatch — Refresh Token Test")
+    print("\nDishPatch — Refresh Token Test")
     print(f"Base URL : {BASE_URL}")
     print(f"Email    : {EMAIL}")
     asyncio.run(run())

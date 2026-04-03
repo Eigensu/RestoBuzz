@@ -2,7 +2,7 @@ import { XCircle, AlertCircle } from "lucide-react";
 import type { PreflightResult } from "@/types";
 import { WizardStatCard } from "@/components/campaigns/atoms/WizardStatCard";
 
-export function Step2Preflight({ preflight }: { preflight: PreflightResult }) {
+export function Step2Preflight({ preflight }: Readonly<{ preflight: PreflightResult }>) {
   return (
     <div className="space-y-4">
       <h2 className="font-medium">Pre-flight Check</h2>

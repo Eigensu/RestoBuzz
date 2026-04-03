@@ -13,7 +13,7 @@ import {
   TemplateEmptyState,
 } from "@/components/templates/organisms/TemplateGrid";
 
-import { BRAND_GRADIENT, GREEN } from "@/lib/brand";
+import { GREEN } from "@/lib/brand";
 
 type FilterStatus = "ALL" | "APPROVED" | "PENDING";
 

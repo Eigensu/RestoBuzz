@@ -26,8 +26,6 @@ interface SavedFile {
   uploaded_at: string;
 }
 
-import { BRAND_GRADIENT } from "@/lib/brand";
-
 export function NewCampaignWizard() {
   const { restaurant } = useAuthStore();
   const router = useRouter();
@@ -170,16 +168,13 @@ export function NewCampaignWizard() {
     selectedTemplate?.components
       .find((c) => c.type === "BODY")
       ?.text?.match(/\{\{(\d+)\}\}/g)
-      ?.map((v) => v.replace(/[{}]/g, "")) ?? [];
+      ?.map((v) => v.replaceAll("{", "").replaceAll("}", "")) ?? [];
 
-  const canNext =
-    step === 0
-      ? !!selectedTemplate
-      : step === 1
-        ? !!preflight
-        : step === 2
-          ? (preflight?.valid_count ?? 0) > 0
-          : !!campaignName;
+  let canNext = false;
+  if (step === 0) canNext = !!selectedTemplate;
+  else if (step === 1) canNext = !!preflight;
+  else if (step === 2) canNext = (preflight?.valid_count ?? 0) > 0;
+  else canNext = !!campaignName;
 
   if (!restaurant) return null;
 

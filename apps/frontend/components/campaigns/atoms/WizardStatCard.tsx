@@ -12,7 +12,7 @@ export function WizardStatCard({
   label,
   colorCls,
   bgCls,
-}: WizardStatCardProps) {
+}: Readonly<WizardStatCardProps>) {
   return (
     <div className={cn("rounded-lg p-3 text-center", bgCls)}>
       <p className={cn("text-2xl font-bold", colorCls)}>{value}</p>

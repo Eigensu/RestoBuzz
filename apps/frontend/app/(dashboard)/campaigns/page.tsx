@@ -12,11 +12,11 @@ import { CampaignTable } from "@/components/campaigns/organisms/CampaignTable";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CampaignStatus } from "@/types/common/enums";
 
-const ACTIVE_STATUSES = [
+const ACTIVE_STATUSES = new Set([
   CampaignStatus.QUEUED,
   CampaignStatus.RUNNING,
   CampaignStatus.PAUSED,
-];
+]);
 
 export default function CampaignsPage() {
   const qc = useQueryClient();
@@ -32,7 +32,7 @@ export default function CampaignsPage() {
     refetchInterval: (query) => {
       const campaigns: Campaign[] = query.state.data?.items ?? [];
       const hasActive = campaigns.some((c) =>
-        ACTIVE_STATUSES.includes(c.status as CampaignStatus),
+        ACTIVE_STATUSES.has(c.status),
       );
       return hasActive ? 5000 : false;
     },

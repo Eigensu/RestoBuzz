@@ -3,6 +3,7 @@ import hashlib
 import io
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, UploadFile, File
+from typing import Annotated, Any
 from fastapi.responses import StreamingResponse
 from app.database import get_db
 from app.dependencies import require_role
@@ -13,6 +14,7 @@ from app.services.contact_parser import parse_contacts
 router = APIRouter(prefix="/contacts", tags=["contacts"])
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+RESULT_FILE_REF_KEY = "result.file_ref"
 
 
 async def _cache_file_ref(file_ref: str, valid_rows: list) -> None:
@@ -30,7 +32,7 @@ async def _cache_file_ref(file_ref: str, valid_rows: list) -> None:
 
 @router.get("/template")
 async def download_template(
-    current_user: dict = Depends(require_role("admin")),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
 ):
     """Return a pre-formatted XLSX template the user can fill and re-upload."""
     import openpyxl
@@ -78,8 +80,8 @@ async def upload_contacts(
     file: UploadFile = File(...),
     phone_column: str = "phone",
     name_column: str = "name",
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     if not file.filename.endswith((".xlsx", ".xls", ".csv")):
         raise InvalidFileFormatError("Only .xlsx, .xls, and .csv files are supported")
@@ -128,8 +130,8 @@ async def upload_contacts(
 
 @router.get("/files")
 async def list_contact_files(
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     uploader_id = str(current_user["_id"])
     docs = (
@@ -140,7 +142,7 @@ async def list_contact_files(
                 "uploaded_at": 1,
                 "result.valid_count": 1,
                 "result.invalid_count": 1,
-                "result.file_ref": 1,
+                RESULT_FILE_REF_KEY: 1,
             },
         )
         .sort("uploaded_at", -1)
@@ -162,12 +164,12 @@ async def list_contact_files(
 @router.delete("/files/{file_ref}", status_code=204)
 async def delete_contact_file(
     file_ref: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     uploader_id = str(current_user["_id"])
     result = await db.contact_files.delete_one(
-        {"result.file_ref": file_ref, "uploaded_by": uploader_id}
+        {RESULT_FILE_REF_KEY: file_ref, "uploaded_by": uploader_id}
     )
     if result.deleted_count == 0:
         raise NotFoundError(f"Contact file '{file_ref}' not found")
@@ -176,12 +178,12 @@ async def delete_contact_file(
 @router.post("/files/{file_ref}/use", response_model=PreflightResult)
 async def reuse_contact_file(
     file_ref: str,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     uploader_id = str(current_user["_id"])
     doc = await db.contact_files.find_one(
-        {"result.file_ref": file_ref, "uploaded_by": uploader_id}
+        {RESULT_FILE_REF_KEY: file_ref, "uploaded_by": uploader_id}
     )
     if not doc:
         raise NotFoundError(f"Contact file '{file_ref}' not found")

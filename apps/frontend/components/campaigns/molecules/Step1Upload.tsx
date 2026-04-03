@@ -68,7 +68,7 @@ export function Step1Upload({
   loadingMembers,
   onSelectMembers,
   onDeleteFile,
-}: Step1UploadProps) {
+}: Readonly<Step1UploadProps>) {
   const [source, setSource] = useState<"file" | "members">("file");
   const [downloading, setDownloading] = useState(false);
 

@@ -15,19 +15,14 @@ export function StepCircle({
   label,
   currentStep: step,
   isLast,
-}: StepCircleProps) {
-  const circleClass =
-    i < step
-      ? "text-white"
-      : i === step
-        ? "border-2 text-[#24422e]"
-        : "bg-gray-100 text-gray-400";
-  const circleStyle: React.CSSProperties | undefined =
-    i < step
-      ? { background: BRAND_GRADIENT }
-      : i === step
-        ? { borderColor: "#24422e", background: "#24422e14" }
-        : undefined;
+}: Readonly<StepCircleProps>) {
+  let circleClass = "bg-gray-100 text-gray-400";
+  if (i < step) circleClass = "text-white";
+  else if (i === step) circleClass = "border-2 text-[#24422e]";
+
+  let circleStyle: React.CSSProperties | undefined;
+  if (i < step) circleStyle = { background: BRAND_GRADIENT };
+  else if (i === step) circleStyle = { borderColor: "#24422e", background: "#24422e14" };
 
   return (
     <div className="flex items-center gap-1">
