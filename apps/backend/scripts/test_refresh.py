@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 
 BASE_URL = os.getenv("API_URL", "http://localhost:8000")
 EMAIL = os.getenv("TEST_EMAIL", "admin@example.com")
-PASSWORD = os.getenv("TEST_PASSWORD", "changeme123")
+PASSWORD = os.getenv("TEST_PASSWORD", "changeme123")  # NOSONAR
 HEADERS = {"Content-Type": "application/json"}
 
 
@@ -143,7 +143,7 @@ async def run():  # NOSONAR
         info(f"Status: {r.status_code}")
         info(f"Body  : {r.text[:200]}")
         if r.status_code != 200:
-            fail(f"Refresh failed — see body above")
+            fail("Refresh failed — see body above")
         new_tokens = r.json()
         new_access_token = new_tokens["access_token"]
         new_refresh_token = new_tokens["refresh_token"]

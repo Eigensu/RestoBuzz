@@ -262,123 +262,131 @@ export default function AdminPage() {
           </h2>
         </div>
 
-        {isLoading ? (
-          <div className="px-5 py-6 text-sm text-gray-500">
-            Loading admins...
-          </div>
-        ) : admins.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-gray-500">
-            No admin users found.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b">
-                  <th className="px-5 py-3 font-semibold">Email</th>
-                  <th className="px-5 py-3 font-semibold">Name</th>
-                  <th className="px-5 py-3 font-semibold">Role</th>
-                  <th className="px-5 py-3 font-semibold">
-                    Linked Restaurants
-                  </th>
-                  <th className="px-5 py-3 font-semibold">
-                    Link to Restaurant
-                  </th>
-                  <th className="px-5 py-3 font-semibold">Status</th>
-                  <th className="px-5 py-3 font-semibold">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {admins.map((a) => (
-                  <tr key={a.id} className="border-b last:border-b-0">
-                    <td className="px-5 py-3">{a.email}</td>
-                    <td className="px-5 py-3">
-                      {[a.first_name, a.last_name].filter(Boolean).join(" ") ||
-                        "-"}
-                    </td>
-                    <td className="px-5 py-3 capitalize">
-                      {a.role.replace("_", " ")}
-                    </td>
-                    <td className="px-5 py-3">
-                      {(() => {
-                        if (loadingAssignments) {
-                          return <span className="text-gray-400">Loading...</span>;
-                        }
-                        const rAssignments = assignmentsByUser[a.id] ?? [];
-                        if (rAssignments.length === 0) {
-                          return <span className="text-gray-400">None</span>;
-                        }
-                        return (
-                          <div className="flex flex-wrap gap-1.5">
-                            {rAssignments.map((restaurant) => (
-                              <span
-                                key={`${a.id}-${restaurant.id}`}
-                                className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff2f0] text-[#24422e]"
-                              >
-                                {restaurant.name}
-                              </span>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex gap-2">
-                        <select
-                          id={`restaurant-select-${a.id}`}
-                          aria-label={`Select restaurant for ${a.first_name || a.email}`}
-                          value={selectedRestaurantByUser[a.id] ?? ""}
-                          onChange={(e) =>
-                            setSelectedRestaurantByUser((prev) => ({
-                              ...prev,
-                              [a.id]: e.target.value,
-                            }))
-                          }
-                          className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs min-w-48"
-                        >
-                          <option value="">Select restaurant</option>
-                          {restaurants.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() =>
-                            linkRestaurant.mutate({
-                              userId: a.id,
-                              restaurantId: selectedRestaurantByUser[a.id],
-                            })
-                          }
-                          disabled={
-                            !selectedRestaurantByUser[a.id] ||
-                            linkRestaurant.isPending
-                          }
-                          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
-                          style={{
-                            background: BRAND_GRADIENT,
-                          }}
-                        >
-                          Link
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3">
-                      {a.is_active ? (
-                        <span className="text-emerald-700">Active</span>
-                      ) : (
-                        <span className="text-red-600">Disabled</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      {new Date(a.created_at).toLocaleDateString()}
-                    </td>
+        {(() => {
+          if (isLoading) {
+            return (
+              <div className="px-5 py-6 text-sm text-gray-500">
+                Loading admins...
+              </div>
+            );
+          }
+          if (admins.length === 0) {
+            return (
+              <div className="px-5 py-6 text-sm text-gray-500">
+                No admin users found.
+              </div>
+            );
+          }
+          return (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b">
+                    <th className="px-5 py-3 font-semibold">Email</th>
+                    <th className="px-5 py-3 font-semibold">Name</th>
+                    <th className="px-5 py-3 font-semibold">Role</th>
+                    <th className="px-5 py-3 font-semibold">
+                      Linked Restaurants
+                    </th>
+                    <th className="px-5 py-3 font-semibold">
+                      Link to Restaurant
+                    </th>
+                    <th className="px-5 py-3 font-semibold">Status</th>
+                    <th className="px-5 py-3 font-semibold">Created</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {admins.map((a) => (
+                    <tr key={a.id} className="border-b last:border-b-0">
+                      <td className="px-5 py-3">{a.email}</td>
+                      <td className="px-5 py-3">
+                        {[a.first_name, a.last_name].filter(Boolean).join(" ") ||
+                          "-"}
+                      </td>
+                      <td className="px-5 py-3 capitalize">
+                        {a.role.replace("_", " ")}
+                      </td>
+                      <td className="px-5 py-3">
+                        {(() => {
+                          if (loadingAssignments) {
+                            return <span className="text-gray-400">Loading...</span>;
+                          }
+                          const rAssignments = assignmentsByUser[a.id] ?? [];
+                          if (rAssignments.length === 0) {
+                            return <span className="text-gray-400">None</span>;
+                          }
+                          return (
+                            <div className="flex flex-wrap gap-1.5">
+                              {rAssignments.map((restaurant) => (
+                                <span
+                                  key={`${a.id}-${restaurant.id}`}
+                                  className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#eff2f0] text-[#24422e]"
+                                >
+                                  {restaurant.name}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex gap-2">
+                          <select
+                            id={`restaurant-select-${a.id}`}
+                            aria-label={`Select restaurant for ${a.first_name || a.email}`}
+                            value={selectedRestaurantByUser[a.id] ?? ""}
+                            onChange={(e) =>
+                              setSelectedRestaurantByUser((prev) => ({
+                                ...prev,
+                                [a.id]: e.target.value,
+                              }))
+                            }
+                            className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs min-w-48"
+                          >
+                            <option value="">Select restaurant</option>
+                            {restaurants.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() =>
+                              linkRestaurant.mutate({
+                                userId: a.id,
+                                restaurantId: selectedRestaurantByUser[a.id],
+                              })
+                            }
+                            disabled={
+                              !selectedRestaurantByUser[a.id] ||
+                              linkRestaurant.isPending
+                            }
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50"
+                            style={{
+                              background: BRAND_GRADIENT,
+                            }}
+                          >
+                            Link
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">
+                        {a.is_active ? (
+                          <span className="text-emerald-700">Active</span>
+                        ) : (
+                          <span className="text-red-600">Disabled</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3">
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
