@@ -103,12 +103,6 @@ interface HourlyStat {
   delivered: number;
 }
 
-interface PriorityStat {
-  name: string;
-  read_rate: number;
-  delivery_rate: number;
-}
-
 interface TTRStat {
   range: string;
   count: number;
@@ -137,7 +131,6 @@ interface DashboardAnalytics {
   templateLeaderboard: TemplateStat[];
   failureBreakdown: { reason: string; count: number }[];
   hourlyPerformance: HourlyStat[];
-  priorityData: PriorityStat[];
   ttrDistribution: TTRStat[];
   pieData: { name: string; value: number }[];
   timeSeriesData: {
@@ -325,29 +318,6 @@ export default function DashboardPage() {
           return { hour: `${displayHour} ${period}`, rate: 0, delivered: 0 };
         }));
 
-    // 6. Priority Comparison
-    const priorityStats = campaigns.reduce(
-      (acc, c) => {
-        const p = c.priority || "MARKETING";
-        if (!acc[p]) acc[p] = { read: 0, delivered: 0, sent: 0, failed: 0 };
-        acc[p].read += c.read_count;
-        acc[p].delivered += c.delivered_count;
-        acc[p].sent += c.sent_count;
-        acc[p].failed += c.failed_count;
-        return acc;
-      },
-      {} as Record<
-        string,
-        { read: number; delivered: number; sent: number; failed: number }
-      >,
-    );
-
-    const priorityData = Object.entries(priorityStats).map(([name, s]) => ({
-      name,
-      read_rate: s.delivered > 0 ? (s.read / s.delivered) * 100 : 0,
-      delivery_rate: s.sent > 0 ? (s.delivered / s.sent) * 100 : 0,
-    }));
-
     // 7. Time-to-Read (TTR) — real data from /campaigns/analytics
     const baseTTR: TTRStat[] = analyticsError
       ? []
@@ -437,7 +407,6 @@ export default function DashboardPage() {
       templateLeaderboard,
       failureBreakdown,
       hourlyPerformance,
-      priorityData,
       ttrDistribution,
       pieData,
       timeSeriesData,
@@ -470,7 +439,7 @@ export default function DashboardPage() {
           intelligence will appear here.
         </p>
         <Link
-          href="/campaigns/new"
+          href="/campaigns/whatsapp/new"
           className="mt-8 text-white text-sm font-bold px-10 py-4 rounded-2xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
           style={{ background: BRAND_GRADIENT }}
         >
@@ -510,7 +479,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <Link
-          href="/campaigns/new"
+          href="/campaigns/whatsapp/new"
           className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
           style={{ background: BRAND_GRADIENT }}
         >

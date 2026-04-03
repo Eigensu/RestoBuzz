@@ -99,20 +99,26 @@ async def create_campaign(
     from redis.asyncio import from_url
     from app.config import settings
 
+    raw = None
     try:
         redis = from_url(settings.redis_url, decode_responses=True)
         raw = await redis.get(f"file_ref:{body.contact_file_ref}")
         await redis.aclose()
     except Exception as e:
-        logger.error("campaign_create_cache_error", error=str(e))
-        raise RedisError("Cache unavailable") from e
+        logger.warning("campaign_create_cache_unavailable", error=str(e), file_ref=body.contact_file_ref)
+        # Proceed to fallback
 
     if not raw:
-        raise ContactFileExpiredError(
-            "Contact file reference expired or not found. Please re-upload your contacts."
-        )
+        # FALLBACK: Check MongoDB directly if Redis is down or cache expired
+        doc = await db.contact_files.find_one({"result.file_ref": body.contact_file_ref})
+        if not doc:
+            raise ContactFileExpiredError(
+                "Contact file reference expired or not found. Please re-upload your contacts."
+            )
+        contacts = doc["result"]["valid_rows"]
+    else:
+        contacts = json.loads(raw)
 
-    contacts = json.loads(raw)
     now = datetime.now(timezone.utc)
 
     job_doc = {

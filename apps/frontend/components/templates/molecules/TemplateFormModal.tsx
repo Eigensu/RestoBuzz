@@ -54,9 +54,6 @@ export function TemplateFormModal({
   const isModal = mode === "modal";
 
   const [name, setName] = useState(editing?.name ?? "");
-  const [category, setCategory] = useState<Category>(
-    (editing?.category as Category) ?? "MARKETING",
-  );
   const [language, setLanguage] = useState(editing?.language ?? "en");
   const [components, setComponents] = useState<ComponentRow[]>(
     defaultComponents(editing),
@@ -146,7 +143,7 @@ export function TemplateFormModal({
       }
       return api.post("/templates", {
         name: name.toLowerCase().replace(/\s+/g, "_"),
-        category,
+        category: "MARKETING",
         language,
         ...payload,
       });
@@ -246,20 +243,6 @@ export function TemplateFormModal({
               <p className="text-[10px] text-gray-400 mt-1">
                 Lowercase letters, numbers, underscores only
               </p>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
-                Category
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as Category)}
-                className={INPUT_CLS}
-              >
-                <option value="MARKETING">Marketing</option>
-                <option value="UTILITY">Utility</option>
-                <option value="AUTHENTICATION">Authentication</option>
-              </select>
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
@@ -551,14 +534,9 @@ export function TemplateFormModal({
                 </div>
               </div>
 
-              <div className="mt-4 flex items-center gap-2 text-[11px] text-gray-500">
-                <span className="px-2 py-0.5 rounded-full bg-[#eff2f0] text-[#24422e] font-semibold">
-                  {category}
-                </span>
                 <span className="px-2 py-0.5 rounded-full bg-gray-100 font-semibold">
                   {language}
                 </span>
-              </div>
             </div>
           </div>
         </aside>

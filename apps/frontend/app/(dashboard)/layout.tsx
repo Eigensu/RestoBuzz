@@ -22,17 +22,29 @@ import {
   Check,
   UserCheck,
   Store,
+  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/campaigns", label: "Campaigns", icon: Send },
+  {
+    href: "/campaigns",
+    label: "Campaigns",
+    icon: Send,
+    children: [
+      { href: "/campaigns/whatsapp", label: "WhatsApp" },
+      { href: "/campaigns/email", label: "Email" },
+      { href: "/campaigns/sms", label: "SMS" },
+    ],
+  },
   { href: "/members", label: "Members", icon: UserCheck },
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/contacts", label: "Suppression", icon: Users },
 ];
+
+
 
 export default function DashboardLayout({
   children,
@@ -45,9 +57,19 @@ export default function DashboardLayout({
     useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [campaignsOpen, setCampaignsOpen] = useState(
+    pathname.startsWith("/campaigns"),
+  );
   const isResolvingSession = _hydrated && !user;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inboxUnread = useUIStore((s) => s.inboxUnread);
+
+  useEffect(() => {
+    if (pathname.startsWith("/campaigns")) {
+      setCampaignsOpen(true);
+    }
+  }, [pathname]);
+
   const { data: restaurants = [] } = useQuery({
     queryKey: ["restaurants", user?.id ?? null],
     queryFn: getRestaurants,
@@ -192,41 +214,111 @@ export default function DashboardLayout({
           </div>
         )}
 
-        <nav className="flex-1 p-3 space-y-0.5 mt-1">
-          {navItems.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => setSidebarOpen(false)}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
-                pathname.startsWith(href) && href !== "/dashboard"
-                  ? "bg-[#24422e]/10 text-[#24422e] font-medium"
-                  : pathname === href
+        <nav className="flex-1 p-3 space-y-0.5 mt-1 overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const hasChildren = item.children && item.children.length > 0;
+            const isActive =
+              pathname === item.href ||
+              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+
+            if (hasChildren) {
+              const isOpen = item.href === "/campaigns" ? campaignsOpen : false;
+              const toggle = () => {
+                if (item.href === "/campaigns")
+                  setCampaignsOpen((prev) => !prev);
+              };
+
+              return (
+                <div key={item.href} className="space-y-0.5">
+                  <button
+                    onClick={toggle}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition group",
+                      isActive
+                        ? "bg-[#24422e]/10 text-[#24422e] font-medium"
+                        : "text-gray-600 hover:bg-[#24422e] hover:text-white",
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown
+                      className={cn(
+                        "w-3.5 h-3.5 transition-transform duration-200",
+                        isOpen && "rotate-180",
+                      )}
+                    />
+                  </button>
+
+                  <div
+                    className={cn(
+                      "overflow-hidden transition-all duration-200 space-y-0.5",
+                      isOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0",
+                    )}
+                  >
+                    {item.children?.map((child) => {
+                      const isChildActive = pathname === child.href;
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          onClick={() => setSidebarOpen(false)}
+                          className={cn(
+                            "flex items-center gap-3 pl-10 pr-3 py-1.5 rounded-lg text-xs transition",
+                            isChildActive
+                              ? "text-[#24422e] font-bold"
+                              : "text-gray-500 hover:text-[#24422e] hover:bg-[#24422e]/5",
+                          )}
+                        >
+                          {child.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setSidebarOpen(false)}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
+                  isActive
                     ? "bg-[#24422e]/10 text-[#24422e] font-medium"
                     : "text-gray-600 hover:bg-[#24422e] hover:text-white",
-              )}
-            >
-              <Icon className="w-4 h-4" />
-              <span className="flex-1">{label}</span>
-              {href === "/inbox" && inboxUnread > 0 && (
-                <span
-                  className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
-                  style={{
-                    background: BRAND_GRADIENT,
-                  }}
-                >
-                  {inboxUnread > 9 ? "9+" : inboxUnread}
-                </span>
-              )}
-            </Link>
-          ))}
+                )}
+              >
+                {Icon && <Icon className="w-4 h-4" />}
+                <span className="flex-1">{item.label}</span>
+                {item.href === "/inbox" && inboxUnread > 0 && (
+                  <span
+                    className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                    style={{
+                      background: BRAND_GRADIENT,
+                    }}
+                  >
+                    {inboxUnread > 9 ? "9+" : inboxUnread}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="p-3 border-t">
-          <div className="flex items-center gap-2 px-3 py-2 mb-1">
+          <Link 
+            href="/profile"
+            onClick={() => setSidebarOpen(false)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg transition-colors group",
+              pathname === "/profile" ? "bg-[#24422e]/5" : "hover:bg-gray-50"
+            )}
+          >
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white shrink-0 shadow-sm transition-transform group-hover:scale-105"
               style={{
                 background: BRAND_GRADIENT,
               }}
@@ -234,12 +326,18 @@ export default function DashboardLayout({
               {user?.email?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium truncate">{user?.email}</p>
+              <p className={cn(
+                "text-xs font-medium truncate transition-colors",
+                pathname === "/profile" ? "text-[#24422e]" : "text-gray-700 group-hover:text-[#24422e]"
+              )}>
+                {user?.email}
+              </p>
               <p className="text-xs text-gray-400 capitalize">
                 {user?.role?.replace("_", " ")}
               </p>
             </div>
-          </div>
+          </Link>
+
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 w-full transition"

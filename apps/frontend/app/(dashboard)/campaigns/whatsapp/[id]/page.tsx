@@ -107,7 +107,7 @@ export default function CampaignDetailPage() {
         <div>
           <h1 className="text-xl font-semibold">{campaign?.name}</h1>
           <p className="text-sm text-gray-400">
-            {campaign?.template_name} · {campaign?.priority}
+            {campaign?.template_name}
           </p>
         </div>
         <div className="flex gap-2">

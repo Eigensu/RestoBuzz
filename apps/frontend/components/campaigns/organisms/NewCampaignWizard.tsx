@@ -50,9 +50,6 @@ export function NewCampaignWizard() {
 
   // Step 3
   const [campaignName, setCampaignName] = useState("");
-  const [priority, setPriority] = useState<"MARKETING" | "UTILITY">(
-    "MARKETING",
-  );
   const [includeUnsub, setIncludeUnsub] = useState(true);
 
   const {
@@ -153,13 +150,12 @@ export function NewCampaignWizard() {
         template_name: selectedTemplate?.name ?? "",
         template_variables: variables,
         media_url: mediaUrl || null,
-        priority,
         include_unsubscribe: includeUnsub,
         contact_file_ref: preflight?.file_ref,
       }),
     onSuccess: (res) => {
       toast.success("Campaign created");
-      router.push(`/campaigns/${res.data.id}`);
+      router.push(`/campaigns/whatsapp/${res.data.id}`);
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
@@ -224,8 +220,6 @@ export function NewCampaignWizard() {
             <Step3Review
               campaignName={campaignName}
               setCampaignName={setCampaignName}
-              priority={priority}
-              setPriority={setPriority}
               includeUnsub={includeUnsub}
               setIncludeUnsub={setIncludeUnsub}
               selectedTemplate={selectedTemplate}

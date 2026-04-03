@@ -6,6 +6,7 @@ export interface Restaurant {
   location: string;
   emoji: string;
   color: string; // tailwind bg color class
+  member_categories: string[];
 }
 
 export interface Campaign {
@@ -13,7 +14,6 @@ export interface Campaign {
   name: string;
   template_id: string;
   template_name: string;
-  priority: "MARKETING" | "UTILITY";
   status: CampaignStatus;
   total_count: number;
   sent_count: number;

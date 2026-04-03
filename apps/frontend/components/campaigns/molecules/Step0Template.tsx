@@ -1,5 +1,6 @@
 "use client";
-import { RefreshCw, ImageIcon, X } from "lucide-react";
+import { RefreshCw, ImageIcon, X, Search } from "lucide-react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
@@ -39,6 +40,12 @@ export function Step0Template({
   setUploadingMedia,
   bodyVars,
 }: Readonly<Step0TemplateProps>) {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredTemplates = templates.filter((t) =>
+    t.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
   return (
     <div className="flex gap-6">
       {/* Left: selection + config */}
@@ -57,42 +64,50 @@ export function Step0Template({
           </button>
         </div>
 
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search templates by name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={cn(INPUT_CLS, "pl-9 py-2")}
+          />
+        </div>
+
         <div
           className="grid sm:grid-cols-2 gap-2 overflow-y-auto pr-1"
           style={{ maxHeight: "40vh" }}
         >
-          {templates.map((t) => (
-            <button
-              key={t.name}
-              onClick={() => {
-                setSelectedTemplate(t);
-                setVariables({});
-              }}
-              className={cn(
-                "text-left border rounded-lg px-4 py-3 transition",
-                selectedTemplate?.name === t.name
-                  ? "border-[#24422e] bg-[#24422e]/5"
-                  : "hover:border-[#24422e]/30",
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">{t.name}</span>
-                <span
-                  className={cn(
-                    "text-xs px-2 py-0.5 rounded-full",
-                    t.category === "UTILITY"
-                      ? "bg-[#24422e]/10 text-[#24422e]"
-                      : "bg-[#3a6b47]/10 text-[#3a6b47]",
-                  )}
-                >
-                  {t.category}
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {t.language} · {t.status}
-              </p>
-            </button>
-          ))}
+          {filteredTemplates.length > 0 ? (
+            filteredTemplates.map((t) => (
+              <button
+                key={t.name}
+                onClick={() => {
+                  setSelectedTemplate(t);
+                  setVariables({});
+                }}
+                className={cn(
+                  "text-left border rounded-lg px-4 py-3 transition",
+                  selectedTemplate?.name === t.name
+                    ? "border-[#24422e] bg-[#24422e]/5"
+                    : "hover:border-[#24422e]/30",
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{t.name}</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  {t.language} · {t.status}
+                </p>
+              </button>
+            ))
+          ) : (
+            <div className="col-span-2 py-8 text-center text-gray-400 text-sm">
+              No templates found matching &quot;{searchQuery}&quot;
+            </div>
+          )}
         </div>
 
         {selectedTemplate && bodyVars.length > 0 && (
@@ -187,8 +202,8 @@ export function Step0Template({
             )}
             <input
               value={mediaUrl}
-              onChange={(e) => setMediaUrl(e.target.value)}
-              className={INPUT_CLS}
+              readOnly
+              className={cn(INPUT_CLS, "bg-gray-50 text-gray-500 cursor-not-allowed")}
               placeholder="Or paste a URL directly…"
             />
           </div>

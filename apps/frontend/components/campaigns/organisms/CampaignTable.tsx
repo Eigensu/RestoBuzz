@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import type { Campaign } from "@/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { CampaignStatusBadge } from "@/components/campaigns/atoms/CampaignStatusBadge";
@@ -58,7 +58,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
       <table className="w-full text-sm">
         <thead className="bg-gray-50 border-b">
           <tr>
-            {["Campaign", "Status", "Progress", "Priority", "Created", ""].map(
+            {["Campaign", "Status", "Progress", "Created", ""].map(
               (h) => (
                 <th
                   key={h}
@@ -80,7 +80,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
             });
 
             return (
-              <>
+              <Fragment key={root.id}>
                 {/* Root row */}
                 <tr
                   key={root.id}
@@ -110,7 +110,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       )}
                       <div>
                         <a
-                          href={`/campaigns/${root.id}`}
+                          href={`/campaigns/whatsapp/${root.id}`}
                           className="font-semibold text-gray-900 hover:text-[#24422e]"
                         >
                           {root.name}
@@ -147,13 +147,6 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${root.priority === "UTILITY" ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"}`}
-                    >
-                      {root.priority}
-                    </span>
-                  </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
                     {new Date(root.created_at).toLocaleDateString()}
                   </td>
@@ -185,7 +178,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                           <div className="w-px h-4 bg-gray-200 shrink-0" />
                           <div>
                             <a
-                              href={`/campaigns/${retry.id}`}
+                              href={`/campaigns/whatsapp/${retry.id}`}
                               className="text-xs font-medium text-gray-600 hover:text-[#24422e]"
                             >
                               ↳ Retry {idx + 1}
@@ -214,13 +207,6 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5">
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${retry.priority === "UTILITY" ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"}`}
-                        >
-                          {retry.priority}
-                        </span>
-                      </td>
                       <td className="px-4 py-2.5 text-gray-400 text-xs">
                         {new Date(retry.created_at).toLocaleDateString()}
                       </td>
@@ -239,7 +225,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       </td>
                     </tr>
                   ))}
-              </>
+              </Fragment>
             );
           })}
         </tbody>

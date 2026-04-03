@@ -16,7 +16,7 @@ class CampaignCreate(BaseModel):
     template_name: str = Field(min_length=1)
     template_variables: dict = Field(default_factory=dict)
     media_url: str | None = None
-    priority: Priority = "MARKETING"
+    priority: Priority = Field(default="MARKETING")
     scheduled_at: datetime | None = None
     include_unsubscribe: bool = True
     contact_file_ref: str = Field(min_length=1)  # temp file key from upload step

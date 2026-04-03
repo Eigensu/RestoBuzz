@@ -20,14 +20,27 @@ RESULT_FILE_REF_KEY = "result.file_ref"
 async def _cache_file_ref(file_ref: str, valid_rows: list) -> None:
     from redis.asyncio import from_url
     from app.config import settings
+    from app.core.logging import get_logger
 
-    redis = from_url(settings.redis_url, decode_responses=True)
-    await redis.set(
-        f"file_ref:{file_ref}",
-        json.dumps([r.model_dump() for r in valid_rows]),
-        ex=3600,
-    )
-    await redis.aclose()
+    logger = get_logger(__name__)
+
+    try:
+        redis = from_url(settings.redis_url, decode_responses=True)
+        await redis.ping()  # Minimal connection check
+        await redis.set(
+            f"file_ref:{file_ref}",
+            json.dumps([r.model_dump() for r in valid_rows]),
+            ex=3600,
+        )
+        await redis.aclose()
+    except Exception as e:
+        logger.warning(
+            "redis_cache_failed", 
+            file_ref=file_ref, 
+            error=str(e),
+            detail="Contact file caching skipped. Fallback to DB will be used on campaign creation."
+        )
+
 
 
 @router.get("/template")

@@ -59,7 +59,7 @@ async def list_members(
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     query: dict = {"restaurant_id": validated_rid}
-    if type in ("nfc", "ecard"):
+    if type and type != "all":
         query["type"] = type
     if search:
         query["$or"] = [
@@ -278,13 +278,7 @@ async def import_members(
     await validate_restaurant_access(current_user, restaurant_id, db)
 
     filename = file.filename or ""
-    content_type = file.content_type or ""
-    allowed_content_types = {
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }
-    if content_type not in allowed_content_types or not filename.lower().endswith(
-        ".xlsx"
-    ):
+    if not filename.lower().endswith(".xlsx"):
         raise InvalidFileFormatError("Only .xlsx Excel files are supported for import")
 
     contents = await file.read()
@@ -364,8 +358,35 @@ async def import_members(
                 "last_visit": None,
                 "is_active": True,
                 "joined_at": now,
+                "source": "excel",
             }
         )
         inserted += 1
 
     return {"inserted": inserted, "skipped": skipped}
+
+
+@router.delete("/bulk", status_code=204)
+async def bulk_delete_members(
+    restaurant_id: Annotated[str, Query()],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[Any, Depends(get_db)],
+    source: Annotated[str | None, Query()] = None,
+    delete_all: Annotated[bool, Query(alias="deleteAll")] = False,
+):
+    """Bulk delete members for a restaurant. 
+    Can delete all members or filter by source (e.g. 'excel')."""
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
+    query = {"restaurant_id": restaurant_id}
+    
+    if delete_all:
+        # No additional filters
+        pass
+    elif source:
+        query["source"] = source
+    else:
+        raise ValidationError("Must specify either 'deleteAll=true' or a 'source' to delete in bulk")
+
+    result = await db.members.delete_many(query)
+    return None
