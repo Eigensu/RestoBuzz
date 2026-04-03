@@ -52,9 +52,7 @@ api.interceptors.response.use(
       // Start a refresh only if one isn't already running.
       // IMPORTANT: don't clear refreshInFlight until the promise fully
       // settles so concurrent waiters all get the same resolved value.
-      if (!refreshInFlight) {
-        refreshInFlight = _doRefresh(storedRefreshToken);
-      }
+      refreshInFlight ??= _doRefresh(storedRefreshToken);
 
       const newAccessToken = await refreshInFlight;
 
