@@ -71,7 +71,7 @@ export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
               <a
                 href={`https://maps.google.com/?q=${msg.location.lat},${msg.location.lng}`}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className={cn(
                   "underline",
                   out ? "text-white/70" : "text-[#24422e]",

@@ -30,7 +30,7 @@ export function MetaConfigCard() {
       <a
         href="https://developers.facebook.com/docs/whatsapp/cloud-api"
         target="_blank"
-        rel="noreferrer"
+        rel="noopener noreferrer"
         className="flex items-center gap-1.5 text-sm text-green-600 hover:underline"
       >
         Meta Cloud API Docs <ExternalLink className="w-3.5 h-3.5" />
