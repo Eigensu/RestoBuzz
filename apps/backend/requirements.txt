@@ -32,6 +32,11 @@ xlrd==2.0.1
 # HTTP client
 httpx==0.28.1
 
+# Email (Resend)
+resend==2.12.0
+jinja2==3.1.6
+svix==1.62.0
+
 # Media upload
 cloudinary==1.44.0
 

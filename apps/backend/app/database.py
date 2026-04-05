@@ -128,6 +128,62 @@ async def init_indexes() -> None:
         ]
     )
 
+    # ── Email campaign collections ────────────────────────────────────────────
+
+    # email_campaign_jobs
+    await db.email_campaign_jobs.create_indexes(
+        [
+            IndexModel([("status", ASCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING)]),
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("created_at", DESCENDING)]
+            ),
+        ]
+    )
+
+    # email_logs — compound unique prevents duplicate sends
+    await db.email_logs.create_indexes(
+        [
+            IndexModel([("campaign_id", ASCENDING), ("status", ASCENDING)]),
+            IndexModel(
+                [("campaign_id", ASCENDING), ("recipient_email", ASCENDING)],
+                unique=True,
+            ),
+            IndexModel(
+                [("resend_email_id", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"resend_email_id": {"$type": "string"}},
+            ),
+            IndexModel([("campaign_id", ASCENDING), ("created_at", DESCENDING)]),
+        ]
+    )
+
+    # email_templates
+    await db.email_templates.create_indexes(
+        [
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("name", ASCENDING)], unique=True
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("updated_at", DESCENDING)]),
+        ]
+    )
+
+    # email_suppression_list — with bounce type and expiry
+    await db.email_suppression_list.create_indexes(
+        [
+            IndexModel([("email", ASCENDING)], unique=True),
+            IndexModel([("expires_at", ASCENDING)], sparse=True),
+        ]
+    )
+
+    # webhook event dedup
+    await db.resend_webhook_events.create_indexes(
+        [
+            IndexModel([("svix_id", ASCENDING)], unique=True),
+            IndexModel([("received_at", ASCENDING)]),
+        ]
+    )
+
 
 async def close_db() -> None:
     global _client

@@ -203,3 +203,144 @@ async def _process_payload(db, payload: dict) -> None:
                     logger.info(
                         "outbound_status_updated", wa_id=wa_id, status=wa_status
                     )
+
+
+# ── Resend Webhooks ───────────────────────────────────────────────────────────
+
+# Map Resend event types to our internal status names
+_RESEND_EVENT_MAP = {
+    "email.sent": "sent",
+    "email.delivered": "delivered",
+    "email.opened": "opened",
+    "email.clicked": "clicked",
+    "email.bounced": "bounced",
+    "email.failed": "failed",
+    "email.complained": "complained",
+    "email.delivery_delayed": None,  # logged but no status change
+    "email.suppressed": "suppressed",
+}
+
+# Map event types to the counter fields on email_campaign_jobs
+_RESEND_COUNTER_MAP = {
+    "delivered": "delivered_count",
+    "opened": "opened_count",
+    "clicked": "clicked_count",
+    "bounced": "bounced_count",
+    "failed": "failed_count",
+    "complained": "complained_count",
+}
+
+
+@router.post("/resend", status_code=200)
+async def receive_resend_webhook(request: Request, db=Depends(get_db)):
+    """Handle Resend webhook events with svix signature verification and idempotency."""
+    body = await request.body()
+    payload_str = body.decode("utf-8")
+
+    # 1. Verify webhook signature
+    try:
+        from app.services.resend_client import verify_webhook
+
+        event = verify_webhook(
+            payload_str,
+            {
+                "svix-id": request.headers.get("svix-id", ""),
+                "svix-timestamp": request.headers.get("svix-timestamp", ""),
+                "svix-signature": request.headers.get("svix-signature", ""),
+            },
+        )
+    except Exception as e:
+        logger.warning("resend_webhook_invalid_signature", error=str(e))
+        raise WebhookSignatureError("Invalid Resend webhook signature")
+
+    # 2. Idempotency: deduplicate by svix-id
+    svix_id = request.headers.get("svix-id", "")
+    if svix_id:
+        try:
+            await db.resend_webhook_events.insert_one(
+                {
+                    "svix_id": svix_id,
+                    "received_at": datetime.now(timezone.utc),
+                    "event_type": event.get("type"),
+                }
+            )
+        except Exception:
+            # Duplicate key → already processed
+            logger.info("resend_webhook_duplicate", svix_id=svix_id)
+            return {"status": "ok"}
+
+    event_type = event.get("type", "")
+    data = event.get("data", {})
+    email_id = data.get("email_id")
+    new_status = _RESEND_EVENT_MAP.get(event_type)
+
+    logger.info(
+        "resend_webhook_received",
+        type=event_type,
+        email_id=email_id,
+    )
+
+    if not email_id or new_status is None:
+        return {"status": "ok"}
+
+    now = datetime.now(timezone.utc)
+
+    # 3. Update the email_log
+    result = await db.email_logs.find_one_and_update(
+        {"resend_email_id": email_id},
+        {
+            "$set": {"status": new_status, "updated_at": now},
+            "$push": {
+                "status_history": {
+                    "status": new_status,
+                    "timestamp": now,
+                    "meta": {
+                        "event_type": event_type,
+                        "svix_id": svix_id,
+                    },
+                }
+            },
+        },
+        return_document=True,
+    )
+
+    if result:
+        # 4. Update campaign counters
+        counter_field = _RESEND_COUNTER_MAP.get(new_status)
+        if counter_field:
+            await db.email_campaign_jobs.update_one(
+                {"_id": result["campaign_id"]},
+                {"$inc": {counter_field: 1}},
+            )
+
+        # 5. Store error details for bounces/failures
+        if new_status in ("bounced", "failed"):
+            bounce_info = data.get("bounce", {})
+            error_reason = (
+                bounce_info.get("message")
+                or data.get("error", {}).get("message")
+                or f"Email {new_status}"
+            )
+            await db.email_logs.update_one(
+                {"_id": result["_id"]},
+                {"$set": {"error_reason": error_reason}},
+            )
+
+        # 6. Auto-suppress bounces and complaints
+        if new_status in ("bounced", "complained"):
+            from app.services.email_suppression import add_email_suppression
+
+            bounce_type = data.get("bounce", {}).get("type", "")
+            reason = "complaint" if new_status == "complained" else (
+                "soft_bounce" if bounce_type == "Transient" else "hard_bounce"
+            )
+            await add_email_suppression(
+                db, result["recipient_email"], reason=reason
+            )
+            logger.info(
+                "email_auto_suppressed",
+                email=result["recipient_email"],
+                reason=reason,
+            )
+
+    return {"status": "ok"}

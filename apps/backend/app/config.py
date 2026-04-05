@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
 
+    # Resend (Email)
+    resend_api_key: str = ""
+    resend_webhook_secret: str = ""
+    resend_from_email: str = "RestoBuzz <noreply@restobuzz.com>"
+    resend_rate_limit: int = 5  # Resend default: 5 req/s
+
     # Celery
     celery_concurrency: int = 4
     rate_limit_mps: int = 80

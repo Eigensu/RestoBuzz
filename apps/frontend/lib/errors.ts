@@ -146,6 +146,7 @@ const ERROR_TYPE_MAP: Record<string, new (message: string) => AppError> = {
   server_error: ServerError,
   redis_error: ServerError,
   whatsapp_api_error: ServerError,
+  resend_api_error: ServerError,
 };
 
 /**
