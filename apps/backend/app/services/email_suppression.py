@@ -1,4 +1,5 @@
 """Email suppression list management with bounce-type expiry logic."""
+
 from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -37,12 +38,14 @@ async def add_email_suppression(
     await db.email_suppression_list.update_one(
         {"email": email.lower()},
         {
+            "$set": {
+                "reason": reason,
+                "expires_at": expires_at,
+            },
             "$setOnInsert": {
                 "email": email.lower(),
-                "reason": reason,
                 "added_at": now,
-                "expires_at": expires_at,
-            }
+            },
         },
         upsert=True,
     )

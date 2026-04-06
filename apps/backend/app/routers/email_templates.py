@@ -4,6 +4,7 @@ Email Templates Router — CRUD for locally-managed templates.
 Templates are stored in MongoDB (source of truth).
 Jinja2 is used at send-time for variable rendering.
 """
+
 from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query
@@ -143,12 +144,17 @@ async def update_email_template(
         # Validate syntax
         test_vars = {
             v.key: v.fallback_value or ""
-            for v in (body.variables or [TemplateVariable(**v) for v in doc.get("variables", [])])
+            for v in (
+                body.variables
+                or [TemplateVariable(**v) for v in doc.get("variables", [])]
+            )
         }
         try:
             render_template(body.html, test_vars)
         except Exception as e:
-            raise ValidationError(f"Template HTML has invalid Jinja2 syntax: {e}") from e
+            raise ValidationError(
+                f"Template HTML has invalid Jinja2 syntax: {e}"
+            ) from e
         updates["html"] = body.html
     if body.text is not None:
         updates["text"] = body.text
@@ -158,11 +164,18 @@ async def update_email_template(
     # Bump version
     updates["version"] = doc.get("version", 1) + 1
 
-    result = await db.email_templates.find_one_and_update(
-        {"_id": to_object_id(template_id)},
-        {"$set": updates},
-        return_document=True,
-    )
+    try:
+        result = await db.email_templates.find_one_and_update(
+            {"_id": to_object_id(template_id)},
+            {"$set": updates},
+            return_document=True,
+        )
+    except Exception as e:
+        if "duplicate key" in str(e).lower():
+            raise ValidationError(
+                f"A template named '{updates.get('name')}' already exists for this restaurant"
+            ) from e
+        raise
     return _serialize(result)
 
 

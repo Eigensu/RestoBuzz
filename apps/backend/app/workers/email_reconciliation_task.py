@@ -6,6 +6,7 @@ because webhooks were lost or delayed.
 
 Uses the Resend API to fetch the actual status of stale email logs.
 """
+
 import asyncio
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
@@ -14,6 +15,9 @@ import resend
 from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
+from app.config import settings
+
+resend.api_key = settings.resend_api_key
 
 logger = get_logger(__name__)
 
@@ -88,13 +92,13 @@ async def _reconcile() -> None:
             if (
                 new_status in status_order
                 and current_status in status_order
-                and status_order.index(new_status)
-                <= status_order.index(current_status)
+                and status_order.index(new_status) <= status_order.index(current_status)
             ):
                 continue
 
-            await db.email_logs.update_one(
-                {"_id": log["_id"]},
+            # Atomically update only if status hasn't already advanced past this
+            update_result = await db.email_logs.update_one(
+                {"_id": log["_id"], "status": current_status},
                 {
                     "$set": {
                         "status": new_status,
@@ -110,20 +114,21 @@ async def _reconcile() -> None:
                 },
             )
 
-            # Update campaign counters
-            counter_field = f"{new_status}_count"
-            if counter_field in (
-                "delivered_count",
-                "opened_count",
-                "clicked_count",
-                "bounced_count",
-                "failed_count",
-                "complained_count",
-            ):
-                await db.email_campaign_jobs.update_one(
-                    {"_id": log["campaign_id"]},
-                    {"$inc": {counter_field: 1}},
-                )
+            # Only increment counter if the update actually changed the doc
+            if update_result.modified_count > 0:
+                counter_field = f"{new_status}_count"
+                if counter_field in (
+                    "delivered_count",
+                    "opened_count",
+                    "clicked_count",
+                    "bounced_count",
+                    "failed_count",
+                    "complained_count",
+                ):
+                    await db.email_campaign_jobs.update_one(
+                        {"_id": log["campaign_id"]},
+                        {"$inc": {counter_field: 1}},
+                    )
 
             reconciled += 1
 

@@ -25,7 +25,9 @@ export default function EmailTemplatesPage() {
   const qc = useQueryClient();
   const { restaurant } = useAuthStore();
   const [showEditor, setShowEditor] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(
+    null,
+  );
   const [showPreview, setShowPreview] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
 
@@ -120,7 +122,10 @@ export default function EmailTemplatesPage() {
   };
 
   const addVariable = () => {
-    setVariables([...variables, { key: "", type: "string", fallback_value: "" }]);
+    setVariables([
+      ...variables,
+      { key: "", type: "string", fallback_value: "" },
+    ]);
   };
 
   return (
@@ -174,7 +179,9 @@ export default function EmailTemplatesPage() {
                   <h3 className="font-bold text-gray-900">{t.name}</h3>
                   <p className="text-xs text-gray-400 mt-0.5">
                     v{t.version} &middot; Updated{" "}
-                    {formatDistanceToNow(new Date(t.updated_at), { addSuffix: true })}
+                    {formatDistanceToNow(new Date(t.updated_at), {
+                      addSuffix: true,
+                    })}
                   </p>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
@@ -321,14 +328,19 @@ export default function EmailTemplatesPage() {
                           value={v.fallback_value}
                           onChange={(e) => {
                             const copy = [...variables];
-                            copy[i] = { ...copy[i], fallback_value: e.target.value };
+                            copy[i] = {
+                              ...copy[i],
+                              fallback_value: e.target.value,
+                            };
                             setVariables(copy);
                           }}
                           placeholder="Fallback value"
                           className="flex-1 px-2.5 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-[#24422e]/20"
                         />
                         <button
-                          onClick={() => setVariables(variables.filter((_, j) => j !== i))}
+                          onClick={() =>
+                            setVariables(variables.filter((_, j) => j !== i))
+                          }
                           className="p-1 text-red-400 hover:text-red-600 transition"
                         >
                           <X className="w-4 h-4" />
@@ -353,7 +365,9 @@ export default function EmailTemplatesPage() {
                 className="inline-flex items-center gap-1.5 text-white text-sm font-bold px-5 py-2 rounded-xl transition disabled:opacity-40 hover:scale-[1.02]"
                 style={{ background: BRAND_GRADIENT }}
               >
-                {saveMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                {saveMutation.isPending && (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                )}
                 {editingTemplate ? "Update" : "Create"}
               </button>
             </div>
@@ -366,7 +380,9 @@ export default function EmailTemplatesPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl">
             <div className="px-5 py-3 border-b flex items-center justify-between">
-              <h3 className="text-sm font-bold text-gray-900">Template Preview</h3>
+              <h3 className="text-sm font-bold text-gray-900">
+                Template Preview
+              </h3>
               <button
                 onClick={() => setShowPreview(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -374,10 +390,14 @@ export default function EmailTemplatesPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div
-              className="p-6 overflow-y-auto max-h-[70vh]"
-              dangerouslySetInnerHTML={{ __html: previewHtml }}
-            />
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              <iframe
+                title="Template Preview"
+                srcDoc={previewHtml}
+                sandbox=""
+                className="w-full min-h-[60vh] bg-white border-0"
+              />
+            </div>
           </div>
         </div>
       )}

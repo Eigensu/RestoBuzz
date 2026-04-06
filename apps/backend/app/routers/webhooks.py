@@ -285,9 +285,28 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
 
     now = datetime.now(timezone.utc)
 
-    # 3. Update the email_log
+    # Status progression order — only advance, never regress
+    _STATUS_ORDER = ["queued", "sending", "sent", "delivered", "opened", "clicked"]
+
+    # 3. Update the email_log only if new_status is strictly ahead of current
     result = await db.email_logs.find_one_and_update(
-        {"resend_email_id": email_id},
+        {
+            "resend_email_id": email_id,
+            "$or": [
+                # Always allow terminal statuses (bounced/failed/complained/suppressed)
+                {"status": {"$nin": _STATUS_ORDER}},
+                # For ordered statuses, only advance
+                {
+                    "status": {
+                        "$in": (
+                            _STATUS_ORDER[: _STATUS_ORDER.index(new_status)]
+                            if new_status in _STATUS_ORDER
+                            else _STATUS_ORDER
+                        )
+                    }
+                },
+            ],
+        },
         {
             "$set": {"status": new_status, "updated_at": now},
             "$push": {
@@ -331,12 +350,12 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
             from app.services.email_suppression import add_email_suppression
 
             bounce_type = data.get("bounce", {}).get("type", "")
-            reason = "complaint" if new_status == "complained" else (
-                "soft_bounce" if bounce_type == "Transient" else "hard_bounce"
+            reason = (
+                "complaint"
+                if new_status == "complained"
+                else ("soft_bounce" if bounce_type == "Transient" else "hard_bounce")
             )
-            await add_email_suppression(
-                db, result["recipient_email"], reason=reason
-            )
+            await add_email_suppression(db, result["recipient_email"], reason=reason)
             logger.info(
                 "email_auto_suppressed",
                 email=result["recipient_email"],

@@ -31,7 +31,8 @@ export default function NewEmailCampaignPage() {
   const [step, setStep] = useState(0);
 
   // Step 0 - Template
-  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<EmailTemplate | null>(null);
   const [subject, setSubject] = useState("");
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -46,7 +47,9 @@ export default function NewEmailCampaignPage() {
   const [campaignName, setCampaignName] = useState("");
 
   // Fetch templates for this restaurant
-  const { data: templates = [], isLoading: loadingTemplates } = useQuery<EmailTemplate[]>({
+  const { data: templates = [], isLoading: loadingTemplates } = useQuery<
+    EmailTemplate[]
+  >({
     queryKey: ["email-templates", restaurant?.id],
     queryFn: () =>
       api
@@ -59,7 +62,9 @@ export default function NewEmailCampaignPage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
       "text/csv": [".csv"],
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
+        ".xlsx",
+      ],
     },
     maxFiles: 1,
     onDrop: (files) => setFile(files[0] ?? null),
@@ -170,19 +175,21 @@ export default function NewEmailCampaignPage() {
           <div key={s} className="flex items-center gap-2">
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                i <= step
-                  ? "text-white shadow-md"
-                  : "bg-gray-100 text-gray-400"
+                i <= step ? "text-white shadow-md" : "bg-gray-100 text-gray-400"
               }`}
               style={i <= step ? { background: BRAND_GRADIENT } : {}}
             >
               {i < step ? <CheckCircle2 className="w-4 h-4" /> : i + 1}
             </div>
-            <span className={`text-xs font-medium ${i <= step ? "text-gray-900" : "text-gray-400"}`}>
+            <span
+              className={`text-xs font-medium ${i <= step ? "text-gray-900" : "text-gray-400"}`}
+            >
               {s}
             </span>
             {i < STEPS.length - 1 && (
-              <div className={`w-12 h-0.5 mx-1 rounded ${i < step ? "bg-[#24422e]" : "bg-gray-200"}`} />
+              <div
+                className={`w-12 h-0.5 mx-1 rounded ${i < step ? "bg-[#24422e]" : "bg-gray-200"}`}
+              />
             )}
           </div>
         ))}
@@ -193,17 +200,23 @@ export default function NewEmailCampaignPage() {
         {/* STEP 0: Select Template */}
         {step === 0 && (
           <div className="space-y-4">
-            <h2 className="text-lg font-bold text-gray-900">Select Email Template</h2>
+            <h2 className="text-lg font-bold text-gray-900">
+              Select Email Template
+            </h2>
             <p className="text-sm text-gray-500">
               Choose a template you have created in the Email Templates section.
             </p>
 
             {loadingTemplates ? (
-              <div className="text-center py-12 text-gray-400 text-sm">Loading templates...</div>
+              <div className="text-center py-12 text-gray-400 text-sm">
+                Loading templates...
+              </div>
             ) : templates.length === 0 ? (
               <div className="text-center py-12">
                 <FileText className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-500 mb-4">No email templates found.</p>
+                <p className="text-sm text-gray-500 mb-4">
+                  No email templates found.
+                </p>
                 <Link
                   href="/campaigns/email/templates"
                   className="text-sm font-bold text-white px-4 py-2 rounded-lg"
@@ -277,7 +290,9 @@ export default function NewEmailCampaignPage() {
               <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl">
                   <div className="px-5 py-3 border-b flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-gray-900">Template Preview</h3>
+                    <h3 className="text-sm font-bold text-gray-900">
+                      Template Preview
+                    </h3>
                     <button
                       onClick={() => setShowPreview(false)}
                       className="text-gray-400 hover:text-gray-600 text-sm"
@@ -285,10 +300,14 @@ export default function NewEmailCampaignPage() {
                       Close
                     </button>
                   </div>
-                  <div
-                    className="p-6 overflow-y-auto max-h-[70vh]"
-                    dangerouslySetInnerHTML={{ __html: previewHtml }}
-                  />
+                  <div className="max-h-[70vh]">
+                    <iframe
+                      title="Template Preview"
+                      srcDoc={previewHtml}
+                      sandbox=""
+                      className="block h-[70vh] w-full border-0 bg-white"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -300,8 +319,11 @@ export default function NewEmailCampaignPage() {
           <div className="space-y-6">
             <h2 className="text-lg font-bold text-gray-900">Add Contacts</h2>
             <p className="text-sm text-gray-500">
-              Upload a CSV/Excel file with an <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">email</code> column, 
-              or use your existing members.
+              Upload a CSV/Excel file with an{" "}
+              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">
+                email
+              </code>{" "}
+              column, or use your existing members.
             </p>
 
             {!preflight && (
@@ -310,13 +332,17 @@ export default function NewEmailCampaignPage() {
                 <div
                   {...getRootProps()}
                   className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition ${
-                    isDragActive ? "border-[#24422e] bg-[#24422e]/5" : "border-gray-200 hover:border-gray-300"
+                    isDragActive
+                      ? "border-[#24422e] bg-[#24422e]/5"
+                      : "border-gray-200 hover:border-gray-300"
                   }`}
                 >
                   <input {...getInputProps()} />
                   <Upload className="w-8 h-8 text-gray-300 mx-auto mb-3" />
                   {file ? (
-                    <p className="text-sm font-medium text-gray-700">{file.name}</p>
+                    <p className="text-sm font-medium text-gray-700">
+                      {file.name}
+                    </p>
                   ) : (
                     <p className="text-sm text-gray-500">
                       Drop a CSV or Excel file here, or click to browse
@@ -333,7 +359,8 @@ export default function NewEmailCampaignPage() {
                   >
                     {uploading ? (
                       <span className="inline-flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" /> Uploading...
+                        <Loader2 className="w-4 h-4 animate-spin" />{" "}
+                        Uploading...
                       </span>
                     ) : (
                       "Upload & Validate"
@@ -346,7 +373,9 @@ export default function NewEmailCampaignPage() {
                     <div className="w-full border-t" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="bg-white px-3 text-xs text-gray-400">or use members</span>
+                    <span className="bg-white px-3 text-xs text-gray-400">
+                      or use members
+                    </span>
                   </div>
                 </div>
 
@@ -355,7 +384,9 @@ export default function NewEmailCampaignPage() {
                   {["all", "nfc", "ecard"].map((type) => (
                     <button
                       key={type}
-                      onClick={() => useMembersAsContacts(type as "all" | "nfc" | "ecard")}
+                      onClick={() =>
+                        useMembersAsContacts(type as "all" | "nfc" | "ecard")
+                      }
                       disabled={loadingMembers}
                       className="flex items-center justify-center gap-2 py-3 rounded-xl border hover:bg-gray-50 transition text-sm font-medium text-gray-700 disabled:opacity-50"
                     >
@@ -371,16 +402,28 @@ export default function NewEmailCampaignPage() {
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-emerald-50 rounded-xl p-4 text-center">
-                    <p className="text-2xl font-black text-emerald-700">{preflight.valid_count}</p>
-                    <p className="text-xs text-emerald-600 font-medium">Valid</p>
+                    <p className="text-2xl font-black text-emerald-700">
+                      {preflight.valid_count}
+                    </p>
+                    <p className="text-xs text-emerald-600 font-medium">
+                      Valid
+                    </p>
                   </div>
                   <div className="bg-amber-50 rounded-xl p-4 text-center">
-                    <p className="text-2xl font-black text-amber-700">{preflight.invalid_count}</p>
-                    <p className="text-xs text-amber-600 font-medium">Invalid</p>
+                    <p className="text-2xl font-black text-amber-700">
+                      {preflight.invalid_count}
+                    </p>
+                    <p className="text-xs text-amber-600 font-medium">
+                      Invalid
+                    </p>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4 text-center">
-                    <p className="text-2xl font-black text-gray-700">{preflight.suppressed_count}</p>
-                    <p className="text-xs text-gray-500 font-medium">Suppressed</p>
+                    <p className="text-2xl font-black text-gray-700">
+                      {preflight.suppressed_count}
+                    </p>
+                    <p className="text-xs text-gray-500 font-medium">
+                      Suppressed
+                    </p>
                   </div>
                 </div>
                 <button
@@ -415,7 +458,9 @@ export default function NewEmailCampaignPage() {
             <div className="bg-gray-50 rounded-xl p-5 space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Template</span>
-                <span className="font-medium text-gray-900">{selectedTemplate?.name}</span>
+                <span className="font-medium text-gray-900">
+                  {selectedTemplate?.name}
+                </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Subject</span>
@@ -423,7 +468,9 @@ export default function NewEmailCampaignPage() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Recipients</span>
-                <span className="font-bold text-emerald-600">{preflight?.valid_count ?? 0}</span>
+                <span className="font-bold text-emerald-600">
+                  {preflight?.valid_count ?? 0}
+                </span>
               </div>
             </div>
           </div>

@@ -1,5 +1,6 @@
 """Pydantic models for individual Email Log entries."""
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field
 from typing import Literal
 from datetime import datetime
 
@@ -21,7 +22,7 @@ EmailLogStatus = Literal[
 class EmailStatusHistoryEntry(BaseModel):
     status: EmailLogStatus
     timestamp: datetime
-    meta: dict = {}
+    meta: dict = Field(default_factory=dict)
 
 
 class EmailLogResponse(BaseModel):
