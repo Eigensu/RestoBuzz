@@ -23,7 +23,11 @@ interface UploadResult {
 }
 
 /* ── Login form ─────────────────────────────────────────────────────────── */
-function LoginForm({ onSuccess }: { onSuccess: (token: string) => void }) {
+function LoginForm({
+  onSuccess,
+}: {
+  readonly onSuccess: (token: string) => void;
+}) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -99,8 +103,8 @@ function SuccessScreen({
   result,
   onReset,
 }: {
-  result: UploadResult;
-  onReset: () => void;
+  readonly result: UploadResult;
+  readonly onReset: () => void;
 }) {
   return (
     <div className="w-full max-w-sm flex flex-col items-center text-center py-4 animate-in fade-in duration-500">
@@ -183,7 +187,7 @@ function SuccessScreen({
 }
 
 /* ── Upload form ────────────────────────────────────────────────────────── */
-function UploadForm({ token }: { token: string }) {
+function UploadForm({ token }: { readonly token: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -201,7 +205,6 @@ function UploadForm({ token }: { token: string }) {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
         ".xlsx",
       ],
-      "application/vnd.ms-excel": [".xls"],
     },
     multiple: false,
   });
@@ -302,7 +305,7 @@ function UploadForm({ token }: { token: string }) {
                 : "Drag & drop your Excel file here"}
             </p>
             <p className="text-xs text-gray-400 mt-1">
-              or click to browse (.xlsx / .xls)
+              or click to browse (.xlsx)
             </p>
           </>
         )}

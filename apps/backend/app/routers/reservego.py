@@ -17,6 +17,7 @@ from typing import Annotated
 import openpyxl
 from fastapi import APIRouter, Body, Depends, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel
 from pymongo import UpdateOne
 
@@ -29,6 +30,12 @@ router = APIRouter(prefix="/reservego", tags=["reservego"])
 _bearer = HTTPBearer()
 _executor = ThreadPoolExecutor(max_workers=2)
 
+# ── String constants (avoids Sonar duplicate-literal warnings) ────────────────
+_COL_GUEST_NAME = "guest name"
+_COL_BILL_AMOUNT = "bill amount"
+_COL_BILL_NUMBER = "bill number"
+_COL_BOOKING_TIME = "booking time"
+
 
 class _PortalNotConfiguredError(AppError):
     status_code = 503
@@ -36,7 +43,7 @@ class _PortalNotConfiguredError(AppError):
 
 
 GUEST_PROFILE_HEADERS = [
-    "guest name",
+    _COL_GUEST_NAME,
     "phone number",
     "email id",
     "total visits",
@@ -50,11 +57,11 @@ GUEST_PROFILE_HEADERS = [
 BILL_HEADERS = [
     "sno",
     "outlet name",
-    "booking time",
+    _COL_BOOKING_TIME,
     "seated time",
     "reserved time",
     "booking type",
-    "guest name",
+    _COL_GUEST_NAME,
     "guest number",
     "guest email",
     "pax",
@@ -70,8 +77,8 @@ BILL_HEADERS = [
     "tags",
     "guest comments",
     "outlet comments",
-    "bill amount",
-    "bill number",
+    _COL_BILL_AMOUNT,
+    _COL_BILL_NUMBER,
     "booking amount",
     "booking amount tranx id",
     "booking amount payment status",
@@ -79,7 +86,7 @@ BILL_HEADERS = [
 ]
 
 GUEST_PROFILE_SHEETS = {"no of visits", "no visit data", "not visited in 3 months"}
-BILL_SHEET = "bill amount"
+BILL_SHEET = _COL_BILL_AMOUNT
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -146,43 +153,56 @@ def _num_val(row, idx, h):
         return None
 
 
+def _sheet_headers(ws) -> list:
+    return [
+        str(c).strip().lower() if c is not None else ""
+        for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
+    ]
+
+
 # ── Sync parsers (run in thread) ──────────────────────────────────────────────
 
 
+def _parse_sheet_rows(ws, parse_fn, idx) -> tuple[list, int]:
+    """Generic row iterator — returns (docs, skipped)."""
+    docs, skipped = [], 0
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        doc = parse_fn(row, idx)
+        if doc is None:
+            skipped += 1
+        else:
+            docs.append(doc)
+    return docs, skipped
+
+
 def _parse_workbook(contents: bytes, filename: str, now: datetime) -> dict:
-    """Parse all sheets and return {sheet_name: (docs_list, skipped_count)}.
-    Runs synchronously — call via run_in_executor."""
+    """Parse all sheets — runs synchronously, call via run_in_executor."""
     wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True, read_only=True)
     result = {}
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
         key = sheet_name.strip().lower()
-        raw_headers = [
-            str(c).strip().lower() if c is not None else ""
-            for c in next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
-        ]
+        raw_headers = _sheet_headers(ws)
 
         if key in GUEST_PROFILE_SHEETS:
             idx = _make_idx(raw_headers, GUEST_PROFILE_HEADERS)
-            docs, skipped = [], 0
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                doc = _parse_guest_row(row, idx, sheet_name, filename, now)
-                if doc is None:
-                    skipped += 1
-                else:
-                    docs.append(doc)
+            docs, skipped = _parse_sheet_rows(
+                ws,
+                lambda row, i, sn=sheet_name: _parse_guest_row(
+                    row, i, sn, filename, now
+                ),
+                idx,
+            )
             result[sheet_name] = ("guest", docs, skipped)
 
         elif key == BILL_SHEET:
             idx = _make_idx(raw_headers, BILL_HEADERS)
-            docs, skipped = [], 0
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                doc = _parse_bill_row(row, idx, filename, now)
-                if doc is None:
-                    skipped += 1
-                else:
-                    docs.append(doc)
+            docs, skipped = _parse_sheet_rows(
+                ws,
+                lambda row, i: _parse_bill_row(row, i, filename, now),
+                idx,
+            )
             result[sheet_name] = ("bill", docs, skipped)
 
         else:
@@ -193,7 +213,7 @@ def _parse_workbook(contents: bytes, filename: str, now: datetime) -> dict:
 
 
 def _parse_guest_row(row, idx, sheet_name, filename, now) -> dict | None:
-    guest_name = str(_cell(row, idx, "guest name") or "").strip()
+    guest_name = str(_cell(row, idx, _COL_GUEST_NAME) or "").strip()
     if not guest_name or guest_name.lower() == "none":
         return None
 
@@ -232,14 +252,14 @@ def _parse_guest_row(row, idx, sheet_name, filename, now) -> dict | None:
 
 
 def _parse_bill_row(row, idx, filename, now) -> dict | None:
-    guest_name = str(_cell(row, idx, "guest name") or "").strip()
+    guest_name = str(_cell(row, idx, _COL_GUEST_NAME) or "").strip()
     if not guest_name or guest_name.lower() == "none":
         return None
 
     return {
         "sno": _num_val(row, idx, "sno"),
         "outlet_name": _str_val(row, idx, "outlet name"),
-        "booking_time": _parse_date(_cell(row, idx, "booking time")),
+        "booking_time": _parse_date(_cell(row, idx, _COL_BOOKING_TIME)),
         "seated_time": _parse_date(_cell(row, idx, "seated time")),
         "reserved_time": _parse_date(_cell(row, idx, "reserved time")),
         "booking_type": _str_val(row, idx, "booking type"),
@@ -259,8 +279,8 @@ def _parse_bill_row(row, idx, filename, now) -> dict | None:
         "tags": _str_val(row, idx, "tags"),
         "guest_comments": _str_val(row, idx, "guest comments"),
         "outlet_comments": _str_val(row, idx, "outlet comments"),
-        "bill_amount": _num_val(row, idx, "bill amount"),
-        "bill_number": _str_val(row, idx, "bill number"),
+        "bill_amount": _num_val(row, idx, _COL_BILL_AMOUNT),
+        "bill_number": _str_val(row, idx, _COL_BILL_NUMBER),
         "booking_amount": _num_val(row, idx, "booking amount"),
         "booking_amount_tranx_id": _str_val(row, idx, "booking amount tranx id"),
         "booking_amount_payment_status": _str_val(
@@ -277,9 +297,9 @@ def _parse_bill_row(row, idx, filename, now) -> dict | None:
 # ── Bulk DB writers ───────────────────────────────────────────────────────────
 
 
-async def _bulk_upsert_guests(docs: list, db) -> int:
+async def _bulk_upsert_guests(docs: list, db: AsyncIOMotorDatabase) -> None:
     if not docs:
-        return 0
+        return
     ops = []
     for doc in docs:
         if doc["phone"]:
@@ -296,19 +316,20 @@ async def _bulk_upsert_guests(docs: list, db) -> int:
                     upsert=True,
                 )
             )
-    r = await db.reservego_uploads.bulk_write(ops, ordered=False)
-    return r.upserted_count + r.modified_count
+    await db.reservego_uploads.bulk_write(ops, ordered=False)
 
 
-async def _bulk_upsert_bills(docs: list, db) -> int:
+async def _bulk_upsert_bills(docs: list, db: AsyncIOMotorDatabase) -> None:
     if not docs:
-        return 0
+        return
     ops = []
     for doc in docs:
-        if doc.get("bill_number"):
+        if doc.get(_COL_BILL_NUMBER):
             ops.append(
                 UpdateOne(
-                    {"bill_number": doc["bill_number"]}, {"$set": doc}, upsert=True
+                    {_COL_BILL_NUMBER: doc[_COL_BILL_NUMBER]},
+                    {"$set": doc},
+                    upsert=True,
                 )
             )
         else:
@@ -316,14 +337,13 @@ async def _bulk_upsert_bills(docs: list, db) -> int:
                 UpdateOne(
                     {
                         "guest_name": doc["guest_name"],
-                        "booking_time": doc["booking_time"],
+                        _COL_BOOKING_TIME: doc[_COL_BOOKING_TIME],
                     },
                     {"$set": doc},
                     upsert=True,
                 )
             )
-    r = await db.reservego_bill_data.bulk_write(ops, ordered=False)
-    return r.upserted_count + r.modified_count
+    await db.reservego_bill_data.bulk_write(ops, ordered=False)
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -345,11 +365,11 @@ async def reservego_login(body: Annotated[LoginRequest, Body()]):
 async def reservego_upload(
     file: Annotated[UploadFile, File()],
     _auth: Annotated[None, Depends(_require_token)],
-    db=Depends(get_db),
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     filename = file.filename or ""
-    if not filename.lower().endswith((".xlsx", ".xls")):
-        raise InvalidFileFormatError("Only .xlsx / .xls files are supported")
+    if not filename.lower().endswith(".xlsx"):
+        raise InvalidFileFormatError("Only .xlsx Excel files are supported")
 
     contents = await file.read()
     if not contents:
@@ -357,7 +377,6 @@ async def reservego_upload(
 
     now = datetime.now(timezone.utc)
 
-    # Parse all sheets in a thread so the event loop stays free
     loop = asyncio.get_event_loop()
     try:
         parsed = await loop.run_in_executor(
