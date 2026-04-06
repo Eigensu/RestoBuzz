@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # Do NOT include "*" in production; set this explicitly per environment
     cors_origins: str = "http://localhost:3000"
 
+    # ReserveGo upload portal credentials
+    reservego_user: str = ""
+    reservego_password: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
