@@ -324,10 +324,10 @@ async def _bulk_upsert_bills(docs: list, db: AsyncIOMotorDatabase) -> None:
         return
     ops = []
     for doc in docs:
-        if doc.get(_COL_BILL_NUMBER):
+        if doc.get("bill_number"):
             ops.append(
                 UpdateOne(
-                    {_COL_BILL_NUMBER: doc[_COL_BILL_NUMBER]},
+                    {"bill_number": doc["bill_number"]},
                     {"$set": doc},
                     upsert=True,
                 )
@@ -337,7 +337,7 @@ async def _bulk_upsert_bills(docs: list, db: AsyncIOMotorDatabase) -> None:
                 UpdateOne(
                     {
                         "guest_name": doc["guest_name"],
-                        _COL_BOOKING_TIME: doc[_COL_BOOKING_TIME],
+                        "booking_time": doc["booking_time"],
                     },
                     {"$set": doc},
                     upsert=True,
