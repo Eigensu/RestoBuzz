@@ -148,9 +148,15 @@ async def create_email_campaign(
     # 3. Validate contacts have email column
     if not contacts:
         raise ValidationError("No contacts found in the uploaded file")
-    if "email" not in contacts[0]:
+    
+    initial_count = len(contacts)
+
+    # Filter for contacts that actually have an email address
+    contacts = [c for c in contacts if c.get("email")]
+
+    if not contacts:
         raise ValidationError(
-            "Contacts file must include an 'email' column"
+            f"None of the {initial_count} uploaded contacts have a valid email address. Please check your 'email' column."
         )
 
     # 4. Validate required template variables exist in contacts
@@ -170,20 +176,20 @@ async def create_email_campaign(
 
     now = datetime.now(timezone.utc)
 
-    # 5. Campaign snapshot — freeze template state
+    # 5. Create the campaign job (Manual start)
     job_doc = {
         "restaurant_id": body.restaurant_id,
         "name": body.name,
-        "template_id": template["_id"],
-        "subject": body.subject,
+        "template_id": to_object_id(body.template_id),
+        "template_snapshot": template,
+        "subject": body.subject or template.get("subject", ""),
         "from_email": body.from_email or settings.resend_from_email,
         "reply_to": body.reply_to,
-        "template_snapshot": {
-            "html": template["html"],
-            "subject": body.subject,
-            "variables_schema": template.get("variables", []),
-        },
         "status": "draft",
+        "created_at": now,
+        "updated_at": now,
+        "started_at": None,
+        "completed_at": None,
         "total_count": len(contacts),
         "sent_count": 0,
         "delivered_count": 0,
@@ -192,16 +198,14 @@ async def create_email_campaign(
         "bounced_count": 0,
         "failed_count": 0,
         "complained_count": 0,
-        "scheduled_at": body.scheduled_at,
-        "started_at": None,
-        "completed_at": None,
+        "metadata": getattr(body, "metadata", {}),
         "created_by": current_user["_id"],
-        "created_at": now,
     }
+
     result = await db.email_campaign_jobs.insert_one(job_doc)
     campaign_id = result.inserted_id
 
-    # 6. Create email_logs for each contact
+    # 6. Create initial logs
     email_logs = []
     for c in contacts:
         email_logs.append(

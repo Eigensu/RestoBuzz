@@ -56,7 +56,7 @@ async def download_template(
     ws.title = "Contacts"
 
     # Header row
-    headers = ["Name", "Number"]
+    headers = ["Name", "Email", "Phone"]
     for col, header in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -65,17 +65,18 @@ async def download_template(
 
     # Sample rows so users know the expected format
     samples = [
-        ("Jane Doe", "9820000001"),
-        ("John Smith", "9820000002"),
+        ("Jane Doe", "jane@example.com", "9820000001"),
+        ("John Smith", "john@example.com", "9820000002"),
     ]
-    for row_idx, (name, number) in enumerate(samples, start=2):
+    for row_idx, (name, email, phone) in enumerate(samples, start=2):
         ws.cell(row=row_idx, column=1, value=name)
-        # Store as text to avoid float conversion
-        cell = ws.cell(row=row_idx, column=2, value=number)
+        ws.cell(row=row_idx, column=2, value=email)
+        cell = ws.cell(row=row_idx, column=3, value=phone)
         cell.number_format = "@"
 
     ws.column_dimensions["A"].width = 25
-    ws.column_dimensions["B"].width = 20
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 20
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -91,8 +92,9 @@ async def download_template(
 @router.post("/upload", response_model=PreflightResult)
 async def upload_contacts(
     file: UploadFile = File(...),
-    phone_column: str = "phone",
-    name_column: str = "name",
+    phone_column: str | None = None,
+    email_column: str | None = None,
+    name_column: str | None = None,
     current_user: Annotated[dict, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
@@ -107,15 +109,20 @@ async def upload_contacts(
     file_hash = hashlib.sha256(content).hexdigest()
     uploader_id = str(current_user["_id"])
 
-    existing = await db.contact_files.find_one(
-        {"filename": filename, "hash": file_hash, "uploaded_by": uploader_id}
-    )
-    if existing:
-        result = PreflightResult(**existing["result"])
-        await _cache_file_ref(result.file_ref, result.valid_rows)
-        return result
+    # TEMPORARILY DISABLED CACHE TO DEBUG YOUR 0 RECIPIENTS ISSUE
+    # existing = await db.contact_files.find_one(
+    #     {"filename": filename, "hash": file_hash, "uploaded_by": uploader_id}
+    # )
+    # if existing:
+    #     result = PreflightResult(**existing["result"])
+    #     await _cache_file_ref(result.file_ref, result.valid_rows)
+    #     return result
 
-    mapping = ColumnMapping(phone_column=phone_column, name_column=name_column)
+    mapping = ColumnMapping(
+        phone_column=phone_column, 
+        email_column=email_column, 
+        name_column=name_column
+    )
 
     suppressed = set()
     async for doc in db.suppression_list.find({}, {"phone": 1}):

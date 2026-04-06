@@ -44,7 +44,7 @@ export default function EmailCampaignDetailPage() {
   const campaignId = params.id as string;
   const { restaurant } = useAuthStore();
 
-  const { data: campaign, isLoading: loadingCampaign } = useQuery<EmailCampaign>({
+  const { data: campaign, isLoading: loadingCampaign, refetch: refetchCampaign } = useQuery<EmailCampaign>({
     queryKey: ["email-campaign", campaignId],
     queryFn: () => api.get(`/email-campaigns/${campaignId}`).then((r) => r.data),
     enabled: !!campaignId,
@@ -64,27 +64,29 @@ export default function EmailCampaignDetailPage() {
     },
   });
 
+  const handleStart = async () => {
+    try {
+      await api.post(`/email-campaigns/${campaignId}/start`);
+      refetchCampaign();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const logs: EmailLog[] = logsData?.items ?? [];
 
   if (loadingCampaign) {
     return (
-      <div className="max-w-[1600px] mx-auto p-4 md:p-8">
-        <div className="bg-white rounded-xl border p-12 text-center text-sm text-gray-400">
-          Loading campaign...
-        </div>
+      <div className="max-w-[1600px] mx-auto p-4 md:p-8 text-center text-gray-400">
+        Loading...
       </div>
     );
   }
 
-  if (!campaign) {
-    return (
-      <div className="max-w-[1600px] mx-auto p-4 md:p-8">
-        <div className="bg-white rounded-xl border p-12 text-center text-sm text-red-500">
-          Campaign not found
-        </div>
-      </div>
-    );
-  }
+  if (!campaign) return null;
+
+  // Fix: Ensure we treat the date as UTC and compare to UTC now, or use date-fns properly
+  const createdAt = new Date(campaign.created_at);
 
   const deliveryRate = campaign.sent_count
     ? Math.round((campaign.delivered_count / campaign.sent_count) * 100)
@@ -96,33 +98,45 @@ export default function EmailCampaignDetailPage() {
   return (
     <div className="space-y-6 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
       {/* Header */}
-      <div>
-        <Link
-          href="/campaigns/email"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition mb-3"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Email Campaigns
-        </Link>
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-[#eff2f0] rounded-lg">
-            <Mail className="w-6 h-6 text-[#24422e]" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-              {campaign.name}
-            </h1>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Created {formatDistanceToNow(new Date(campaign.created_at), { addSuffix: true })}
-            </p>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <Link
+            href="/campaigns/email"
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition mb-3"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Email Campaigns
+          </Link>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-[#eff2f0] rounded-lg">
+              <Mail className="w-6 h-6 text-[#24422e]" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+                {campaign.name}
+              </h1>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Created {formatDistanceToNow(createdAt, { addSuffix: true })}
+              </p>
+            </div>
           </div>
         </div>
+
+        {["draft", "queued"].includes(campaign.status) && (
+          <button
+            onClick={handleStart}
+            className="flex items-center gap-2 px-6 py-2.5 bg-[#24422e] text-white rounded-xl font-bold text-sm hover:scale-[1.02] transition shadow-lg shadow-[#24422e]/20"
+          >
+            <Send className="w-4 h-4" />
+            {campaign.status === "queued" ? "Force Start Campaign" : "Start Campaign Now"}
+          </button>
+        )}
       </div>
 
       {/* Summary Rates */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border p-4">
-          <p className="text-xs text-gray-500 font-medium">Total Contacts</p>
+          <p className="text-xs text-gray-500 font-medium tracking-tight">Total Contacts</p>
           <p className="text-2xl font-black text-gray-900 mt-1">{campaign.total_count}</p>
         </div>
         <div className="bg-white rounded-xl border p-4">

@@ -1,4 +1,5 @@
 from pathlib import Path
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Prefer the nearest existing .env while developing locally.
@@ -18,8 +19,12 @@ class Settings(BaseSettings):
     )
 
     # MongoDB
-    mongodb_url: str = "mongodb://localhost:27017/dishpatch"
-    mongodb_db_name: str = ""  # leave blank to derive from URL path
+    # Prioritizes MONGODB_URL_PROD if present in .env, otherwise falls back to MONGODB_URL
+    mongodb_url: str = Field(
+        default="mongodb://localhost:27017/dishpatch",
+        validation_alias=AliasChoices("MONGODB_URL_PROD", "MONGODB_URL"),
+    )
+    mongodb_db_name: str = "restobuzz"  # leave blank to derive from URL path, or set a default
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -47,9 +52,12 @@ class Settings(BaseSettings):
     cloudinary_api_secret: str = ""
 
     # Resend (Email)
-    resend_api_key: str = ""
-    resend_webhook_secret: str = ""
-    resend_from_email: str = "RestoBuzz <noreply@restobuzz.com>"
+    resend_api_key: str = Field(default="", validation_alias=AliasChoices("RESEND_API_KEY"))
+    resend_webhook_secret: str = Field(default="", validation_alias=AliasChoices("RESEND_WEBHOOK_SECRET"))
+    resend_from_email: str = Field(
+        default="RestoBuzz <noreply@restobuzz.com>",
+        validation_alias=AliasChoices("RESEND_FROM_EMAIL"),
+    )
     resend_rate_limit: int = 5  # Resend default: 5 req/s
 
     # Celery
@@ -59,6 +67,11 @@ class Settings(BaseSettings):
     # CORS — comma-separated list of allowed origins
     # Do NOT include "*" in production; set this explicitly per environment
     cors_origins: str = "http://localhost:3000"
+
+    # Seed Data (Optional, used by init_db.py)
+    admin_email: str = "admin@example.com"
+    admin_password: str = ""
+    reset_password: bool = False
 
     # ReserveGo upload portal credentials
     reservego_user: str = ""

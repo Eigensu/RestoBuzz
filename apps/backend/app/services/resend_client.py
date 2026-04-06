@@ -51,7 +51,7 @@ def send_email(
 ) -> str:
     """Send a single email via Resend. Returns the Resend email ID."""
     params: dict = {
-        "from_": from_email or settings.resend_from_email,
+        "from": from_email or settings.resend_from_email,
         "to": [to],
         "subject": subject,
         "html": html,
@@ -61,7 +61,11 @@ def send_email(
     if tags:
         params["tags"] = [{"name": k, "value": v} for k, v in tags.items()]
 
-    result = resend.Emails.send(params)
+    try:
+        result = resend.Emails.send(params)
+    except Exception as e:
+        logger.error("resend_sdk_exception", to=to, error=str(e))
+        raise ResendSendError(str(e))
 
     if isinstance(result, dict) and result.get("id"):
         return result["id"]
