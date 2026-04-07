@@ -282,8 +282,13 @@ function UploadForm({
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await api.post<UploadResult>(
-        `/reservego/upload?restaurant_id=${restaurant.id}&data_from=${dataFrom}&data_until=${dataUntil}`,
+
+      // Hit the backend directly to avoid the Next.js proxy 502 timeout
+      // on large file uploads. NEXT_PUBLIC_API_URL is the backend origin.
+      const backendUrl =
+        process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const res = await axios.post<UploadResult>(
+        `${backendUrl}/api/reservego/upload?restaurant_id=${restaurant.id}&data_from=${dataFrom}&data_until=${dataUntil}`,
         form,
         {
           headers: {
