@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import axios from "axios";
 import { toast } from "sonner";
@@ -10,9 +10,15 @@ import {
   FileSpreadsheet,
   CheckCircle,
   Loader2,
+  Store,
 } from "lucide-react";
 
 const api = axios.create({ baseURL: "/api" });
+
+interface Restaurant {
+  id: string;
+  name: string;
+}
 
 interface UploadResult {
   inserted: number;
@@ -20,6 +26,51 @@ interface UploadResult {
   filename: string;
   uploaded_at: string;
   sheets: Record<string, { inserted: number; skipped: number; note?: string }>;
+}
+
+/* ── Restaurant selector ────────────────────────────────────────────────── */
+function RestaurantSelector({
+  token,
+  onSelect,
+}: {
+  readonly token: string;
+  readonly onSelect: (r: Restaurant) => void;
+}) {
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api
+      .get<Restaurant[]>("/reservego/restaurants", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then((r) => setRestaurants(r.data))
+      .catch(() => toast.error("Failed to load restaurants"))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin text-[#24422e]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full max-w-sm space-y-2">
+      {restaurants.map((r) => (
+        <button
+          key={r.id}
+          onClick={() => onSelect(r)}
+          className="w-full flex items-center gap-3 px-4 py-3 bg-[#eff2f0] hover:bg-[#24422e] hover:text-white text-[#24422e] rounded-[9px] transition-colors text-sm font-medium text-left"
+        >
+          <Store className="w-4 h-4 shrink-0" />
+          {r.name}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /* ── Login form ─────────────────────────────────────────────────────────── */
@@ -187,10 +238,18 @@ function SuccessScreen({
 }
 
 /* ── Upload form ────────────────────────────────────────────────────────── */
-function UploadForm({ token }: { readonly token: string }) {
+function UploadForm({
+  token,
+  restaurant,
+}: {
+  readonly token: string;
+  readonly restaurant: Restaurant;
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
+  const [dataFrom, setDataFrom] = useState("");
+  const [dataUntil, setDataUntil] = useState("");
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted[0]) {
@@ -211,16 +270,28 @@ function UploadForm({ token }: { readonly token: string }) {
 
   const handleUpload = async () => {
     if (!file) return;
+    if (!dataFrom || !dataUntil) {
+      toast.error("Please select the data date range before uploading.");
+      return;
+    }
+    if (dataFrom > dataUntil) {
+      toast.error("'Data from' must be before 'Data until'.");
+      return;
+    }
     setUploading(true);
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await api.post<UploadResult>("/reservego/upload", form, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
+      const res = await api.post<UploadResult>(
+        `/reservego/upload?restaurant_id=${restaurant.id}&data_from=${dataFrom}&data_until=${dataUntil}`,
+        form,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
         },
-      });
+      );
       setResult(res.data);
     } catch {
       toast.error("Upload failed. Please check the file format and try again.");
@@ -283,6 +354,32 @@ function UploadForm({ token }: { readonly token: string }) {
 
   return (
     <div className="w-full max-w-sm space-y-4">
+      {/* Date range */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-[#eff2f0] px-3 py-2 rounded-[9px]">
+          <label className="block text-[10px] text-gray-400 font-medium mb-0.5">
+            Data from
+          </label>
+          <input
+            type="date"
+            value={dataFrom}
+            onChange={(e) => setDataFrom(e.target.value)}
+            className="w-full bg-transparent outline-none text-sm text-[#24422e]"
+          />
+        </div>
+        <div className="bg-[#eff2f0] px-3 py-2 rounded-[9px]">
+          <label className="block text-[10px] text-gray-400 font-medium mb-0.5">
+            Data until
+          </label>
+          <input
+            type="date"
+            value={dataUntil}
+            onChange={(e) => setDataUntil(e.target.value)}
+            className="w-full bg-transparent outline-none text-sm text-[#24422e]"
+          />
+        </div>
+      </div>
+
       {/* Dropzone */}
       <div
         {...getRootProps()}
@@ -340,6 +437,7 @@ function UploadForm({ token }: { readonly token: string }) {
 /* ── Page ───────────────────────────────────────────────────────────────── */
 export default function ReserveGoPage() {
   const [token, setToken] = useState("");
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
 
   return (
     <div className="min-h-screen bg-[#24422e] flex items-center justify-center p-4">
@@ -367,16 +465,36 @@ export default function ReserveGoPage() {
             </p>
             <LoginForm onSuccess={setToken} />
           </>
-        ) : (
+        ) : !restaurant ? (
           <>
             <h1 className="text-2xl font-light text-[#24422e] mb-1">
-              Upload Guest Data
+              Select Restaurant
             </h1>
             <p className="text-xs text-gray-500 mb-6">
-              Upload your ReserveGo Excel export. Existing records will be
-              updated by phone number.
+              Choose which restaurant this data belongs to.
             </p>
-            <UploadForm token={token} />
+            <RestaurantSelector token={token} onSelect={setRestaurant} />
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-1">
+              <h1 className="text-2xl font-light text-[#24422e]">
+                Upload Guest Data
+              </h1>
+            </div>
+            <p className="text-xs text-gray-500 mb-1">
+              Uploading for{" "}
+              <span className="font-medium text-[#24422e]">
+                {restaurant.name}
+              </span>
+            </p>
+            <button
+              onClick={() => setRestaurant(null)}
+              className="text-xs text-gray-400 hover:text-[#24422e] mb-5 inline-block transition-colors"
+            >
+              ← Change restaurant
+            </button>
+            <UploadForm token={token} restaurant={restaurant} />
           </>
         )}
       </div>
