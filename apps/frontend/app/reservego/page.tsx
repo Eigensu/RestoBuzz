@@ -201,19 +201,21 @@ function SuccessScreen({
       </p>
 
       {/* Per-sheet breakdown */}
-      <div className="w-full bg-[#eff2f0] rounded-lg p-3 mb-6 text-left space-y-1">
-        {Object.entries(result.sheets).map(([sheet, stats]) => (
-          <div key={sheet} className="flex justify-between text-xs">
-            <span className="text-[#24422e] font-medium truncate max-w-[60%]">
-              {sheet}
-            </span>
-            <span className="text-gray-500">
-              {stats.note ??
-                `${stats.inserted} saved · ${stats.skipped} skipped`}
-            </span>
-          </div>
-        ))}
-      </div>
+      {result.sheets && Object.keys(result.sheets).length > 0 && (
+        <div className="w-full bg-[#eff2f0] rounded-lg p-3 mb-6 text-left space-y-1">
+          {Object.entries(result.sheets).map(([sheet, stats]) => (
+            <div key={sheet} className="flex justify-between text-xs">
+              <span className="text-[#24422e] font-medium truncate max-w-[60%]">
+                {sheet}
+              </span>
+              <span className="text-gray-500">
+                {stats.note ??
+                  `${stats.inserted} saved · ${stats.skipped} skipped`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button
         onClick={onReset}
@@ -298,8 +300,13 @@ function UploadForm({
         },
       );
       setResult(res.data);
-    } catch {
-      toast.error("Upload failed. Please check the file format and try again.");
+    } catch (err) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ??
+        "Upload failed. Please check the file format and try again.";
+      toast.error(msg);
+      console.error("Upload error:", err);
     } finally {
       setUploading(false);
     }
