@@ -25,10 +25,86 @@ from app.models.email_template import (
     EmailTemplateResponse,
     TemplateVariable,
 )
-from app.services.resend_client import render_template
+from app.services.resend_client import (
+    render_template,
+    list_templates,
+    get_template_details,
+    extract_variables,
+)
 
 router = APIRouter(prefix="/email-templates", tags=["email-templates"])
 logger = get_logger(__name__)
+
+
+@router.post("/sync", status_code=200)
+async def sync_resend_email_templates(
+    restaurant_id: Annotated[str, Depends(require_restaurant_access())],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """Fetch templates from Resend API and sync them to the local database."""
+    resend_templates = await list_templates()
+    if not resend_templates:
+        return {"synced": 0, "message": "No templates found in Resend account"}
+
+    synced_count = 0
+    errors = []
+
+    for item in resend_templates:
+        template_id = item["id"]
+        name = item["name"]
+
+        try:
+            # Fetch full details
+            details = await get_template_details(template_id)
+            if not details:
+                continue
+
+            html = details.get("html", "")
+            subject = details.get("subject", f"Email from {name}")
+
+            # Extract variables
+            found_vars = extract_variables(html)
+            vars_list = [TemplateVariable(key=v) for v in found_vars]
+
+            now = datetime.now(timezone.utc)
+            doc = {
+                "restaurant_id": restaurant_id,
+                "name": name,
+                "subject": subject,
+                "html": html,
+                "variables": [v.model_dump() for v in vars_list],
+                "synced_from": "resend",
+                "resend_id": template_id,
+                "updated_at": now,
+            }
+
+            # Upsert by name + restaurant
+            existing = await db.email_templates.find_one(
+                {"restaurant_id": restaurant_id, "name": name}
+            )
+
+            if existing:
+                await db.email_templates.update_one(
+                    {"_id": existing["_id"]}, {"$set": doc}
+                )
+            else:
+                doc["created_at"] = now
+                doc["created_by"] = current_user["_id"]
+                doc["version"] = 1
+                doc["is_active"] = True
+                await db.email_templates.insert_one(doc)
+
+            synced_count += 1
+        except Exception as e:
+            logger.error("sync_template_failed", name=name, error=str(e))
+            errors.append(f"Failed to sync '{name}': {str(e)}")
+
+    return {
+        "synced": synced_count,
+        "total_attempted": len(resend_templates),
+        "errors": errors if errors else None,
+    }
 
 
 def _serialize(doc: dict) -> EmailTemplateResponse:

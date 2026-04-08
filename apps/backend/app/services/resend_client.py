@@ -5,6 +5,8 @@ Currently implements ResendProvider.
 Future: add SESProvider, SendGridProvider behind the same interface.
 """
 import resend
+import httpx
+import re
 from jinja2 import Environment, BaseLoader, select_autoescape
 from app.config import settings
 from app.core.logging import get_logger
@@ -19,6 +21,8 @@ _jinja_env = Environment(
     loader=BaseLoader(),
     autoescape=select_autoescape(default_for_string=True, default=True),
 )
+
+VAR_PATTERN = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 
 class ResendSendError(Exception):
@@ -38,6 +42,49 @@ def render_template(html: str, variables: dict) -> str:
     normalised = html.replace("{{{", "{{").replace("}}}", "}}")
     template = _jinja_env.from_string(normalised)
     return template.render(**variables)
+
+
+def extract_variables(html: str) -> list[str]:
+    """Extract unique {{ var }} names from an HTML string."""
+    return sorted(list(set(VAR_PATTERN.findall(html))))
+
+
+async def list_templates() -> list[dict]:
+    """Fetch all templates from the Resend account."""
+    if not settings.resend_api_key:
+        return []
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                "https://api.resend.com/templates",
+                headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+            )
+            response.raise_for_status()
+            return response.json().get("data", [])
+        except Exception as e:
+            logger.error("resend_list_templates_failed", error=str(e))
+            return []
+
+
+async def get_template_details(template_id: str) -> dict | None:
+    """Fetch full details (HTML, Subject) for a specific Resend template."""
+    if not settings.resend_api_key:
+        return None
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                f"https://api.resend.com/templates/{template_id}",
+                headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(
+                "resend_get_template_failed", template_id=template_id, error=str(e)
+            )
+            return None
 
 
 def send_email(

@@ -94,7 +94,7 @@ function SectionHeader({
 /* ─── Types ────────────────────────────────────────────────── */
 interface TemplateStat {
   name: string;
-  readRate: number;
+  openRate: number;
   sent: number;
   score: number;
 }
@@ -123,7 +123,7 @@ interface DashboardAnalytics {
   };
   rates: {
     deliveryRate: number;
-    readRate: number;
+    openRate: number;
     openRate?: number;
     clickRate?: number;
     bounceRate?: number;
@@ -247,7 +247,7 @@ export default function DashboardPage() {
     // 1. KPI Calculations
     const deliveryRate =
       totals.sent > 0 ? (totals.delivered / totals.sent) * 100 : 0;
-    const readRate =
+    const openRate =
       totals.delivered > 0 ? (totals.read / totals.delivered) * 100 : 0;
     const effectiveReach =
       totals.total > 0 ? (totals.read / totals.total) * 100 : 0;
@@ -284,8 +284,8 @@ export default function DashboardPage() {
         fill: GREEN_PALETTE.dark,
       },
       {
-        name: "Read",
-        display: `Read: ${totals.read.toLocaleString()}`,
+        name: "Opened",
+        display: `Opened: ${totals.read.toLocaleString()}`,
         value: totals.read,
         drop:
           totals.delivered > 0
@@ -298,13 +298,13 @@ export default function DashboardPage() {
     // 3. Template Leaderboard
     const templateMap: Record<
       string,
-      { read: number; delivered: number; sent: number; count: number }
+      { opened: number; delivered: number; sent: number; count: number }
     > = {};
     campaigns.forEach((c) => {
       const name = c.template_name || "Unknown";
       if (!templateMap[name])
-        templateMap[name] = { read: 0, delivered: 0, sent: 0, count: 0 };
-      templateMap[name].read += c.read_count;
+        templateMap[name] = { opened: 0, delivered: 0, sent: 0, count: 0 };
+      templateMap[name].opened += c.read_count;
       templateMap[name].delivered += c.delivered_count;
       templateMap[name].sent += c.sent_count;
       templateMap[name].count += 1;
@@ -313,10 +313,10 @@ export default function DashboardPage() {
     const templateLeaderboard = Object.entries(templateMap)
       .map(([name, stats]) => {
         const rate =
-          stats.delivered > 0 ? (stats.read / stats.delivered) * 100 : 0;
-        // Impact Score = read_rate * log(total_sent) to surface high-volume, high-performance templates
+          stats.delivered > 0 ? (stats.opened / stats.delivered) * 100 : 0;
+        // Impact Score = open_rate * log(total_sent) to surface high-volume, high-performance templates
         const score = rate * Math.log10(stats.sent + 1);
-        return { name, readRate: rate, sent: stats.sent, score };
+        return { name, openRate: rate, sent: stats.sent, score };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
@@ -419,7 +419,7 @@ export default function DashboardPage() {
 
     return {
       totals,
-      rates: { deliveryRate, readRate, effectiveReach, failureRate },
+      rates: { deliveryRate, openRate, effectiveReach, failureRate },
       funnelData,
       templateLeaderboard,
       failureBreakdown,
@@ -455,7 +455,7 @@ export default function DashboardPage() {
       },
       rates: {
         deliveryRate: delivery_rate ?? 0,
-        readRate: open_rate ?? 0,
+        openRate: open_rate ?? 0,
         openRate: open_rate ?? 0,
         clickRate: click_rate ?? 0,
         bounceRate: bounce_rate ?? 0,
@@ -642,8 +642,8 @@ export default function DashboardPage() {
           color="bg-[#509160]"
         />
         <StatCard
-          label={activeChannel === "whatsapp" ? "Read Rate" : "Open Rate"}
-          value={`${(activeChannel === "whatsapp" ? rates.readRate : rates.openRate || 0).toFixed(1)}%`}
+          label={activeChannel === "whatsapp" ? "Open Rate" : "Open Rate"}
+          value={`${(activeChannel === "whatsapp" ? rates.openRate : rates.openRate || 0).toFixed(1)}%`}
           subtitle="Interaction velocity"
           icon={Eye}
           color="bg-[#24422e]"
@@ -705,36 +705,39 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
           <div className="mt-8 grid grid-cols-3 gap-4 border-t pt-6">
-            <div className="text-center">
-              <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
-                Total → Sent
-              </p>
-              <p
-                className={`text-sm font-bold ${funnelData[1].drop > 10 ? "text-red-500" : "text-green-600"}`}
-              >
-                {funnelData[1].drop.toFixed(1)}% Loss
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
-                Sent → Deliv
-              </p>
-              <p
-                className={`text-sm font-bold ${funnelData[2].drop > 10 ? "text-red-500" : "text-green-600"}`}
-              >
-                {funnelData[2].drop.toFixed(1)}% Loss
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
-                {activeChannel === "whatsapp" ? "Deliv → Read" : "Deliv → Opened"}
-              </p>
-              <p
-                className={`text-sm font-bold ${funnelData[3].drop > 50 ? "text-red-500" : "text-green-600"}`}
-              >
-                {funnelData[3].drop.toFixed(1)}% Loss
-              </p>
-            </div>
+            {(() => {
+              const stages = [
+                {
+                  label: activeChannel === "whatsapp" ? "Audience → Sent" : "Sent → Deliv",
+                  drop: activeChannel === "whatsapp" 
+                    ? funnelData.find(s => s.name === "Sent")?.drop 
+                    : funnelData.find(s => s.name === "Delivered")?.drop
+                },
+                {
+                  label: activeChannel === "whatsapp" ? "Sent → Deliv" : "Deliv → Opened",
+                  drop: activeChannel === "whatsapp"
+                    ? funnelData.find(s => s.name === "Delivered")?.drop
+                    : funnelData.find(s => s.name === "Opened")?.drop
+                },
+                {
+                  label: activeChannel === "whatsapp" ? "Deliv → Opened" : "Opened → Clicked",
+                  drop: activeChannel === "whatsapp"
+                    ? funnelData.find(s => s.name === "Opened")?.drop
+                    : funnelData.find(s => s.name === "Clicked")?.drop
+                }
+              ];
+
+              return stages.map((s, i) => (
+                <div key={i} className="text-center">
+                  <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
+                    {s.label}
+                  </p>
+                  <p className={`text-sm font-bold ${Number(s.drop) > 10 ? "text-red-500" : "text-green-600"}`}>
+                    {Number(s.drop).toFixed(1)}% Loss
+                  </p>
+                </div>
+              ));
+            })()}
           </div>
           <div className="mt-6 p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
             <TrendingUp className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
@@ -744,14 +747,14 @@ export default function DashboardPage() {
               </span>
               <br />
               {(() => {
-                const techLoss = funnelData[2].drop; // Sent -> Deliv
-                const contentLoss = funnelData[3].drop; // Deliv -> Read
+                const techLoss = Number(funnelData.find(s => s.name === "Delivered")?.drop || 0); // Sent -> Deliv
+                const contentLoss = Number(funnelData.find(s => s.name === "Opened")?.drop || 0); // Deliv -> Opened
 
                 if (techLoss > 10) {
                   return `You have a significant technical delivery gap (${techLoss.toFixed(1)}%). This usually points to invalid numbers or provider-level blocking—consider cleaning your customer list. `;
                 }
                 if (contentLoss > 50) {
-                  return `Messages are landing, but interaction is low (${contentLoss.toFixed(1)}% loss). Your ${activeChannel === "whatsapp" ? '"Read Rate"' : '"Open Rate"'} is the primary bottleneck—try more engaging content or better timing. `;
+                  return `Messages are landing, but interaction is low (${contentLoss.toFixed(1)}% loss). Your "Open Rate" is the primary bottleneck—try more engaging content or better timing. `;
                 }
                 return `Your funnel is exceptionally healthy. With only a ${techLoss.toFixed(1)}% delivery loss and strong conversion-through, your targeting is optimal. `;
               })()}
@@ -785,7 +788,7 @@ export default function DashboardPage() {
                   Template Name
                 </th>
                 <th className="pb-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">
-                  {activeChannel === "whatsapp" ? "Read Rate" : "Open Rate"}
+                  Open Rate
                 </th>
                 <th className="pb-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">
                   Total Sent
@@ -808,14 +811,14 @@ export default function DashboardPage() {
                     {item.name}
                   </td>
                   <td className="py-4 text-right font-black text-[#509160]">
-                    {item.readRate.toFixed(1)}%
+                    {(item.openRate || 0).toFixed(1)}%
                   </td>
                   <td className="py-4 text-right font-medium text-gray-500">
                     {item.sent.toLocaleString()}
                   </td>
                   <td className="py-4 text-right">
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#eff2f0] rounded-full text-[#24422e] font-black text-xs">
-                      {item.score.toFixed(1)}
+                      {(item.score || 0).toFixed(1)}
                     </div>
                   </td>
                 </tr>
@@ -831,7 +834,7 @@ export default function DashboardPage() {
             </span>
             <br />
             The score is a balanced metric of{" "}
-            <span className="font-bold">Read Rate × Logarithmic Volume</span>.
+            <span className="font-bold">Open Rate × Logarithmic Volume</span>.
             This surfaces content that consistently performs well while ensuring
             high-volume campaigns that drive significant business results are
             prioritized in the rankings.
@@ -849,7 +852,9 @@ export default function DashboardPage() {
               &quot;{templateLeaderboard[0]?.name}&quot;
             </span>{" "}
             is currently the most effective, maintaining a{" "}
-            {templateLeaderboard[0]?.readRate.toFixed(1)}% engagement rate
+            <p className="text-gray-900 font-bold">
+              {(templateLeaderboard[0]?.openRate || 0).toFixed(1)}% engagement rate
+            </p>
             across {templateLeaderboard[0]?.sent.toLocaleString()} messages.
           </p>
         </div>
@@ -1024,7 +1029,7 @@ export default function DashboardPage() {
                     radius={[4, 4, 0, 0]}
                   >
                     {hourlyPerformance.map((entry: HourlyStat, index: number) => {
-                      const avgReadRate = rates.readRate || 0;
+                      const avgReadRate = rates.openRate || 0;
                       const isWinningPeak =
                         entry.rate >= avgReadRate &&
                         entry.delivered > totals.delivered / 24;
