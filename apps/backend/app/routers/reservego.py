@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
 import openpyxl
-from fastapi import APIRouter, Body, Depends, UploadFile, File
+from fastapi import APIRouter, Body, Depends, UploadFile, File, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel
@@ -175,7 +175,9 @@ def _parse_sheet_rows(ws, parse_fn, idx) -> tuple[list, int]:
     return docs, skipped
 
 
-def _parse_workbook(contents: bytes, filename: str, now: datetime) -> dict:
+def _parse_workbook(
+    contents: bytes, filename: str, now: datetime, restaurant_id: str
+) -> dict:
     """Parse all sheets — runs synchronously, call via run_in_executor."""
     wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True, read_only=True)
     result = {}
@@ -190,7 +192,7 @@ def _parse_workbook(contents: bytes, filename: str, now: datetime) -> dict:
             docs, skipped = _parse_sheet_rows(
                 ws,
                 lambda row, i, sn=sheet_name: _parse_guest_row(
-                    row, i, sn, filename, now
+                    row, i, sn, filename, now, restaurant_id
                 ),
                 idx,
             )
@@ -200,7 +202,7 @@ def _parse_workbook(contents: bytes, filename: str, now: datetime) -> dict:
             idx = _make_idx(raw_headers, BILL_HEADERS)
             docs, skipped = _parse_sheet_rows(
                 ws,
-                lambda row, i: _parse_bill_row(row, i, filename, now),
+                lambda row, i: _parse_bill_row(row, i, filename, now, restaurant_id),
                 idx,
             )
             result[sheet_name] = ("bill", docs, skipped)
@@ -212,7 +214,7 @@ def _parse_workbook(contents: bytes, filename: str, now: datetime) -> dict:
     return result
 
 
-def _parse_guest_row(row, idx, sheet_name, filename, now) -> dict | None:
+def _parse_guest_row(row, idx, sheet_name, filename, now, restaurant_id) -> dict | None:
     guest_name = str(_cell(row, idx, _COL_GUEST_NAME) or "").strip()
     if not guest_name or guest_name.lower() == "none":
         return None
@@ -246,12 +248,13 @@ def _parse_guest_row(row, idx, sheet_name, filename, now) -> dict | None:
         "birthday": _parse_date(_cell(row, idx, "birthday")),
         "anniversary": _parse_date(_cell(row, idx, "anniversary")),
         "sheet": sheet_name,
+        "restaurant_id": restaurant_id,
         "uploaded_at": now,
         "filename": filename,
     }
 
 
-def _parse_bill_row(row, idx, filename, now) -> dict | None:
+def _parse_bill_row(row, idx, filename, now, restaurant_id) -> dict | None:
     guest_name = str(_cell(row, idx, _COL_GUEST_NAME) or "").strip()
     if not guest_name or guest_name.lower() == "none":
         return None
@@ -289,6 +292,7 @@ def _parse_bill_row(row, idx, filename, now) -> dict | None:
         "booking_amount_payment_date": _parse_date(
             _cell(row, idx, "booking amount payment date")
         ),
+        "restaurant_id": restaurant_id,
         "uploaded_at": now,
         "filename": filename,
     }
@@ -303,7 +307,13 @@ async def _bulk_upsert_guests(docs: list, db: AsyncIOMotorDatabase) -> None:
     ops = []
     for doc in docs:
         if doc["phone"]:
-            ops.append(UpdateOne({"phone": doc["phone"]}, {"$set": doc}, upsert=True))
+            ops.append(
+                UpdateOne(
+                    {"phone": doc["phone"], "restaurant_id": doc["restaurant_id"]},
+                    {"$set": doc},
+                    upsert=True,
+                )
+            )
         else:
             ops.append(
                 UpdateOne(
@@ -311,6 +321,7 @@ async def _bulk_upsert_guests(docs: list, db: AsyncIOMotorDatabase) -> None:
                         "guest_name": doc["guest_name"],
                         "email": doc["email"],
                         "sheet": doc["sheet"],
+                        "restaurant_id": doc["restaurant_id"],
                     },
                     {"$set": doc},
                     upsert=True,
@@ -327,7 +338,10 @@ async def _bulk_upsert_bills(docs: list, db: AsyncIOMotorDatabase) -> None:
         if doc.get("bill_number"):
             ops.append(
                 UpdateOne(
-                    {"bill_number": doc["bill_number"]},
+                    {
+                        "bill_number": doc["bill_number"],
+                        "restaurant_id": doc["restaurant_id"],
+                    },
                     {"$set": doc},
                     upsert=True,
                 )
@@ -338,6 +352,7 @@ async def _bulk_upsert_bills(docs: list, db: AsyncIOMotorDatabase) -> None:
                     {
                         "guest_name": doc["guest_name"],
                         "booking_time": doc["booking_time"],
+                        "restaurant_id": doc["restaurant_id"],
                     },
                     {"$set": doc},
                     upsert=True,
@@ -361,11 +376,32 @@ async def reservego_login(body: Annotated[LoginRequest, Body()]):
     return LoginResponse(access_token=_mint_token())
 
 
+class Restaurant(BaseModel):
+    id: str
+    name: str
+
+
+@router.get("/restaurants", response_model=list[Restaurant])
+async def list_restaurants(
+    _auth: Annotated[None, Depends(_require_token)],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """Return all restaurants so the upload portal can show a selector."""
+    cursor = db.restaurants.find({}, {"id": 1, "name": 1})
+    return [
+        Restaurant(id=str(doc.get("id") or doc["_id"]), name=doc["name"])
+        async for doc in cursor
+    ]
+
+
 @router.post("/upload")
 async def reservego_upload(
     file: Annotated[UploadFile, File()],
     _auth: Annotated[None, Depends(_require_token)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    restaurant_id: Annotated[str, Query()],
+    data_from: Annotated[str | None, Query()] = None,
+    data_until: Annotated[str | None, Query()] = None,
 ):
     filename = file.filename or ""
     if not filename.lower().endswith(".xlsx"):
@@ -380,13 +416,18 @@ async def reservego_upload(
     loop = asyncio.get_event_loop()
     try:
         parsed = await loop.run_in_executor(
-            _executor, _parse_workbook, contents, filename, now
+            _executor, _parse_workbook, contents, filename, now, restaurant_id
         )
     except Exception as exc:
         raise InvalidFileFormatError("Unable to read Excel file") from exc
 
     sheets_summary = {}
     for sheet_name, (kind, docs, skipped) in parsed.items():
+        # Stamp data_from / data_until on every doc
+        if data_from or data_until:
+            for doc in docs:
+                doc["data_from"] = data_from
+                doc["data_until"] = data_until
         if kind == "guest":
             await _bulk_upsert_guests(docs, db)
             sheets_summary[sheet_name] = {"inserted": len(docs), "skipped": skipped}

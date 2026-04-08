@@ -135,9 +135,7 @@ async def init_indexes() -> None:
         [
             IndexModel([("status", ASCENDING)]),
             IndexModel([("restaurant_id", ASCENDING)]),
-            IndexModel(
-                [("restaurant_id", ASCENDING), ("created_at", DESCENDING)]
-            ),
+            IndexModel([("restaurant_id", ASCENDING), ("created_at", DESCENDING)]),
         ]
     )
 
@@ -181,6 +179,39 @@ async def init_indexes() -> None:
         [
             IndexModel([("svix_id", ASCENDING)], unique=True),
             IndexModel([("received_at", ASCENDING)]),
+        ]
+    )
+
+    # ── ReserveGo collections ─────────────────────────────────────────────────
+
+    # reservego_uploads (guest profiles)
+    await db.reservego_uploads.create_indexes(
+        [
+            IndexModel([("phone", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel(
+                [
+                    ("guest_name", ASCENDING),
+                    ("email", ASCENDING),
+                    ("sheet", ASCENDING),
+                    ("restaurant_id", ASCENDING),
+                ]
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("uploaded_at", DESCENDING)]),
+        ]
+    )
+
+    # reservego_bill_data (booking/billing records)
+    await db.reservego_bill_data.create_indexes(
+        [
+            IndexModel([("bill_number", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel(
+                [
+                    ("guest_name", ASCENDING),
+                    ("booking_time", ASCENDING),
+                    ("restaurant_id", ASCENDING),
+                ]
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("uploaded_at", DESCENDING)]),
         ]
     )
 
