@@ -194,7 +194,7 @@ export default function CampaignDetailPage() {
               value: live.delivered,
               color: "text-green-600",
             },
-            { label: "Read", value: live.read, color: "text-purple-600" },
+            { label: "Opened", value: live.read, color: "text-purple-600" },
             { label: "Failed", value: live.failed, color: "text-red-600" },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-gray-50 rounded-lg p-3">

@@ -43,15 +43,26 @@ async def _get_sha(redis: Redis) -> str:
     return _sha
 
 
-async def acquire_token(redis: Redis, waba_id: str = "default") -> bool:
+async def acquire_token(
+    redis: Redis,
+    waba_id: str = "default",
+    capacity: int | None = None,
+    refill_rate: int | None = None,
+) -> bool:
     """Returns True if a send slot is available, False if throttled."""
     sha = await _get_sha(redis)
     now_ms = int(time.time() * 1000)
+
+    # Use provided values or fallback to default
+    cap = capacity if capacity is not None else settings.rate_limit_mps
+    refill = refill_rate if refill_rate is not None else settings.rate_limit_mps
+
     result = await redis.evalsha(
-        sha, 1,
+        sha,
+        1,
         f"rate_limit:{waba_id}",
-        str(settings.rate_limit_mps),
-        str(settings.rate_limit_mps),
+        str(cap),
+        str(refill),
         str(now_ms),
     )
     return bool(result)

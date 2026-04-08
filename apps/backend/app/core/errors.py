@@ -133,3 +133,7 @@ class RedisError(ServerError):
 
 class WhatsAppAPIError(ServerError):
     error_type = "whatsapp_api_error"
+
+
+class ResendAPIError(ServerError):
+    error_type = "resend_api_error"

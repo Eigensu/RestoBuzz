@@ -31,9 +31,6 @@ export function CampaignRow({ campaign: c, onDelete }: Readonly<CampaignRowProps
       <td className="px-6 py-4 w-48">
         <ProgressBar sent={c.sent_count} total={c.total_count} />
       </td>
-      <td className="px-6 py-4">
-        <PriorityBadge priority={c.priority} />
-      </td>
       <td className="px-6 py-4 text-gray-500 text-[11px] font-medium">
         {relativeIST(c.created_at)}
       </td>

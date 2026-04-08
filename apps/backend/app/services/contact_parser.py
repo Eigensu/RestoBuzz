@@ -6,8 +6,46 @@ import re
 import phonenumbers
 import openpyxl
 from app.models.contact import ContactRow, InvalidRow, PreflightResult, ColumnMapping
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Common aliases for phone and name columns (lowercased, stripped)
+_PHONE_ALIASES = {
+    "phone",
+    "contact",
+    "mobile",
+    "number",
+    "tel",
+    "telephone",
+    "whatsapp",
+    "wa",
+    "cell",
+    "phone number",
+    "contact number",
+    "mobile number",
+}
+_NAME_ALIASES = {
+    "name",
+    "full name",
+    "fullname",
+    "customer",
+    "client",
+    "person",
+    "first name",
+    "firstname",
+    "contact name",
+}
+
+
+_EMAIL_ALIASES = {
+    "email",
+    "mail",
+    "e-mail",
+    "email address",
+    "emailaddress",
+    "address",
+}
 _PHONE_ALIASES = {
     "phone",
     "contact",
@@ -40,16 +78,18 @@ def _clean_header(h: str) -> str:
     return re.sub(r"[:\-_]+$", "", str(h).strip().lower()).strip()
 
 
-def _detect_columns(headers: list[str]) -> tuple[str | None, str | None]:
-    """Return (phone_col, name_col) by matching against known aliases."""
-    phone_col = name_col = None
+def _detect_columns(headers: list[str]) -> tuple[str | None, str | None, str | None]:
+    """Return (phone_col, email_col, name_col) by matching against known aliases."""
+    phone_col = email_col = name_col = None
     for raw in headers:
         cleaned = _clean_header(raw)
         if phone_col is None and cleaned in _PHONE_ALIASES:
             phone_col = raw
+        if email_col is None and cleaned in _EMAIL_ALIASES:
+            email_col = raw
         if name_col is None and cleaned in _NAME_ALIASES:
             name_col = raw
-    return phone_col, name_col
+    return phone_col, email_col, name_col
 
 
 def _normalize_phone(raw: str, default_region: str = "IN") -> str | None:
@@ -77,6 +117,17 @@ def _normalize_phone(raw: str, default_region: str = "IN") -> str | None:
                 )
         except Exception:
             pass
+    return None
+
+
+def _validate_email(raw: str) -> str | None:
+    raw = str(raw).strip().lower()
+    if not raw:
+        return None
+    # Very basic regex for email validation
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    if re.match(pattern, raw):
+        return raw
     return None
 
 
@@ -118,55 +169,70 @@ async def parse_contacts(
     else:
         raw_rows, headers = _parse_csv(content)
 
-    # Auto-detect columns if the provided mapping columns aren't found in headers
+    # Auto-detect columns
     header_set = set(headers)
     phone_col = mapping.phone_column if mapping.phone_column in header_set else None
+    email_col = mapping.email_column if mapping.email_column in header_set else None
     name_col = mapping.name_column if mapping.name_column in header_set else None
 
-    if phone_col is None or name_col is None:
-        detected_phone, detected_name = _detect_columns(headers)
-        if phone_col is None:
-            phone_col = detected_phone
-        if name_col is None:
-            name_col = detected_name
+    # Restore Auto-Detection if not provided
+    if phone_col is None or email_col is None or name_col is None:
+        det_phone, det_email, det_name = _detect_columns(headers)
+        if phone_col is None: phone_col = det_phone
+        if email_col is None: email_col = det_email
+        if name_col is None: name_col = det_name
 
-    if phone_col is None:
-        # Last resort: try every column for phone-like values
-        for h in headers:
-            if any(
-                alias in _clean_header(h)
-                for alias in ("phone", "contact", "mobile", "number")
-            ):
-                phone_col = h
-                break
+    logger.info(
+        "contact_parser_columns_detected",
+        phone_col=phone_col,
+        email_col=email_col,
+        name_col=name_col,
+        all_headers=headers
+    )
+    print(f"🔎 MAPPED COLUMNS -> Phone: [{phone_col}], Email: [{email_col}], Name: [{name_col}]")
 
     valid: list[ContactRow] = []
     invalid: list[InvalidRow] = []
-    seen_phones: set[str] = set()
+    seen_identifiers: set[str] = set()  # Can be phone or email
     duplicate_count = 0
     suppressed_count = 0
 
     for i, row in enumerate(raw_rows, start=2):
         raw_phone = str(row.get(phone_col, "") or "").strip() if phone_col else ""
-        if not raw_phone or raw_phone.lower() in ("none", "null", "n/a", "-"):
-            invalid.append(InvalidRow(row_number=i, raw_phone="", reason="Empty phone"))
-            continue
+        raw_email = str(row.get(email_col, "") or "").strip() if email_col else ""
+        
+        normalized_phone = _normalize_phone(raw_phone) if raw_phone else None
+        normalized_email = _validate_email(raw_email) if raw_email else None
 
-        normalized = _normalize_phone(raw_phone)
-        if not normalized:
-            invalid.append(
-                InvalidRow(
-                    row_number=i, raw_phone=raw_phone, reason="Invalid phone number"
-                )
+        if i < 10: # Print first 10 rows
+            print(f"📍 ROW {i} -> Raw Email: '{raw_email}' | Parsed: '{normalized_email}'")
+            logger.info(
+                "contact_parser_row_debug",
+                row=i,
+                raw_phone=raw_phone,
+                norm_phone=normalized_phone,
+                raw_email=raw_email,
+                norm_email=normalized_email
             )
+
+        # Row is invalid if both are missing or syntactically wrong
+        if not normalized_phone and not normalized_email:
+            reason = "Missing or invalid phone and email"
+            if raw_phone and not normalized_phone: reason = f"Invalid phone: {raw_phone}"
+            elif raw_email and not normalized_email: reason = f"Invalid email: {raw_email}"
+            
+            invalid.append(InvalidRow(row_number=i, raw_value=raw_phone or raw_email or "EMPTY", reason=reason))
             continue
 
-        if normalized in seen_phones:
+        # Check duplicates (prefer phone for uniqueness if both present, else email)
+        identifier = normalized_phone or normalized_email
+        if identifier in seen_identifiers:
             duplicate_count += 1
             continue
-        seen_phones.add(normalized)
+        seen_identifiers.add(identifier)
 
-        if normalized in existing_phones:
+        # Suppression check
+        if normalized_phone and normalized_phone in existing_phones:
             suppressed_count += 1
             continue
 
@@ -176,7 +242,13 @@ async def parse_contacts(
             for var, col in (mapping.variable_columns or {}).items()
         }
 
-        valid.append(ContactRow(name=name, phone=normalized, variables=variables))
+        # Row must have 'email' key at top level for the Email Campaign validator
+        valid.append(ContactRow(
+            name=name, 
+            phone=normalized_phone, 
+            email=normalized_email,
+            variables=row
+        ))
 
     file_ref = str(uuid.uuid4())
     return PreflightResult(

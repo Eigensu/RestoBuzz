@@ -92,7 +92,7 @@ function SectionHeader({
 /* ─── Types ────────────────────────────────────────────────── */
 interface TemplateStat {
   name: string;
-  readRate: number;
+  openRate: number;
   sent: number;
   score: number;
 }
@@ -114,11 +114,16 @@ interface DashboardAnalytics {
     sent: number;
     delivered: number;
     read: number;
+    opened?: number;
+    clicked?: number;
+    bounced?: number;
     failed: number;
   };
   rates: {
     deliveryRate: number;
-    readRate: number;
+    openRate: number;
+    clickRate?: number;
+    bounceRate?: number;
     effectiveReach: number;
     failureRate: number;
   };
@@ -133,20 +138,16 @@ interface DashboardAnalytics {
   hourlyPerformance: HourlyStat[];
   ttrDistribution: TTRStat[];
   pieData: { name: string; value: number }[];
-  timeSeriesData: {
-    date: string;
-    sortKey: number;
-    sent: number;
-    delivered: number;
-    read: number;
-    failed: number;
-  }[];
+  timeSeriesData: any[];
 }
 
 /* ─── Main Component ────────────────────────────────────────── */
 
 export default function DashboardPage() {
   const { restaurant } = useAuthStore();
+  const [activeChannel, setActiveChannel] = React.useState<"whatsapp" | "email">(
+    "whatsapp",
+  );
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-campaigns", restaurant?.id],
@@ -162,7 +163,7 @@ export default function DashboardPage() {
     isLoading: analyticsLoading,
     isError: analyticsError,
   } = useQuery({
-    queryKey: ["dashboard-analytics", restaurant?.id],
+    queryKey: ["dashboard-analytics-wa", restaurant?.id],
     queryFn: () =>
       api
         .get(`/campaigns/analytics?restaurant_id=${restaurant?.id}`)
@@ -170,10 +171,23 @@ export default function DashboardPage() {
     enabled: !!restaurant,
   });
 
+  const {
+    data: emailAnalyticsData,
+    isLoading: emailLoading,
+    isError: emailError,
+  } = useQuery({
+    queryKey: ["dashboard-analytics-email", restaurant?.id],
+    queryFn: () =>
+      api
+        .get(`/email-campaigns/analytics?restaurant_id=${restaurant?.id}`)
+        .then((r) => r.data),
+    enabled: !!restaurant,
+  });
+
   const campaigns: Campaign[] = useMemo(() => data?.items ?? [], [data?.items]);
 
   // Data Aggregation & Decision Analytics Logic
-  const analytics: DashboardAnalytics | null = useMemo(() => {
+  const waAnalytics: DashboardAnalytics | null = useMemo(() => {
     if (!campaigns.length) return null;
 
     // Group campaigns by retry chains
@@ -230,7 +244,7 @@ export default function DashboardPage() {
     // 1. KPI Calculations
     const deliveryRate =
       totals.sent > 0 ? (totals.delivered / totals.sent) * 100 : 0;
-    const readRate =
+    const openRate =
       totals.delivered > 0 ? (totals.read / totals.delivered) * 100 : 0;
     const effectiveReach =
       totals.total > 0 ? (totals.read / totals.total) * 100 : 0;
@@ -267,8 +281,8 @@ export default function DashboardPage() {
         fill: GREEN_PALETTE.dark,
       },
       {
-        name: "Read",
-        display: `Read: ${totals.read.toLocaleString()}`,
+        name: "Opened",
+        display: `Opened: ${totals.read.toLocaleString()}`,
         value: totals.read,
         drop:
           totals.delivered > 0
@@ -281,13 +295,13 @@ export default function DashboardPage() {
     // 3. Template Leaderboard
     const templateMap: Record<
       string,
-      { read: number; delivered: number; sent: number; count: number }
+      { opened: number; delivered: number; sent: number; count: number }
     > = {};
     campaigns.forEach((c) => {
       const name = c.template_name || "Unknown";
       if (!templateMap[name])
-        templateMap[name] = { read: 0, delivered: 0, sent: 0, count: 0 };
-      templateMap[name].read += c.read_count;
+        templateMap[name] = { opened: 0, delivered: 0, sent: 0, count: 0 };
+      templateMap[name].opened += c.read_count;
       templateMap[name].delivered += c.delivered_count;
       templateMap[name].sent += c.sent_count;
       templateMap[name].count += 1;
@@ -296,10 +310,10 @@ export default function DashboardPage() {
     const templateLeaderboard = Object.entries(templateMap)
       .map(([name, stats]) => {
         const rate =
-          stats.delivered > 0 ? (stats.read / stats.delivered) * 100 : 0;
-        // Impact Score = read_rate * log(total_sent) to surface high-volume, high-performance templates
+          stats.delivered > 0 ? (stats.opened / stats.delivered) * 100 : 0;
+        // Impact Score = open_rate * log(total_sent) to surface high-volume, high-performance templates
         const score = rate * Math.log10(stats.sent + 1);
-        return { name, readRate: rate, sent: stats.sent, score };
+        return { name, openRate: rate, sent: stats.sent, score };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
@@ -402,7 +416,7 @@ export default function DashboardPage() {
 
     return {
       totals,
-      rates: { deliveryRate, readRate, effectiveReach, failureRate },
+      rates: { deliveryRate, openRate, effectiveReach, failureRate },
       funnelData,
       templateLeaderboard,
       failureBreakdown,
@@ -413,7 +427,91 @@ export default function DashboardPage() {
     };
   }, [campaigns, analyticsData, analyticsError]);
 
-  if (!restaurant || isLoading || analyticsLoading) {
+  const emailAnalytics: DashboardAnalytics | null = useMemo(() => {
+    if (!emailAnalyticsData || !emailAnalyticsData.totals) return null;
+
+    const {
+      totals,
+      delivery_rate,
+      open_rate,
+      click_rate,
+      bounce_rate,
+      failure_breakdown,
+    } = emailAnalyticsData;
+
+    return {
+      totals: {
+        total: (totals?.sent ?? 0) + (totals?.failed ?? 0),
+        sent: totals?.sent ?? 0,
+        delivered: totals?.delivered ?? 0,
+        read: totals?.opened ?? 0,
+        opened: totals?.opened ?? 0,
+        clicked: totals?.clicked ?? 0,
+        bounced: totals?.bounced ?? 0,
+        failed: totals?.failed ?? 0,
+      },
+      rates: {
+        deliveryRate: delivery_rate ?? 0,
+        openRate: open_rate ?? 0,
+        clickRate: click_rate ?? 0,
+        bounceRate: bounce_rate ?? 0,
+        effectiveReach: open_rate ?? 0,
+        failureRate:
+          ((totals?.failed ?? 0) /
+            ((totals?.sent ?? 0) + (totals?.failed ?? 0) || 1)) *
+          100,
+      },
+      funnelData: [
+        {
+          name: "Sent",
+          display: `Sent: ${totals.sent.toLocaleString()}`,
+          value: totals.sent,
+          drop: 0,
+          fill: GREEN_PALETTE.light,
+        },
+        {
+          name: "Delivered",
+          display: `Delivered: ${totals.delivered.toLocaleString()}`,
+          value: totals.delivered,
+          drop:
+            totals.sent > 0
+              ? ((totals.sent - totals.delivered) / totals.sent) * 100
+              : 0,
+          fill: GREEN_PALETTE.medium,
+        },
+        {
+          name: "Opened",
+          display: `Opened: ${totals.opened.toLocaleString()}`,
+          value: totals.opened,
+          drop:
+            totals.delivered > 0
+              ? ((totals.delivered - totals.opened) / totals.delivered) * 100
+              : 0,
+          fill: GREEN_PALETTE.dark,
+        },
+        {
+          name: "Clicked",
+          display: `Clicked: ${totals.clicked.toLocaleString()}`,
+          value: totals.clicked,
+          drop:
+            totals.opened > 0
+              ? ((totals.opened - totals.clicked) / totals.opened) * 100
+              : 0,
+          fill: GREEN_PALETTE.darkest,
+        },
+      ],
+      templateLeaderboard: [],
+      failureBreakdown: failure_breakdown || [],
+      hourlyPerformance: [],
+      ttrDistribution: [],
+      pieData: [],
+      timeSeriesData: [],
+    };
+  }, [emailAnalyticsData]);
+
+  const analytics = activeChannel === "whatsapp" ? waAnalytics : emailAnalytics;
+
+  if (!restaurant || isLoading || analyticsLoading || emailLoading) {
     return (
       <div className="h-[80vh] flex flex-col items-center justify-center text-gray-400 gap-4">
         <div className="w-12 h-12 border-4 border-gray-200 border-t-[#24422e] rounded-full animate-spin" />
@@ -478,21 +576,49 @@ export default function DashboardPage() {
             <span className="text-[#24422e] font-bold">{restaurant.name}</span>
           </p>
         </div>
+
+        <div className="flex bg-[#eff2f0] p-1 rounded-2xl w-fit">
+          <button
+            onClick={() => setActiveChannel("whatsapp")}
+            className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              activeChannel === "whatsapp"
+                ? "bg-white text-[#24422e] shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            WhatsApp
+          </button>
+          <button
+            onClick={() => setActiveChannel("email")}
+            className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${
+              activeChannel === "email"
+                ? "bg-white text-[#24422e] shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Email
+          </button>
+        </div>
+
         <Link
-          href="/campaigns/whatsapp/new"
+          href={
+            activeChannel === "whatsapp"
+              ? "/campaigns/whatsapp/new"
+              : "/campaigns/email/new"
+          }
           className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
           style={{ background: BRAND_GRADIENT }}
         >
           <Megaphone className="w-4 h-4" />
-          LAUNCH CAMPAIGN
+          LAUNCH {activeChannel.toUpperCase()}
         </Link>
       </div>
 
       {/* TOP ROW: KPI CARDS (3 Per Row) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         <StatCard
-          label="Campaigns"
-          value={campaigns.length}
+          label={activeChannel === "whatsapp" ? "WA Campaigns" : "Email Campaigns"}
+          value={activeChannel === "whatsapp" ? campaigns.length : (emailAnalyticsData?.totals?.sent ? 1 : 0)} // simplified for now
           subtitle="All time"
           icon={Megaphone}
           color="bg-gray-800"
@@ -500,34 +626,34 @@ export default function DashboardPage() {
         <StatCard
           label="Total Sent"
           value={totals.sent.toLocaleString()}
-          subtitle="Across all lines"
+          subtitle="Success broadcasts"
           icon={Send}
           color="bg-[#3a6b47]"
         />
         <StatCard
           label="Delivery Rate"
           value={`${rates.deliveryRate.toFixed(1)}%`}
-          subtitle="Sent vs Delivered"
+          subtitle="Across network"
           icon={CheckCheck}
           color="bg-[#509160]"
         />
         <StatCard
-          label="Read Rate"
-          value={`${rates.readRate.toFixed(1)}%`}
+          label={activeChannel === "whatsapp" ? "Read Rate" : "Open Rate"}
+          value={`${(activeChannel === "whatsapp" ? rates.openRate : rates.openRate || 0).toFixed(1)}%`}
           subtitle="Interaction velocity"
           icon={Eye}
           color="bg-[#24422e]"
         />
         <StatCard
-          label="Effective Reach"
-          value={`${rates.effectiveReach.toFixed(1)}%`}
-          subtitle="Read / Total Audience"
+          label={activeChannel === "whatsapp" ? "Effective Reach" : "Click Rate"}
+          value={`${(activeChannel === "whatsapp" ? rates.effectiveReach : rates.clickRate || 0).toFixed(1)}%`}
+          subtitle={activeChannel === "whatsapp" ? "Read / Total Audience" : "Clicks / Sent"}
           icon={TrendingUp}
           color="bg-[#6bb97b]"
         />
         <StatCard
-          label="Failure Rate"
-          value={`${rates.failureRate.toFixed(1)}%`}
+          label={activeChannel === "whatsapp" ? "Failure Rate" : "Bounce Rate"}
+          value={`${(activeChannel === "whatsapp" ? rates.failureRate : rates.bounceRate || 0).toFixed(1)}%`}
           subtitle="Critical drops"
           icon={AlertTriangle}
           color="bg-red-900/80"
@@ -541,7 +667,7 @@ export default function DashboardPage() {
             title="Where are we losing users?"
             subtitle="Conversion funnel analysis with drop-off impact"
           />
-          <div className="h-[400px] w-full">
+          <div className="h-[400px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <FunnelChart>
                 <Tooltip
@@ -575,36 +701,39 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
           <div className="mt-8 grid grid-cols-3 gap-4 border-t pt-6">
-            <div className="text-center">
-              <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
-                Total → Sent
-              </p>
-              <p
-                className={`text-sm font-bold ${funnelData[1].drop > 10 ? "text-red-500" : "text-green-600"}`}
-              >
-                {funnelData[1].drop.toFixed(1)}% Loss
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
-                Sent → Deliv
-              </p>
-              <p
-                className={`text-sm font-bold ${funnelData[2].drop > 10 ? "text-red-500" : "text-green-600"}`}
-              >
-                {funnelData[2].drop.toFixed(1)}% Loss
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
-                Deliv → Read
-              </p>
-              <p
-                className={`text-sm font-bold ${funnelData[3].drop > 50 ? "text-red-500" : "text-green-600"}`}
-              >
-                {funnelData[3].drop.toFixed(1)}% Loss
-              </p>
-            </div>
+            {(() => {
+              const stages = [
+                {
+                  label: activeChannel === "whatsapp" ? "Audience → Sent" : "Sent → Deliv",
+                  drop: activeChannel === "whatsapp" 
+                    ? funnelData.find(s => s.name === "Sent")?.drop 
+                    : funnelData.find(s => s.name === "Delivered")?.drop
+                },
+                {
+                  label: activeChannel === "whatsapp" ? "Sent → Deliv" : "Deliv → Opened",
+                  drop: activeChannel === "whatsapp"
+                    ? funnelData.find(s => s.name === "Delivered")?.drop
+                    : funnelData.find(s => s.name === "Opened")?.drop
+                },
+                {
+                  label: activeChannel === "whatsapp" ? "Deliv → Opened" : "Opened → Clicked",
+                  drop: activeChannel === "whatsapp"
+                    ? funnelData.find(s => s.name === "Opened")?.drop
+                    : funnelData.find(s => s.name === "Clicked")?.drop
+                }
+              ];
+
+              return stages.map((s) => (
+                <div key={s.label} className="text-center">
+                  <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
+                    {s.label}
+                  </p>
+                  <p className={`text-sm font-bold ${Number(s.drop) > 10 ? "text-red-500" : "text-green-600"}`}>
+                    {Number(s.drop).toFixed(1)}% Loss
+                  </p>
+                </div>
+              ));
+            })()}
           </div>
           <div className="mt-6 p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
             <TrendingUp className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
@@ -614,16 +743,16 @@ export default function DashboardPage() {
               </span>
               <br />
               {(() => {
-                const techLoss = funnelData[2].drop; // Sent -> Deliv
-                const contentLoss = funnelData[3].drop; // Deliv -> Read
+                const techLoss = Number(funnelData.find(s => s.name === "Delivered")?.drop || 0); // Sent -> Deliv
+                const contentLoss = Number(funnelData.find(s => s.name === "Opened")?.drop || 0); // Deliv -> Opened
 
                 if (techLoss > 10) {
                   return `You have a significant technical delivery gap (${techLoss.toFixed(1)}%). This usually points to invalid numbers or provider-level blocking—consider cleaning your customer list. `;
                 }
                 if (contentLoss > 50) {
-                  return `Messages are landing, but interest is low (${contentLoss.toFixed(1)}% loss). Your "Read Rate" is the primary bottleneck—try more engaging subject lines or direct offers. `;
+                  return `Messages are landing, but interaction is low (${contentLoss.toFixed(1)}% loss). Your "Open Rate" is the primary bottleneck—try more engaging content or better timing. `;
                 }
-                return `Your funnel is exceptionally healthy. With only a ${techLoss.toFixed(1)}% delivery loss and strong read-through, your targeting and timing are currently optimal. `;
+                return `Your funnel is exceptionally healthy. With only a ${techLoss.toFixed(1)}% delivery loss and strong conversion-through, your targeting is optimal. `;
               })()}
               <span className="font-bold">
                 The biggest interaction gap is at the{" "}
@@ -655,7 +784,7 @@ export default function DashboardPage() {
                   Template Name
                 </th>
                 <th className="pb-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">
-                  Read Rate
+                  Open Rate
                 </th>
                 <th className="pb-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest text-right">
                   Total Sent
@@ -678,14 +807,14 @@ export default function DashboardPage() {
                     {item.name}
                   </td>
                   <td className="py-4 text-right font-black text-[#509160]">
-                    {item.readRate.toFixed(1)}%
+                    {(item.openRate || 0).toFixed(1)}%
                   </td>
                   <td className="py-4 text-right font-medium text-gray-500">
                     {item.sent.toLocaleString()}
                   </td>
                   <td className="py-4 text-right">
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#eff2f0] rounded-full text-[#24422e] font-black text-xs">
-                      {item.score.toFixed(1)}
+                      {(item.score || 0).toFixed(1)}
                     </div>
                   </td>
                 </tr>
@@ -701,7 +830,7 @@ export default function DashboardPage() {
             </span>
             <br />
             The score is a balanced metric of{" "}
-            <span className="font-bold">Read Rate × Logarithmic Volume</span>.
+            <span className="font-bold">Open Rate × Logarithmic Volume</span>.
             This surfaces content that consistently performs well while ensuring
             high-volume campaigns that drive significant business results are
             prioritized in the rankings.
@@ -719,7 +848,9 @@ export default function DashboardPage() {
               &quot;{templateLeaderboard[0]?.name}&quot;
             </span>{" "}
             is currently the most effective, maintaining a{" "}
-            {templateLeaderboard[0]?.readRate.toFixed(1)}% engagement rate
+            <p className="text-gray-900 font-bold">
+              {(templateLeaderboard[0]?.openRate || 0).toFixed(1)}% engagement rate
+            </p>
             across {templateLeaderboard[0]?.sent.toLocaleString()} messages.
           </p>
         </div>
@@ -732,7 +863,7 @@ export default function DashboardPage() {
             icon={AlertTriangle}
             subtitle="Root causes for unsuccessful deliveries"
           />
-          <div className="h-[280px] w-full mt-4">
+          <div className="h-[280px] w-full mt-4 min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 layout="vertical"
@@ -825,35 +956,270 @@ export default function DashboardPage() {
       </div>
 
       {/* SECTION 5: TIME OPTIMIZATION */}
-      <div className="grid lg:grid-cols-2 gap-8">
+      {activeChannel === "whatsapp" && (
+        <div className="grid lg:grid-cols-2 gap-8">
+          <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
+            <SectionHeader
+              title="Engagement Window Analysis"
+              icon={Clock}
+              subtitle="Interaction density and read rate distribution"
+            />
+            <div className="h-[280px] w-full mt-4 min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={hourlyPerformance}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#f3f4f6"
+                  />
+                  <XAxis
+                    dataKey="hour"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fontWeight: 600 }}
+                    interval="preserveStartEnd"
+                    minTickGap={20}
+                    label={{
+                      value: "HOUR OF DAY",
+                      position: "insideBottom",
+                      offset: -20,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      fill: "#9ca3af",
+                    }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: "#9ca3af" }}
+                    domain={[0, 100]}
+                    label={{
+                      value: "READ RATE %",
+                      angle: -90,
+                      position: "insideLeft",
+                      offset: -5,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      fill: "#9ca3af",
+                    }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "#eff2f0" }}
+                    contentStyle={{
+                      borderRadius: "12px",
+                      border: "none",
+                      boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+                    }}
+                    formatter={(value) => [
+                      `${Number(value).toFixed(1)}%`,
+                      "Read Rate",
+                    ]}
+                  />
+                  <Bar
+                    dataKey="rate"
+                    name="rate"
+                    fill={GREEN_PALETTE.darkest}
+                    radius={[4, 4, 0, 0]}
+                  >
+                    {hourlyPerformance.map((entry: HourlyStat, index: number) => {
+                      const avgReadRate = rates.openRate || 0;
+                      const isWinningPeak =
+                        entry.rate >= avgReadRate &&
+                        entry.delivered > totals.delivered / 24;
+                      return (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={
+                            isWinningPeak
+                              ? GREEN_PALETTE.darkest
+                              : GREEN_PALETTE.dark
+                          }
+                        />
+                      );
+                    })}
+                    <LabelList
+                      dataKey="delivered"
+                      position="top"
+                      formatter={(v) =>
+                        typeof v === "number" && v > 0
+                          ? `${v.toLocaleString()}`
+                          : ""
+                      }
+                      style={{ fontSize: 10, fontWeight: 700, fill: "#6b7280" }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-6 p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
+              <Clock className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
+              <p className="text-[11px] leading-relaxed text-[#24422e] font-medium">
+                <span className="font-bold uppercase tracking-wider">
+                  Timing Insight:
+                </span>
+                <br />
+                {(() => {
+                  // Calculate a Weighted Engagement Score: Rate * Log(Volume + 1)
+                  // This ensures we pick hours with high volume AND high interaction.
+                  const peak = hourlyPerformance.reduce((prev, curr) => {
+                    const prevScore = prev.rate * Math.log10(prev.delivered + 1);
+                    const currScore = curr.rate * Math.log10(curr.delivered + 1);
+                    return currScore > prevScore ? curr : prev;
+                  }, hourlyPerformance[0]);
+
+                  return (
+                    <>
+                      <span className="font-bold">{peak.hour}</span> is your
+                      highest-impact window. This window achieved a
+                      <span className="font-bold">
+                        {" "}
+                        {peak.rate.toFixed(1)}% interaction
+                      </span>{" "}
+                      across
+                      <span className="font-bold">
+                        {" "}
+                        {peak.delivered.toLocaleString()} delivered messages
+                      </span>
+                      , making it your most statistically reliable time to
+                      broadcast.
+                    </>
+                  );
+                })()}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
+            <SectionHeader
+              title="Time-to-Read (TTR)"
+              icon={Clock}
+              subtitle="How fast users interact with messages"
+            />
+            <div className="h-[280px] w-full mt-4 min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={ttrDistribution}
+                  margin={{ top: 20, right: 30, left: 10, bottom: 40 }}
+                >
+                  <XAxis
+                    dataKey="range"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fontWeight: 700 }}
+                    label={{
+                      value: "TIME RANGE",
+                      position: "insideBottom",
+                      offset: -25,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      fill: "#9ca3af",
+                    }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fill: "#9ca3af" }}
+                    label={{
+                      value: "READ COUNT",
+                      angle: -90,
+                      position: "insideLeft",
+                      offset: 10,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      fill: "#9ca3af",
+                    }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "#eff2f0" }}
+                    contentStyle={{
+                      borderRadius: "12px",
+                      border: "none",
+                      boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+                    }}
+                    formatter={(value) => [value, "Total Reads"]}
+                  />
+                  <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
+                    {ttrDistribution.map((_entry: TTRStat, index: number) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={
+                          index === 0
+                            ? GREEN_PALETTE.darkest
+                            : GREEN_PALETTE.light
+                        }
+                      />
+                    ))}
+                    <LabelList
+                      dataKey="count"
+                      position="top"
+                      style={{ fontSize: 11, fontWeight: 800, fill: "#374151" }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-6 p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
+              <Eye className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
+              <p className="text-[11px] leading-relaxed text-[#24422e] font-medium">
+                <span className="font-bold uppercase tracking-wider">
+                  Interaction Peak Insight:
+                </span>
+                <br />
+                {(() => {
+                  const activeWindows = ttrDistribution.filter(
+                    (d) => d.range !== "Delayed (>24h)",
+                  );
+                  const peak = activeWindows.reduce(
+                    (prev, curr) => (curr.count > prev.count ? curr : prev),
+                    activeWindows[0] || ttrDistribution[0],
+                  );
+                  const prob = (peak.count / (totals.read || 1)) * 100;
+                  return (
+                    <>
+                      Apart from the delayed reads, the{" "}
+                      <span className="font-bold">{peak.range}</span> window shows
+                      your highest immediate interaction. This timeframe accounts
+                      for <span className="font-bold">{prob.toFixed(1)}%</span> of
+                      total interactions, indicating your most effective
+                      engagement zone for new broadcasts.
+                    </>
+                  );
+                })()}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeChannel === "whatsapp" && (
         <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
           <SectionHeader
-            title="Engagement Window Analysis"
-            icon={Clock}
-            subtitle="Interaction density and read rate distribution"
+            title="WhatsApp Delivery Trends"
+            icon={TrendingUp}
+            subtitle="Chronological performance tracking (Last 14 Days)"
           />
-          <div className="h-[280px] w-full mt-4">
+          <div className="h-[320px] w-full mt-4 min-w-0">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={hourlyPerformance}
-                margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
-              >
+              <LineChart data={timeSeriesData}>
                 <CartesianGrid
                   strokeDasharray="3 3"
                   vertical={false}
                   stroke="#f3f4f6"
                 />
                 <XAxis
-                  dataKey="hour"
+                  dataKey="date"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fontSize: 10, fontWeight: 600 }}
-                  interval="preserveStartEnd"
-                  minTickGap={20}
+                  tick={{ fontSize: 11, fill: "#9ca3af", fontWeight: 600 }}
+                  dy={10}
+                  minTickGap={30}
                   label={{
-                    value: "HOUR OF DAY",
-                    position: "insideBottom",
-                    offset: -20,
+                    value: "DATE",
+                    position: "insideBottomRight",
+                    offset: -10,
                     fontSize: 10,
                     fontWeight: 700,
                     fill: "#9ca3af",
@@ -863,313 +1229,80 @@ export default function DashboardPage() {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fill: "#9ca3af" }}
-                  domain={[0, 100]}
+                  width={80}
                   label={{
-                    value: "READ RATE %",
+                    value: "MESSAGE COUNT",
                     angle: -90,
-                    position: "insideLeft",
-                    offset: -5,
+                    position: "center",
                     fontSize: 10,
                     fontWeight: 700,
                     fill: "#9ca3af",
+                    dx: -35,
                   }}
                 />
                 <Tooltip
-                  cursor={{ fill: "#eff2f0" }}
                   contentStyle={{
                     borderRadius: "12px",
                     border: "none",
                     boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                   }}
-                  formatter={(value) => [
-                    `${Number(value).toFixed(1)}%`,
-                    "Read Rate",
-                  ]}
                 />
-                <Bar
-                  dataKey="rate"
-                  name="rate"
-                  fill={GREEN_PALETTE.darkest}
-                  radius={[4, 4, 0, 0]}
-                >
-                  {hourlyPerformance.map((entry: HourlyStat, index: number) => {
-                    const avgReadRate = rates.readRate || 0;
-                    const isWinningPeak =
-                      entry.rate >= avgReadRate &&
-                      entry.delivered > totals.delivered / 24;
-                    return (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={
-                          isWinningPeak
-                            ? GREEN_PALETTE.darkest
-                            : GREEN_PALETTE.dark
-                        }
-                      />
-                    );
-                  })}
-                  <LabelList
-                    dataKey="delivered"
-                    position="top"
-                    formatter={(v) =>
-                      typeof v === "number" && v > 0
-                        ? `${v.toLocaleString()}`
-                        : ""
-                    }
-                    style={{ fontSize: 10, fontWeight: 700, fill: "#6b7280" }}
-                  />
-                </Bar>
-              </BarChart>
+                <Legend
+                  iconType="circle"
+                  wrapperStyle={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    paddingTop: 20,
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="read"
+                  stroke={GREEN_PALETTE.darkest}
+                  strokeWidth={8}
+                  name="Read"
+                  dot={{ r: 6, fill: GREEN_PALETTE.darkest, strokeWidth: 0 }}
+                  activeDot={{ r: 9, strokeWidth: 0 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="delivered"
+                  stroke={GREEN_PALETTE.medium}
+                  strokeWidth={5}
+                  strokeDasharray="5 5"
+                  name="Delivered"
+                  dot={{ r: 4, fill: GREEN_PALETTE.medium, strokeWidth: 0 }}
+                  activeDot={{ r: 7, strokeWidth: 0 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="sent"
+                  stroke={GREEN_PALETTE.light}
+                  strokeWidth={2}
+                  strokeDasharray="2 4"
+                  name="Sent"
+                  dot={{ r: 2, fill: GREEN_PALETTE.light, strokeWidth: 0 }}
+                  activeDot={{ r: 4, strokeWidth: 0 }}
+                />
+              </LineChart>
             </ResponsiveContainer>
           </div>
           <div className="mt-6 p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
-            <Clock className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
+            <TrendingUp className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
             <p className="text-[11px] leading-relaxed text-[#24422e] font-medium">
               <span className="font-bold uppercase tracking-wider">
-                Timing Insight:
+                Trend Insight:
               </span>
               <br />
-              {(() => {
-                // Calculate a Weighted Engagement Score: Rate * Log(Volume + 1)
-                // This ensures we pick hours with high volume AND high interaction.
-                const peak = hourlyPerformance.reduce((prev, curr) => {
-                  const prevScore = prev.rate * Math.log10(prev.delivered + 1);
-                  const currScore = curr.rate * Math.log10(curr.delivered + 1);
-                  return currScore > prevScore ? curr : prev;
-                }, hourlyPerformance[0]);
-
-                return (
-                  <>
-                    <span className="font-bold">{peak.hour}</span> is your
-                    highest-impact window. This window achieved a
-                    <span className="font-bold">
-                      {" "}
-                      {peak.rate.toFixed(1)}% interaction
-                    </span>{" "}
-                    across
-                    <span className="font-bold">
-                      {" "}
-                      {peak.delivered.toLocaleString()} delivered messages
-                    </span>
-                    , making it your most statistically reliable time to
-                    broadcast.
-                  </>
-                );
-              })()}
+              Your campaigns have generated{" "}
+              <span className="font-bold">
+                {totals.read.toLocaleString()} total interactions
+              </span>{" "}
+              over the last period, indicating a healthy engagement baseline.
             </p>
           </div>
         </div>
-
-        <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
-          <SectionHeader
-            title="Time-to-Read (TTR)"
-            icon={Clock}
-            subtitle="How fast users interact with messages"
-          />
-          <div className="h-[280px] w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={ttrDistribution}
-                margin={{ top: 20, right: 30, left: 10, bottom: 40 }}
-              >
-                <XAxis
-                  dataKey="range"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fontWeight: 700 }}
-                  label={{
-                    value: "TIME RANGE",
-                    position: "insideBottom",
-                    offset: -25,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    fill: "#9ca3af",
-                  }}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  label={{
-                    value: "READ COUNT",
-                    angle: -90,
-                    position: "insideLeft",
-                    offset: 10,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    fill: "#9ca3af",
-                  }}
-                />
-                <Tooltip
-                  cursor={{ fill: "#eff2f0" }}
-                  contentStyle={{
-                    borderRadius: "12px",
-                    border: "none",
-                    boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                  }}
-                  formatter={(value) => [value, "Total Reads"]}
-                />
-                <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
-                  {ttrDistribution.map((_entry: TTRStat, index: number) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={
-                        index === 0
-                          ? GREEN_PALETTE.darkest
-                          : GREEN_PALETTE.light
-                      }
-                    />
-                  ))}
-                  <LabelList
-                    dataKey="count"
-                    position="top"
-                    style={{ fontSize: 11, fontWeight: 800, fill: "#374151" }}
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-6 p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
-            <Eye className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
-            <p className="text-[11px] leading-relaxed text-[#24422e] font-medium">
-              <span className="font-bold uppercase tracking-wider">
-                Interaction Peak Insight:
-              </span>
-              <br />
-              {(() => {
-                const activeWindows = ttrDistribution.filter(
-                  (d) => d.range !== "Delayed (>24h)",
-                );
-                const peak = activeWindows.reduce(
-                  (prev, curr) => (curr.count > prev.count ? curr : prev),
-                  activeWindows[0] || ttrDistribution[0],
-                );
-                const prob = (peak.count / (totals.read || 1)) * 100;
-                return (
-                  <>
-                    Apart from the delayed reads, the{" "}
-                    <span className="font-bold">{peak.range}</span> window shows
-                    your highest immediate interaction. This timeframe accounts
-                    for <span className="font-bold">{prob.toFixed(1)}%</span> of
-                    total interactions, indicating your most effective
-                    engagement zone for new broadcasts.
-                  </>
-                );
-              })()}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 6: HISTORICAL TREND (Fixed) */}
-      <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
-        <SectionHeader
-          title="WhatsApp Delivery Trends"
-          icon={TrendingUp}
-          subtitle="Chronological performance tracking (Last 14 Days)"
-        />
-        <div className="h-[320px] w-full mt-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={timeSeriesData}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                vertical={false}
-                stroke="#f3f4f6"
-              />
-              <XAxis
-                dataKey="date"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "#9ca3af", fontWeight: 600 }}
-                dy={10}
-                minTickGap={30}
-                label={{
-                  value: "DATE",
-                  position: "insideBottomRight",
-                  offset: -10,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  fill: "#9ca3af",
-                }}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "#9ca3af" }}
-                width={80}
-                label={{
-                  value: "MESSAGE COUNT",
-                  angle: -90,
-                  position: "center",
-                  fontSize: 10,
-                  fontWeight: 700,
-                  fill: "#9ca3af",
-                  dx: -35,
-                }}
-              />
-              <Tooltip
-                contentStyle={{
-                  borderRadius: "12px",
-                  border: "none",
-                  boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                }}
-              />
-              <Legend
-                iconType="circle"
-                wrapperStyle={{
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  paddingTop: 20,
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="read"
-                stroke={GREEN_PALETTE.darkest}
-                strokeWidth={8}
-                name="Read"
-                dot={{ r: 6, fill: GREEN_PALETTE.darkest, strokeWidth: 0 }}
-                activeDot={{ r: 9, strokeWidth: 0 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="delivered"
-                stroke={GREEN_PALETTE.medium}
-                strokeWidth={5}
-                strokeDasharray="5 5"
-                name="Delivered"
-                dot={{ r: 4, fill: GREEN_PALETTE.medium, strokeWidth: 0 }}
-                activeDot={{ r: 7, strokeWidth: 0 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="sent"
-                stroke={GREEN_PALETTE.light}
-                strokeWidth={2}
-                strokeDasharray="2 4"
-                name="Sent"
-                dot={{ r: 2, fill: GREEN_PALETTE.light, strokeWidth: 0 }}
-                activeDot={{ r: 4, strokeWidth: 0 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="mt-6 p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
-          <TrendingUp className="w-4 h-4 text-[#24422e] mt-0.5 shrink-0" />
-          <p className="text-[11px] leading-relaxed text-[#24422e] font-medium">
-            <span className="font-bold uppercase tracking-wider">
-              Trend Insight:
-            </span>
-            <br />
-            Your campaigns have generated{" "}
-            <span className="font-bold">
-              {totals.read.toLocaleString()} total interactions
-            </span>{" "}
-            over the last 7-day tracking period, indicating a healthy engagement
-            baseline.
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
