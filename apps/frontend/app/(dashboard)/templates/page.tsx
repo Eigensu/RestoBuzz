@@ -6,7 +6,7 @@ import { useAuthStore } from "@/store/auth";
 import type { Template, EmailTemplate } from "@/types";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
-import { BRAND_GRADIENT, GREEN } from "@/lib/brand";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   Plus,
   FileText,
@@ -261,69 +261,81 @@ export default function UnifiedTemplatesPage() {
               filterStatus={waFilterStatus}
               onFilterChange={setWaFilterStatus}
             />
-            {isWaLoading ? (
-               <div className="h-64 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 animate-spin text-[#24422e]" />
-               </div>
-            ) : waTemplates.length === 0 ? (
-              <TemplateEmptyState />
-            ) : (
-              <TemplateGrid templates={filteredWa} />
-            )}
+            {(() => {
+              if (isWaLoading) {
+                return (
+                  <div className="h-64 flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-[#24422e]" />
+                  </div>
+                );
+              }
+              if (waTemplates.length === 0) {
+                return <TemplateEmptyState />;
+              }
+              return <TemplateGrid templates={filteredWa} />;
+            })()}
           </div>
         ) : (
           <div className="space-y-6">
-            {isEmailLoading ? (
-              <div className="h-64 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-[#24422e]" />
-              </div>
-            ) : emailTemplates.length === 0 ? (
-              <div className="bg-white rounded-xl border">
-                <EmptyState
-                  icon={Mail}
-                  title="No email templates yet"
-                  description="Design on Resend and click 'Sync' or create one manually."
-                />
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {emailTemplates.map((t) => (
-                  <div key={t.id} className="bg-white rounded-xl border p-5 hover:shadow-md transition group relative overflow-hidden">
-                    {t.synced_from === "resend" && (
-                      <div className="absolute top-0 right-0 bg-[#24422e] text-white text-[10px] font-black px-2 py-0.5 rounded-bl-lg uppercase tracking-tighter">
-                        Synced
-                      </div>
-                    )}
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h3 className="font-bold text-gray-900 line-clamp-1">{t.name}</h3>
-                        <p className="text-[10px] text-gray-400 mt-0.5 font-bold uppercase tracking-wider">
-                          v{t.version} &middot; Updated {formatDistanceToNow(new Date(t.updated_at.endsWith("Z") ? t.updated_at : t.updated_at + "Z"), { addSuffix: true })}
-                        </p>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => handleEmailPreview(t)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition" title="Preview"><Eye className="w-4 h-4"/></button>
-                        <button onClick={() => openEmailEditor(t)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition" title="Edit"><Pencil className="w-4 h-4"/></button>
-                        <button onClick={() => { if (confirm("Delete template?")) deleteEmailMutation.mutate(t.id); }} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition" title="Delete"><Trash2 className="w-4 h-4"/></button>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500 mb-2 font-medium line-clamp-1">
-                      <span className="text-gray-400 font-bold uppercase text-[10px] mr-1">Subject:</span> {t.subject}
-                    </p>
-                    {t.variables.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {t.variables.map((v) => (
-                          <span key={v.key} className="inline-flex items-center gap-0.5 text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded-full font-black uppercase">
-                            <Variable className="w-3 h-3" />
-                            {v.key}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+            {(() => {
+              if (isEmailLoading) {
+                return (
+                  <div className="h-64 flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-[#24422e]" />
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              }
+              if (emailTemplates.length === 0) {
+                return (
+                  <div className="bg-white rounded-xl border">
+                    <EmptyState
+                      icon={Mail}
+                      title="No email templates yet"
+                      description="Design on Resend and click 'Sync' or create one manually."
+                    />
+                  </div>
+                );
+              }
+              return (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {emailTemplates.map((t) => (
+                    <div key={t.id} className="bg-white rounded-xl border p-5 hover:shadow-md transition group relative overflow-hidden">
+                      {t.synced_from === "resend" && (
+                        <div className="absolute top-0 right-0 bg-[#24422e] text-white text-[10px] font-black px-2 py-0.5 rounded-bl-lg uppercase tracking-tighter">
+                          Synced
+                        </div>
+                      )}
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h3 className="font-bold text-gray-900 line-clamp-1">{t.name}</h3>
+                          <p className="text-[10px] text-gray-400 mt-0.5 font-bold uppercase tracking-wider">
+                            v{t.version} &middot; Updated {formatDistanceToNow(new Date(t.updated_at.endsWith("Z") ? t.updated_at : t.updated_at + "Z"), { addSuffix: true })}
+                          </p>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => handleEmailPreview(t)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition" title="Preview"><Eye className="w-4 h-4"/></button>
+                          <button onClick={() => openEmailEditor(t)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition" title="Edit"><Pencil className="w-4 h-4"/></button>
+                          <button onClick={() => { if (confirm("Delete template?")) deleteEmailMutation.mutate(t.id); }} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition" title="Delete"><Trash2 className="w-4 h-4"/></button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mb-2 font-medium line-clamp-1">
+                        <span className="text-gray-400 font-bold uppercase text-[10px] mr-1">Subject:</span> {t.subject}
+                      </p>
+                      {t.variables.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {t.variables.map((v) => (
+                            <span key={v.key} className="inline-flex items-center gap-0.5 text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded-full font-black uppercase">
+                              <Variable className="w-3 h-3" />
+                              {v.key}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -345,22 +357,22 @@ export default function UnifiedTemplatesPage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 divide-x h-full">
                 <div className="p-6 space-y-5">
                   <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Template Name *</label>
-                    <input type="text" value={emailName} onChange={(e) => setEmailName(e.target.value)} className="w-full px-3 py-2.5 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#24422e]/20" />
+                    <label htmlFor="emailName" className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Template Name *</label>
+                    <input id="emailName" type="text" value={emailName} onChange={(e) => setEmailName(e.target.value)} className="w-full px-3 py-2.5 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#24422e]/20" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Subject Line *</label>
-                    <input type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="w-full px-3 py-2.5 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#24422e]/20" />
+                    <label htmlFor="emailSubject" className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Subject Line *</label>
+                    <input id="emailSubject" type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="w-full px-3 py-2.5 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#24422e]/20" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1 flex items-center gap-1"><Code className="w-3 h-3"/> HTML Body *</label>
-                    <textarea value={emailHtml} onChange={(e) => setEmailHtml(e.target.value)} rows={10} className="w-full px-3 py-2.5 border rounded-xl text-sm font-mono focus:ring-2 focus:ring-[#24422e]/20 resize-none h-64" />
+                    <label htmlFor="emailHtml" className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1 flex items-center gap-1"><Code className="w-3 h-3"/> HTML Body *</label>
+                    <textarea id="emailHtml" value={emailHtml} onChange={(e) => setEmailHtml(e.target.value)} rows={10} className="w-full px-3 py-2.5 border rounded-xl text-sm font-mono focus:ring-2 focus:ring-[#24422e]/20 resize-none h-64" />
                   </div>
 
                    {/* Template Variables Section */}
                    <div>
                     <div className="flex items-center justify-between mb-2">
-                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block flex items-center gap-1">Template Variables</label>
+                       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block flex items-center gap-1">Template Variables</span>
                        <button onClick={() => setEmailVariables([...emailVariables, { key: "", type: "string", fallback_value: "" }])} className="text-xs text-[#24422e] font-bold hover:underline">+ Add Variable</button>
                     </div>
                     <div className="space-y-2">
@@ -377,7 +389,7 @@ export default function UnifiedTemplatesPage() {
                 <div className="bg-gray-50 p-6 flex flex-col min-h-[400px]">
                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Live Preview</span>
                   <div className="bg-white rounded-xl shadow-sm border flex-1 overflow-hidden">
-                    <iframe title="Preview" srcDoc={emailHtml} className="w-full h-full border-0" />
+                    <iframe title="Preview" srcDoc={emailHtml} sandbox="" className="w-full h-full border-0" />
                   </div>
                 </div>
               </div>
@@ -408,7 +420,7 @@ export default function UnifiedTemplatesPage() {
               <button onClick={() => setShowPreview(false)} className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 transition"><X className="w-5 h-5"/></button>
             </div>
             <div className="flex-1 overflow-hidden">
-              <iframe title="Template Preview" srcDoc={previewHtml} className="w-full h-full bg-white border-0" />
+              <iframe title="Template Preview" srcDoc={previewHtml} sandbox="" className="w-full h-full bg-white border-0" />
             </div>
           </div>
         </div>

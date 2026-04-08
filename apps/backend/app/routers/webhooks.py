@@ -283,40 +283,32 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
     if not email_id or new_status is None:
         return {"status": "ok"}
 
+    await _process_resend_status_update(db, email_id, new_status, event_type, svix_id, data)
+    return {"status": "ok"}
+
+
+async def _process_resend_status_update(db, email_id, new_status, event_type, svix_id, data):
     now = datetime.now(timezone.utc)
+    status_order = ["queued", "sending", "sent", "delivered", "opened", "clicked"]
+    terminal_statuses = {"bounced", "failed", "complained", "suppressed"}
 
-    # Status progression order — only advance, never regress
-    _STATUS_ORDER = ["queued", "sending", "sent", "delivered", "opened", "clicked"]
+    status_query = {
+        "resend_email_id": email_id,
+        "status": {"$nin": list(terminal_statuses)},
+    }
 
-    # 3. Update the email_log only if new_status is strictly ahead of current
+    if new_status in status_order:
+        status_query["status"]["$in"] = status_order[: status_order.index(new_status)]
+
     result = await db.email_logs.find_one_and_update(
-        {
-            "resend_email_id": email_id,
-            "$or": [
-                # Always allow terminal statuses (bounced/failed/complained/suppressed)
-                {"status": {"$nin": _STATUS_ORDER}},
-                # For ordered statuses, only advance
-                {
-                    "status": {
-                        "$in": (
-                            _STATUS_ORDER[: _STATUS_ORDER.index(new_status)]
-                            if new_status in _STATUS_ORDER
-                            else _STATUS_ORDER
-                        )
-                    }
-                },
-            ],
-        },
+        status_query,
         {
             "$set": {"status": new_status, "updated_at": now},
             "$push": {
                 "status_history": {
                     "status": new_status,
                     "timestamp": now,
-                    "meta": {
-                        "event_type": event_type,
-                        "svix_id": svix_id,
-                    },
+                    "meta": {"event_type": event_type, "svix_id": svix_id},
                 }
             },
         },
@@ -324,42 +316,47 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
     )
 
     if result:
-        # 4. Update campaign counters
-        counter_field = _RESEND_COUNTER_MAP.get(new_status)
-        if counter_field:
-            await db.email_campaign_jobs.update_one(
-                {"_id": result["campaign_id"]},
-                {"$inc": {counter_field: 1}},
-            )
+        await _update_campaign_counters(db, result, new_status)
+        await _handle_error_reporting(db, result, new_status, data)
+        await _handle_auto_suppression(db, result, new_status, data)
 
-        # 5. Store error details for bounces/failures
-        if new_status in ("bounced", "failed"):
-            bounce_info = data.get("bounce", {})
-            error_reason = (
-                bounce_info.get("message")
-                or data.get("error", {}).get("message")
-                or f"Email {new_status}"
-            )
-            await db.email_logs.update_one(
-                {"_id": result["_id"]},
-                {"$set": {"error_reason": error_reason}},
-            )
 
-        # 6. Auto-suppress bounces and complaints
-        if new_status in ("bounced", "complained"):
-            from app.services.email_suppression import add_email_suppression
+async def _update_campaign_counters(db, log, new_status):
+    counter_field = _RESEND_COUNTER_MAP.get(new_status)
+    if counter_field:
+        await db.email_campaign_jobs.update_one(
+            {"_id": log["campaign_id"]},
+            {"$inc": {counter_field: 1}},
+        )
 
-            bounce_type = data.get("bounce", {}).get("type", "")
-            reason = (
-                "complaint"
-                if new_status == "complained"
-                else ("soft_bounce" if bounce_type == "Transient" else "hard_bounce")
-            )
-            await add_email_suppression(db, result["recipient_email"], reason=reason)
-            logger.info(
-                "email_auto_suppressed",
-                email=result["recipient_email"],
-                reason=reason,
-            )
 
-    return {"status": "ok"}
+async def _handle_error_reporting(db, log, new_status, data):
+    if new_status in ("bounced", "failed"):
+        bounce_info = data.get("bounce", {})
+        error_reason = (
+            bounce_info.get("message")
+            or data.get("error", {}).get("message")
+            or f"Email {new_status}"
+        )
+        await db.email_logs.update_one(
+            {"_id": log["_id"]},
+            {"$set": {"error_reason": error_reason}},
+        )
+
+
+async def _handle_auto_suppression(db, log, new_status, data):
+    if new_status in ("bounced", "complained"):
+        from app.services.email_suppression import add_email_suppression
+
+        bounce_type = data.get("bounce", {}).get("type", "")
+        reason = (
+            "complaint"
+            if new_status == "complained"
+            else ("soft_bounce" if bounce_type == "Transient" else "hard_bounce")
+        )
+        await add_email_suppression(db, log["recipient_email"], reason=reason)
+        logger.info(
+            "email_auto_suppressed",
+            email=log["recipient_email"],
+            reason=reason,
+        )

@@ -126,7 +126,13 @@ async def _send_one(task: Task, email_log_id: str) -> None:
             return
 
         # Rate limit (centralized via Redis)
-        allowed = await acquire_token(redis, waba_id="resend")
+        from app.config import settings
+        allowed = await acquire_token(
+            redis,
+            waba_id="resend",
+            capacity=settings.resend_rate_limit,
+            refill_rate=settings.resend_rate_limit,
+        )
         if not allowed:
             await db.email_logs.update_one(
                 {"_id": ObjectId(email_log_id)},
@@ -192,7 +198,7 @@ async def _send_one(task: Task, email_log_id: str) -> None:
             )
 
             # Auto-complete check
-            await _check_completion(db, campaign_id, job)
+            await _check_completion(db, campaign_id)
 
             logger.info(
                 "email_sent",
@@ -218,7 +224,7 @@ async def _send_one(task: Task, email_log_id: str) -> None:
                 await db.email_campaign_jobs.update_one(
                     {"_id": campaign_id}, {"$inc": {"failed_count": 1}}
                 )
-                await _check_completion(db, campaign_id, job)
+                await _check_completion(db, campaign_id)
 
     finally:
         await redis.aclose()
@@ -245,7 +251,7 @@ async def _fail_email(db, email_log_id: str, reason: str) -> None:
     )
 
 
-async def _check_completion(db, campaign_id, job: dict) -> None:
+async def _check_completion(db, campaign_id) -> None:
     """Auto-transition campaign to completed/partial_failure when all messages are processed."""
     updated_job = await db.email_campaign_jobs.find_one({"_id": campaign_id})
     if not updated_job:

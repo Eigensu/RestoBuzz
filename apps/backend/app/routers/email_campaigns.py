@@ -48,6 +48,7 @@ logger = get_logger(__name__)
 _MATCH = "$match"
 _GROUP = "$group"
 _SORT = "$sort"
+_COND = "$cond"
 
 
 def _serialize_campaign(doc: dict) -> EmailCampaignResponse:
@@ -99,7 +100,73 @@ async def list_email_campaigns(
     )
 
 
-# ── Create Campaign ──────────────────────────────────────────────────────────
+async def _resolve_email_template(db: AsyncIOMotorDatabase, template_id: str):
+    template = await db.email_templates.find_one({"_id": to_object_id(template_id)})
+    if not template:
+        raise TemplateNotFoundError(f"Email template '{template_id}' not found")
+    return template
+
+
+async def _resolve_contacts(body_contact_file_ref: str, db: AsyncIOMotorDatabase):
+    from redis.asyncio import from_url
+
+    raw = None
+    try:
+        redis = from_url(settings.redis_url, decode_responses=True)
+        raw = await redis.get(f"file_ref:{body_contact_file_ref}")
+        await redis.aclose()
+    except Exception as e:
+        logger.warning(
+            "email_campaign_create_cache_unavailable",
+            error=str(e),
+            file_ref=body_contact_file_ref,
+        )
+
+    if not raw:
+        doc = await db.contact_files.find_one(
+            {"result.file_ref": body_contact_file_ref}
+        )
+        if not doc:
+            raise ContactFileExpiredError(
+                "Contact file reference expired or not found. Please re-upload."
+            )
+        return doc["result"]["valid_rows"]
+    return json.loads(raw)
+
+
+def _prepare_and_validate_contacts(contacts, template):
+    if not contacts:
+        raise ValidationError("No contacts found in the uploaded file")
+
+    initial_count = len(contacts)
+    seen_emails = set()
+    deduped_contacts = []
+    for c in contacts:
+        email = c.get("email", "").strip().lower()
+        if email and email not in seen_emails:
+            seen_emails.add(email)
+            deduped_contacts.append(c)
+
+    if not deduped_contacts:
+        raise ValidationError(
+            f"None of the {initial_count} uploaded contacts have a valid or unique email address."
+        )
+
+    required_vars = [
+        v["key"]
+        for v in template.get("variables", [])
+        if v.get("fallback_value") is None
+    ]
+    if required_vars:
+        sample = deduped_contacts[0]
+        available_keys = set(sample.get("variables", {}).keys())
+        missing = [k for k in required_vars if k not in available_keys]
+        if missing:
+            raise ValidationError(
+                f"Contacts are missing required template variables: {', '.join(missing)}"
+            )
+    return deduped_contacts
+
 
 @router.post("", response_model=EmailCampaignResponse, status_code=201)
 async def create_email_campaign(
@@ -109,74 +176,13 @@ async def create_email_campaign(
 ):
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
-    # 1. Resolve template
-    template = await db.email_templates.find_one(
-        {"_id": to_object_id(body.template_id)}
-    )
-    if not template:
-        raise TemplateNotFoundError(
-            f"Email template '{body.template_id}' not found"
-        )
-
-    # 2. Resolve contacts from Redis cache or MongoDB fallback
-    from redis.asyncio import from_url
-
-    raw = None
-    try:
-        redis = from_url(settings.redis_url, decode_responses=True)
-        raw = await redis.get(f"file_ref:{body.contact_file_ref}")
-        await redis.aclose()
-    except Exception as e:
-        logger.warning(
-            "email_campaign_create_cache_unavailable",
-            error=str(e),
-            file_ref=body.contact_file_ref,
-        )
-
-    if not raw:
-        doc = await db.contact_files.find_one(
-            {"result.file_ref": body.contact_file_ref}
-        )
-        if not doc:
-            raise ContactFileExpiredError(
-                "Contact file reference expired or not found. Please re-upload."
-            )
-        contacts = doc["result"]["valid_rows"]
-    else:
-        contacts = json.loads(raw)
-
-    # 3. Validate contacts have email column
-    if not contacts:
-        raise ValidationError("No contacts found in the uploaded file")
-    
-    initial_count = len(contacts)
-
-    # Filter for contacts that actually have an email address
-    contacts = [c for c in contacts if c.get("email")]
-
-    if not contacts:
-        raise ValidationError(
-            f"None of the {initial_count} uploaded contacts have a valid email address. Please check your 'email' column."
-        )
-
-    # 4. Validate required template variables exist in contacts
-    required_vars = [
-        v["key"]
-        for v in template.get("variables", [])
-        if v.get("fallback_value") is None
-    ]
-    if required_vars:
-        sample = contacts[0]
-        available_keys = set(sample.get("variables", {}).keys())
-        missing = [k for k in required_vars if k not in available_keys]
-        if missing:
-            raise ValidationError(
-                f"Contacts are missing required template variables: {', '.join(missing)}"
-            )
+    template = await _resolve_email_template(db, body.template_id)
+    contacts = await _resolve_contacts(body.contact_file_ref, db)
+    contacts = _prepare_and_validate_contacts(contacts, template)
 
     now = datetime.now(timezone.utc)
 
-    # 5. Create the campaign job (Manual start)
+    # Create the campaign job (Manual start)
     job_doc = {
         "restaurant_id": body.restaurant_id,
         "name": body.name,
@@ -205,7 +211,7 @@ async def create_email_campaign(
     result = await db.email_campaign_jobs.insert_one(job_doc)
     campaign_id = result.inserted_id
 
-    # 6. Create initial logs
+    # Create initial logs
     email_logs = []
     for c in contacts:
         email_logs.append(
@@ -228,7 +234,6 @@ async def create_email_campaign(
         try:
             await db.email_logs.insert_many(email_logs, ordered=False)
         except Exception as e:
-            # If compound unique constraint fires, some dupes were skipped
             if "duplicate key" not in str(e).lower():
                 await db.email_campaign_jobs.delete_one({"_id": campaign_id})
                 logger.error(
@@ -288,7 +293,7 @@ async def get_email_analytics(
                     "total": {"$sum": 1},
                     "sent": {
                         "$sum": {
-                            "$cond": [
+                            _COND: [
                                 {"$in": ["$status", ["sent", "delivered", "opened", "clicked"]]},
                                 1,
                                 0,
@@ -297,7 +302,7 @@ async def get_email_analytics(
                     },
                     "delivered": {
                         "$sum": {
-                            "$cond": [
+                            _COND: [
                                 {"$in": ["$status", ["delivered", "opened", "clicked"]]},
                                 1,
                                 0,
@@ -305,20 +310,26 @@ async def get_email_analytics(
                         }
                     },
                     "opened": {
-                        "$sum": {"$cond": [{"$eq": ["$status", "opened"]}, 1, 0]}
+                        "$sum": {
+                            _COND: [
+                                {"$in": ["$status", ["opened", "clicked"]]},
+                                1,
+                                0,
+                            ]
+                        }
                     },
                     "clicked": {
-                        "$sum": {"$cond": [{"$eq": ["$status", "clicked"]}, 1, 0]}
+                        "$sum": {_COND: [{"$eq": ["$status", "clicked"]}, 1, 0]}
                     },
                     "bounced": {
-                        "$sum": {"$cond": [{"$eq": ["$status", "bounced"]}, 1, 0]}
+                        "$sum": {_COND: [{"$eq": ["$status", "bounced"]}, 1, 0]}
                     },
                     "failed": {
-                        "$sum": {"$cond": [{"$eq": ["$status", "failed"]}, 1, 0]}
+                        "$sum": {_COND: [{"$eq": ["$status", "failed"]}, 1, 0]}
                     },
                     "complained": {
                         "$sum": {
-                            "$cond": [{"$eq": ["$status", "complained"]}, 1, 0]
+                            _COND: [{"$eq": ["$status", "complained"]}, 1, 0]
                         }
                     },
                 }

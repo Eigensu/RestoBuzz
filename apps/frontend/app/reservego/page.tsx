@@ -112,8 +112,9 @@ function LoginForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-3 w-full max-w-sm">
       <div className={fieldWrap}>
-        <label className={fieldLabel}>Username</label>
+        <label htmlFor="username" className={fieldLabel}>Username</label>
         <input
+          id="username"
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -123,8 +124,9 @@ function LoginForm({
         />
       </div>
       <div className={fieldWrap}>
-        <label className={fieldLabel}>Password</label>
+        <label htmlFor="password" className={fieldLabel}>Password</label>
         <input
+          id="password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -369,10 +371,11 @@ function UploadForm({
       {/* Date range */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-[#eff2f0] px-3 py-2 rounded-[9px]">
-          <label className="block text-[10px] text-gray-400 font-medium mb-0.5">
+          <label htmlFor="dataFrom" className="block text-[10px] text-gray-400 font-medium mb-0.5">
             Data from
           </label>
           <input
+            id="dataFrom"
             type="date"
             value={dataFrom}
             onChange={(e) => setDataFrom(e.target.value)}
@@ -380,10 +383,11 @@ function UploadForm({
           />
         </div>
         <div className="bg-[#eff2f0] px-3 py-2 rounded-[9px]">
-          <label className="block text-[10px] text-gray-400 font-medium mb-0.5">
+          <label htmlFor="dataUntil" className="block text-[10px] text-gray-400 font-medium mb-0.5">
             Data until
           </label>
           <input
+            id="dataUntil"
             type="date"
             value={dataUntil}
             onChange={(e) => setDataUntil(e.target.value)}

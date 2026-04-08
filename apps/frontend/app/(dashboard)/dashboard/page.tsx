@@ -30,8 +30,6 @@ import {
   Legend,
   BarChart,
   Bar,
-  AreaChart,
-  Area,
 } from "recharts";
 
 import { BRAND_GRADIENT, GREEN as GREEN_PALETTE } from "@/lib/brand";
@@ -124,7 +122,6 @@ interface DashboardAnalytics {
   rates: {
     deliveryRate: number;
     openRate: number;
-    openRate?: number;
     clickRate?: number;
     bounceRate?: number;
     effectiveReach: number;
@@ -456,7 +453,6 @@ export default function DashboardPage() {
       rates: {
         deliveryRate: delivery_rate ?? 0,
         openRate: open_rate ?? 0,
-        openRate: open_rate ?? 0,
         clickRate: click_rate ?? 0,
         bounceRate: bounce_rate ?? 0,
         effectiveReach: open_rate ?? 0,
@@ -642,7 +638,7 @@ export default function DashboardPage() {
           color="bg-[#509160]"
         />
         <StatCard
-          label={activeChannel === "whatsapp" ? "Open Rate" : "Open Rate"}
+          label={activeChannel === "whatsapp" ? "Read Rate" : "Open Rate"}
           value={`${(activeChannel === "whatsapp" ? rates.openRate : rates.openRate || 0).toFixed(1)}%`}
           subtitle="Interaction velocity"
           icon={Eye}
@@ -727,8 +723,8 @@ export default function DashboardPage() {
                 }
               ];
 
-              return stages.map((s, i) => (
-                <div key={i} className="text-center">
+              return stages.map((s) => (
+                <div key={s.label} className="text-center">
                   <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
                     {s.label}
                   </p>

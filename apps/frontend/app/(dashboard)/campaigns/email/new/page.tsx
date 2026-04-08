@@ -90,7 +90,7 @@ export default function NewEmailCampaignPage() {
   };
 
   // Use members as contacts
-  const useMembersAsContacts = async (type: "all" | "nfc" | "ecard") => {
+  const handleUseMembersAsContacts = async (type: "all" | "nfc" | "ecard") => {
     setLoadingMembers(true);
     try {
       const params = new URLSearchParams({ restaurant_id: restaurant!.id });
@@ -289,24 +289,32 @@ export default function NewEmailCampaignPage() {
                     )}
                   </div>
                   <div className="flex-1 overflow-y-auto p-8 flex items-start justify-center bg-gray-50/30">
-                    {!selectedTemplate ? (
-                      <div className="text-center text-gray-400 my-auto">
-                        <Eye className="w-12 h-12 opacity-10 mx-auto mb-4" />
-                        <p className="text-sm font-medium">Select a template to initialize preview</p>
-                      </div>
-                    ) : !previewHtml ? (
-                      <div className="flex flex-col items-center gap-3 my-auto">
-                        <Loader2 className="w-8 h-8 animate-spin text-[#24422e]" />
-                        <span className="text-xs font-bold text-gray-400 uppercase tracking-tighter">Compiling Template...</span>
-                      </div>
-                    ) : (
-                      <div className="bg-white rounded-xl shadow-2xl border border-gray-100 w-full max-w-[800px] min-h-full overflow-hidden mx-auto">
-                        <div
-                          className="p-8"
-                          dangerouslySetInnerHTML={{ __html: previewHtml }}
-                        />
-                      </div>
-                    )}
+                    {(() => {
+                      if (!selectedTemplate) {
+                        return (
+                          <div className="text-center text-gray-400 my-auto">
+                            <Eye className="w-12 h-12 opacity-10 mx-auto mb-4" />
+                            <p className="text-sm font-medium">Select a template to initialize preview</p>
+                          </div>
+                        );
+                      }
+                      if (!previewHtml) {
+                        return (
+                          <div className="flex flex-col items-center gap-3 my-auto">
+                            <Loader2 className="w-8 h-8 animate-spin text-[#24422e]" />
+                            <span className="text-xs font-bold text-gray-400 uppercase tracking-tighter">Compiling Template...</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="bg-white rounded-xl shadow-2xl border border-gray-100 w-full max-w-[800px] min-h-full overflow-hidden mx-auto">
+                          <div
+                            className="p-8"
+                            dangerouslySetInnerHTML={{ __html: previewHtml }}
+                          />
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -315,10 +323,11 @@ export default function NewEmailCampaignPage() {
             {selectedTemplate && (
               <div className="space-y-3 pt-4 border-t">
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 block mb-1">
+                  <label htmlFor="subjectLine" className="text-xs font-semibold text-gray-600 block mb-1">
                     Subject Line (editable)
                   </label>
                   <input
+                    id="subjectLine"
                     type="text"
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
@@ -442,7 +451,7 @@ export default function NewEmailCampaignPage() {
                     <button
                       key={type}
                       onClick={() =>
-                        useMembersAsContacts(type as "all" | "nfc" | "ecard")
+                        handleUseMembersAsContacts(type as "all" | "nfc" | "ecard")
                       }
                       disabled={loadingMembers}
                       className="flex items-center justify-center gap-2 py-3 rounded-xl border hover:bg-gray-50 transition text-sm font-medium text-gray-700 disabled:opacity-50"
@@ -500,10 +509,11 @@ export default function NewEmailCampaignPage() {
             <h2 className="text-lg font-bold text-gray-900">Review & Launch</h2>
 
             <div>
-              <label className="text-xs font-semibold text-gray-600 block mb-1">
+              <label htmlFor="campaignName" className="text-xs font-semibold text-gray-600 block mb-1">
                 Campaign Name *
               </label>
               <input
+                id="campaignName"
                 type="text"
                 value={campaignName}
                 onChange={(e) => setCampaignName(e.target.value)}

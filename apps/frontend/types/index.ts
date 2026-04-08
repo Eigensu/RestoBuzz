@@ -196,6 +196,7 @@ export interface EmailTemplate {
     fallback_value: string | number | null;
   }>;
   version: number;
+  synced_from: string | null;
   is_active: boolean;
   created_by: string;
   created_at: string;
