@@ -17,4 +17,5 @@ export const MESSAGE_STATUS_COLORS: Record<MessageStatus, string> = {
   [MessageStatus.DELIVERED]: "bg-emerald-100 text-emerald-700",
   [MessageStatus.READ]: "bg-purple-100 text-purple-700",
   [MessageStatus.FAILED]: "bg-red-100 text-red-700",
+  [MessageStatus.CANCELLED]: "bg-gray-100 text-gray-500",
 };

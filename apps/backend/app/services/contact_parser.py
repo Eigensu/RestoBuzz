@@ -1,6 +1,5 @@
 import csv
 import io
-import json
 import uuid
 import re
 import phonenumbers
@@ -105,7 +104,7 @@ def _normalize_phone(raw: str, default_region: str = "IN") -> str | None:
             return phonenumbers.format_number(
                 parsed, phonenumbers.PhoneNumberFormat.E164
             )
-    except Exception:
+    except (phonenumbers.NumberParseException, TypeError, ValueError):
         pass
     # Try prepending + if it looks like a full number without it
     if raw.isdigit() and len(raw) >= 10:
@@ -115,7 +114,7 @@ def _normalize_phone(raw: str, default_region: str = "IN") -> str | None:
                 return phonenumbers.format_number(
                     parsed, phonenumbers.PhoneNumberFormat.E164
                 )
-        except Exception:
+        except (phonenumbers.NumberParseException, TypeError, ValueError):
             pass
     return None
 
@@ -178,18 +177,23 @@ async def parse_contacts(
     # Restore Auto-Detection if not provided
     if phone_col is None or email_col is None or name_col is None:
         det_phone, det_email, det_name = _detect_columns(headers)
-        if phone_col is None: phone_col = det_phone
-        if email_col is None: email_col = det_email
-        if name_col is None: name_col = det_name
+        if phone_col is None:
+            phone_col = det_phone
+        if email_col is None:
+            email_col = det_email
+        if name_col is None:
+            name_col = det_name
 
     logger.info(
         "contact_parser_columns_detected",
         phone_col=phone_col,
         email_col=email_col,
         name_col=name_col,
-        all_headers=headers
+        all_headers=headers,
     )
-    print(f"🔎 MAPPED COLUMNS -> Phone: [{phone_col}], Email: [{email_col}], Name: [{name_col}]")
+    print(
+        f"🔎 MAPPED COLUMNS -> Phone: [{phone_col}], Email: [{email_col}], Name: [{name_col}]"
+    )
 
     valid: list[ContactRow] = []
     invalid: list[InvalidRow] = []
@@ -200,28 +204,38 @@ async def parse_contacts(
     for i, row in enumerate(raw_rows, start=2):
         raw_phone = str(row.get(phone_col, "") or "").strip() if phone_col else ""
         raw_email = str(row.get(email_col, "") or "").strip() if email_col else ""
-        
+
         normalized_phone = _normalize_phone(raw_phone) if raw_phone else None
         normalized_email = _validate_email(raw_email) if raw_email else None
 
-        if i < 10: # Print first 10 rows
-            print(f"📍 ROW {i} -> Raw Email: '{raw_email}' | Parsed: '{normalized_email}'")
+        if i < 10:  # Print first 10 rows
+            print(
+                f"📍 ROW {i} -> Raw Email: '{raw_email}' | Parsed: '{normalized_email}'"
+            )
             logger.info(
                 "contact_parser_row_debug",
                 row=i,
                 raw_phone=raw_phone,
                 norm_phone=normalized_phone,
                 raw_email=raw_email,
-                norm_email=normalized_email
+                norm_email=normalized_email,
             )
 
         # Row is invalid if both are missing or syntactically wrong
         if not normalized_phone and not normalized_email:
             reason = "Missing or invalid phone and email"
-            if raw_phone and not normalized_phone: reason = f"Invalid phone: {raw_phone}"
-            elif raw_email and not normalized_email: reason = f"Invalid email: {raw_email}"
-            
-            invalid.append(InvalidRow(row_number=i, raw_value=raw_phone or raw_email or "EMPTY", reason=reason))
+            if raw_phone and not normalized_phone:
+                reason = f"Invalid phone: {raw_phone}"
+            elif raw_email and not normalized_email:
+                reason = f"Invalid email: {raw_email}"
+
+            invalid.append(
+                InvalidRow(
+                    row_number=i,
+                    raw_value=raw_phone or raw_email or "EMPTY",
+                    reason=reason,
+                )
+            )
             continue
 
         # Check duplicates (prefer phone for uniqueness if both present, else email)
@@ -239,16 +253,19 @@ async def parse_contacts(
         name = str(row.get(name_col, "") or "").strip() if name_col else ""
         variables = {
             var: str(row.get(col, "") or "").strip()
-            for var, col in (mapping.variable_columns or {}).items()
+            for var, col in mapping.variable_columns.items()
+            if str(row.get(col, "") or "").strip()
         }
 
         # Row must have 'email' key at top level for the Email Campaign validator
-        valid.append(ContactRow(
-            name=name, 
-            phone=normalized_phone, 
-            email=normalized_email,
-            variables=row
-        ))
+        valid.append(
+            ContactRow(
+                name=name,
+                phone=normalized_phone,
+                email=normalized_email,
+                variables=variables,
+            )
+        )
 
     file_ref = str(uuid.uuid4())
     return PreflightResult(

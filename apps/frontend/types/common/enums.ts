@@ -5,6 +5,7 @@ export enum MessageStatus {
   DELIVERED = "delivered",
   READ = "read",
   FAILED = "failed",
+  CANCELLED = "cancelled",
 }
 
 export enum CampaignStatus {

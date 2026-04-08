@@ -253,23 +253,28 @@ export function NewCampaignWizard() {
       <div className="space-y-4">
         {step === 3 && (
           <div className="rounded-xl border border-[#24422e]/20 bg-[#f7fbf8] p-4">
-            <p className="text-sm font-medium text-[#24422e]">Send Test Message</p>
+            <p className="text-sm font-medium text-[#24422e]">
+              Send Test Message
+            </p>
             <p className="mt-1 text-xs text-gray-600">
-              Send a test to one phone number before launching the full campaign.
+              Send a test to one phone number before launching the full
+              campaign.
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
                 value={testPhone}
                 onChange={(e) => setTestPhone(e.target.value)}
                 placeholder="Enter test phone number"
-                className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none ring-0 transition focus:border-[#24422e]"
+                className="h-10 w-full flex-1 rounded-lg border border-gray-300 px-3 text-sm outline-none ring-0 transition focus:border-[#24422e]"
               />
               <GradientButton
                 onClick={() => sendTestMutation.mutate()}
                 disabled={
-                  sendTestMutation.isPending || !testPhone.trim() || !selectedTemplate
+                  sendTestMutation.isPending ||
+                  !testPhone.trim() ||
+                  !selectedTemplate
                 }
-                className="h-10 px-4 text-sm"
+                className="h-10 min-w-30 whitespace-nowrap px-4 text-sm"
               >
                 {sendTestMutation.isPending ? "Sending..." : "Send Test"}
               </GradientButton>
@@ -278,30 +283,30 @@ export function NewCampaignWizard() {
         )}
 
         <div className="flex justify-between">
-        <button
-          onClick={() => setStep((s) => s - 1)}
-          disabled={step === 0}
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#24422e] disabled:opacity-30 transition"
-        >
-          <ChevronLeft className="w-4 h-4" /> Back
-        </button>
-        {step < 3 ? (
-          <GradientButton
-            onClick={() => setStep((s) => s + 1)}
-            disabled={!canNext}
-            className="px-4 py-2 text-sm"
+          <button
+            onClick={() => setStep((s) => s - 1)}
+            disabled={step === 0}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#24422e] disabled:opacity-30 transition"
           >
-            Next <ChevronRight className="w-4 h-4" />
-          </GradientButton>
-        ) : (
-          <GradientButton
-            onClick={() => createMutation.mutate()}
-            disabled={createMutation.isPending || !campaignName}
-            className="px-6 py-2 text-sm"
-          >
-            {createMutation.isPending ? "Creating..." : "🚀 Launch Campaign"}
-          </GradientButton>
-        )}
+            <ChevronLeft className="w-4 h-4" /> Back
+          </button>
+          {step < 3 ? (
+            <GradientButton
+              onClick={() => setStep((s) => s + 1)}
+              disabled={!canNext}
+              className="px-4 py-2 text-sm"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </GradientButton>
+          ) : (
+            <GradientButton
+              onClick={() => createMutation.mutate()}
+              disabled={createMutation.isPending || !campaignName}
+              className="px-6 py-2 text-sm"
+            >
+              {createMutation.isPending ? "Creating..." : "🚀 Launch Campaign"}
+            </GradientButton>
+          )}
         </div>
       </div>
     </div>

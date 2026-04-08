@@ -505,11 +505,34 @@ async def cancel_campaign(
             "_id": to_object_id(campaign_id),
             "status": {"$in": ["draft", "queued", "running", "paused"]},
         },
-        {"$set": {"status": "cancelled"}},
+        {
+            "$set": {
+                "status": "cancelled",
+                "completed_at": datetime.now(timezone.utc),
+            }
+        },
         return_document=True,
     )
     if not doc:
         raise ValidationError("Campaign cannot be cancelled in its current state")
+
+    await db.message_logs.update_many(
+        {"job_id": to_object_id(campaign_id), "status": {"$in": ["queued", "sending"]}},
+        {
+            "$set": {
+                "status": "cancelled",
+                "locked_until": None,
+                "updated_at": datetime.now(timezone.utc),
+            },
+            "$push": {
+                "status_history": {
+                    "status": "cancelled",
+                    "timestamp": datetime.now(timezone.utc),
+                    "meta": {"reason": "campaign_cancelled"},
+                }
+            },
+        },
+    )
     return _serialize_campaign(doc)
 
 
