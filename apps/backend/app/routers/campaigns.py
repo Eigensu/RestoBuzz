@@ -18,16 +18,20 @@ from app.core.logging import get_logger
 from app.core.errors import (
     CampaignNotFoundError,
     ContactFileExpiredError,
-    RedisError,
     ServerError,
     ValidationError,
 )
 from app.models.campaign import CampaignCreate, CampaignResponse, CampaignListResponse
+from app.models.campaign import (
+    CampaignTestMessageRequest,
+    CampaignTestMessageResponse,
+)
 from app.models.message import (
     MessageLogListResponse,
     MessageLogResponse,
     StatusHistoryEntry,
 )
+from app.services.meta_api import send_template_message
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 logger = get_logger(__name__)
@@ -97,6 +101,7 @@ async def create_campaign(
     # Validate access manually since it's in the body
     await validate_restaurant_access(current_user, body.restaurant_id, db)
     from redis.asyncio import from_url
+    from redis.exceptions import RedisError as RedisClientError
     from app.config import settings
 
     raw = None
@@ -104,13 +109,19 @@ async def create_campaign(
         redis = from_url(settings.redis_url, decode_responses=True)
         raw = await redis.get(f"file_ref:{body.contact_file_ref}")
         await redis.aclose()
-    except Exception as e:
-        logger.warning("campaign_create_cache_unavailable", error=str(e), file_ref=body.contact_file_ref)
+    except (RedisClientError, OSError) as e:
+        logger.warning(
+            "campaign_create_cache_unavailable",
+            error=str(e),
+            file_ref=body.contact_file_ref,
+        )
         # Proceed to fallback
 
     if not raw:
         # FALLBACK: Check MongoDB directly if Redis is down or cache expired
-        doc = await db.contact_files.find_one({"result.file_ref": body.contact_file_ref})
+        doc = await db.contact_files.find_one(
+            {"result.file_ref": body.contact_file_ref}
+        )
         if not doc:
             raise ContactFileExpiredError(
                 "Contact file reference expired or not found. Please re-upload your contacts."
@@ -181,6 +192,39 @@ async def create_campaign(
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
+
+
+@router.post("/test-message", response_model=CampaignTestMessageResponse)
+async def send_test_message(
+    body: CampaignTestMessageRequest,
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    await validate_restaurant_access(current_user, body.restaurant_id, db)
+
+    # Reuse the template's configured language when available.
+    template_doc = await db.templates.find_one(
+        {"name": body.template_name}, {"language": 1}
+    )
+    language = (template_doc or {}).get("language") or "en_US"
+
+    to_phone = body.to_phone.strip()
+    if not to_phone:
+        raise ValidationError("Phone number is required")
+
+    wa_message_id, endpoint_used = await send_template_message(
+        to=to_phone,
+        template_name=body.template_name,
+        variables=body.template_variables,
+        media_url=body.media_url,
+        language=language,
+    )
+    resolved_endpoint = "fallback" if endpoint_used == "fallback" else "primary"
+
+    return CampaignTestMessageResponse(
+        wa_message_id=wa_message_id,
+        endpoint_used=resolved_endpoint,
+    )
 
 
 @router.get("/analytics")

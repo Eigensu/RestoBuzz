@@ -51,6 +51,7 @@ export function NewCampaignWizard() {
   // Step 3
   const [campaignName, setCampaignName] = useState("");
   const [includeUnsub, setIncludeUnsub] = useState(true);
+  const [testPhone, setTestPhone] = useState("");
 
   const {
     data: apiTemplates,
@@ -160,6 +161,23 @@ export function NewCampaignWizard() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
+  const sendTestMutation = useMutation({
+    mutationFn: () =>
+      api.post("/campaigns/test-message", {
+        restaurant_id: restaurant?.id ?? "",
+        to_phone: testPhone.trim(),
+        template_name: selectedTemplate?.name ?? "",
+        template_variables: variables,
+        media_url: mediaUrl || null,
+      }),
+    onSuccess: (res) => {
+      toast.success(
+        `Test message sent via ${res.data.endpoint_used} (${res.data.wa_message_id})`,
+      );
+    },
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
+  });
+
   const bodyVars =
     selectedTemplate?.components
       .find((c) => c.type === "BODY")
@@ -232,7 +250,34 @@ export function NewCampaignWizard() {
       </div>
 
       {/* Navigation */}
-      <div className="flex justify-between">
+      <div className="space-y-4">
+        {step === 3 && (
+          <div className="rounded-xl border border-[#24422e]/20 bg-[#f7fbf8] p-4">
+            <p className="text-sm font-medium text-[#24422e]">Send Test Message</p>
+            <p className="mt-1 text-xs text-gray-600">
+              Send a test to one phone number before launching the full campaign.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+                placeholder="Enter test phone number"
+                className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none ring-0 transition focus:border-[#24422e]"
+              />
+              <GradientButton
+                onClick={() => sendTestMutation.mutate()}
+                disabled={
+                  sendTestMutation.isPending || !testPhone.trim() || !selectedTemplate
+                }
+                className="h-10 px-4 text-sm"
+              >
+                {sendTestMutation.isPending ? "Sending..." : "Send Test"}
+              </GradientButton>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-between">
         <button
           onClick={() => setStep((s) => s - 1)}
           disabled={step === 0}
@@ -257,6 +302,7 @@ export function NewCampaignWizard() {
             {createMutation.isPending ? "Creating..." : "🚀 Launch Campaign"}
           </GradientButton>
         )}
+        </div>
       </div>
     </div>
   );
