@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import re
 from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query
@@ -41,6 +42,39 @@ _MATCH = "$match"
 _GROUP = "$group"
 _SORT = "$sort"
 _CREATED_AT = "$created_at"
+_BODY_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
+
+
+def _template_body_var_keys(template_doc: dict | None) -> set[str]:
+    if not template_doc:
+        return set()
+
+    components = template_doc.get("components") or []
+    keys: set[str] = set()
+    for component in components:
+        if component.get("type") != "BODY":
+            continue
+        text = str(component.get("text") or "")
+        keys.update(_BODY_VAR_RE.findall(text))
+    return keys
+
+
+def _sanitize_template_variables(
+    variables: dict | None, allowed_keys: set[str]
+) -> dict:
+    if not variables or not allowed_keys:
+        return {}
+
+    cleaned: dict[str, str] = {}
+    for key, value in variables.items():
+        normalized_key = str(key).strip()
+        if normalized_key not in allowed_keys:
+            continue
+        normalized_value = str(value).strip()
+        if not normalized_value:
+            continue
+        cleaned[normalized_key] = normalized_value
+    return cleaned
 
 
 def _serialize_campaign(doc: dict) -> CampaignResponse:
@@ -130,6 +164,14 @@ async def create_campaign(
     else:
         contacts = json.loads(raw)
 
+    template_doc = await db.templates.find_one(
+        {"name": body.template_name}, {"components": 1}
+    )
+    allowed_var_keys = _template_body_var_keys(template_doc)
+    campaign_template_variables = _sanitize_template_variables(
+        body.template_variables, allowed_var_keys
+    )
+
     now = datetime.now(timezone.utc)
 
     job_doc = {
@@ -137,7 +179,7 @@ async def create_campaign(
         "name": body.name,
         "template_id": body.template_id,
         "template_name": body.template_name,
-        "template_variables": body.template_variables,
+        "template_variables": campaign_template_variables,
         "media_url": body.media_url,
         "priority": body.priority,
         "status": "draft",
@@ -162,7 +204,10 @@ async def create_campaign(
             "recipient_phone": c["phone"],
             "recipient_name": c.get("name", ""),
             "template_name": body.template_name,
-            "template_variables": {**body.template_variables, **c.get("variables", {})},
+            "template_variables": _sanitize_template_variables(
+                {**campaign_template_variables, **c.get("variables", {})},
+                allowed_var_keys,
+            ),
             "media_url": body.media_url,
             "wa_message_id": None,
             "status": "queued",
@@ -204,9 +249,13 @@ async def send_test_message(
 
     # Reuse the template's configured language when available.
     template_doc = await db.templates.find_one(
-        {"name": body.template_name}, {"language": 1}
+        {"name": body.template_name}, {"language": 1, "components": 1}
     )
     language = (template_doc or {}).get("language") or "en_US"
+    allowed_var_keys = _template_body_var_keys(template_doc)
+    request_variables = _sanitize_template_variables(
+        body.template_variables, allowed_var_keys
+    )
 
     to_phone = body.to_phone.strip()
     if not to_phone:
@@ -215,7 +264,7 @@ async def send_test_message(
     wa_message_id, endpoint_used = await send_template_message(
         to=to_phone,
         template_name=body.template_name,
-        variables=body.template_variables,
+        variables=request_variables,
         media_url=body.media_url,
         language=language,
     )
