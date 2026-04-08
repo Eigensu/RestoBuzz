@@ -70,15 +70,19 @@ def _build_payload(
         body_params = [{"type": "text", "text": v} for v in variables.values()]
         components.append({"type": "body", "parameters": body_params})
 
+    template_obj = {
+        "name": template_name,
+        "language": {"code": language},
+    }
+    if components:
+        template_obj["components"] = components
+
     return {
         "messaging_product": "whatsapp",
+        "recipient_type": "individual",
         "to": to,
         "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": language},
-            "components": components,
-        },
+        "template": template_obj,
     }
 
 
@@ -306,6 +310,7 @@ async def send_text_message(to: str, body: str, phone_id: str, token: str) -> st
     url = f"{META_BASE}/{phone_id}/messages"
     payload = {
         "messaging_product": "whatsapp",
+        "recipient_type": "individual",
         "to": to,
         "type": "text",
         "text": {"body": body},
