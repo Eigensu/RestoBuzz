@@ -7,8 +7,7 @@ import { parseApiError } from "@/lib/errors";
 import { AddSuppressionForm } from "@/components/contacts/molecules/AddSuppressionForm";
 import { SuppressionRow } from "@/components/contacts/molecules/SuppressionRow";
 
-import { ShieldAlert, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ShieldAlert } from "lucide-react";
  
  type Reason = "opt_out" | "blocked" | "bounce";
  

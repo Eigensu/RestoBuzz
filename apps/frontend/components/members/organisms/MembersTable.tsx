@@ -9,6 +9,15 @@ interface MembersTableProps {
   onAddFirst: () => void;
 }
 
+const HEADERS = [
+  { key: "member", label: "Member" },
+  { key: "type", label: "Type" },
+  { key: "card_id", label: "Card ID" },
+  { key: "visits", label: "Visits" },
+  { key: "joined", label: "Joined" },
+  { key: "actions", label: "" },
+];
+
 export function MembersTable({
   members,
   total,
@@ -35,12 +44,12 @@ export function MembersTable({
       <table className="w-full text-left">
         <thead>
           <tr className="border-b border-gray-50 bg-[#eff2f0]/30">
-            {["Member", "Type", "Card ID", "Visits", "Joined", ""].map((h) => (
+            {HEADERS.map((h) => (
               <th
-                key={h}
+                key={h.key}
                 className="px-6 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest"
               >
-                {h}
+                {h.label}
               </th>
             ))}
           </tr>

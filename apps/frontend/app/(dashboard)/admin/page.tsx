@@ -126,6 +126,7 @@ function AdminUserRow({
 export default function AdminPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const _hydrated = useAuthStore((s) => s._hydrated);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -133,30 +134,31 @@ export default function AdminPage() {
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
 
-  const isSuperAdmin = user?.role === "super_admin";
+  const authResolved = _hydrated && user !== undefined;
+  const isSuperAdmin = authResolved && user?.role === "super_admin";
 
-  const { data: admins = [], isLoading } = useQuery<AdminUser[]>({
+  const { data: admins, isLoading, isError: isAdminsError } = useQuery<AdminUser[]>({
     queryKey: ["admin-users"],
     queryFn: () => api.get("/admin/users").then((r) => r.data),
     enabled: isSuperAdmin,
   });
 
-  const { data: restaurants = [] } = useQuery<Restaurant[]>({
+  const { data: restaurants, isError: isRestaurantsError } = useQuery<Restaurant[]>({
     queryKey: ["admin-restaurants"],
     queryFn: getRestaurants,
     enabled: isSuperAdmin,
   });
 
-  const { data: assignmentsByUser = {}, isLoading: loadingAssignments } =
+  const { data: assignmentsByUser, isLoading: loadingAssignments, isError: isAssignmentsError } =
     useQuery<Record<string, Restaurant[]>>({
       queryKey: [
         "admin-user-restaurant-links",
-        restaurants.map((r) => r.id).sort(),
+        (restaurants || []).map((r) => r.id).sort(),
       ],
-      enabled: isSuperAdmin && restaurants.length > 0,
+      enabled: isSuperAdmin && !!restaurants?.length,
       queryFn: async () => {
-        const results = await Promise.all(
-          restaurants.map(async (restaurant) => {
+        const results = await Promise.allSettled(
+          restaurants!.map(async (restaurant) => {
             const { data } = await api.get<RestaurantUserRole[]>(
               `/restaurants/${restaurant.id}/users`,
             );
@@ -164,11 +166,21 @@ export default function AdminPage() {
           }),
         );
 
+        const errors = results
+          .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+          .map((r) => r.reason?.message || "Unknown error");
+
+        if (errors.length > 0) {
+          throw new Error(`Failed to load some assignments: ${errors.join(", ")}`);
+        }
+
         const map: Record<string, Restaurant[]> = {};
         for (const result of results) {
-          for (const row of result.users) {
-            if (!map[row.user_id]) map[row.user_id] = [];
-            map[row.user_id].push(result.restaurant);
+          if (result.status === "fulfilled") {
+            for (const row of result.value.users) {
+              if (!map[row.user_id]) map[row.user_id] = [];
+              map[row.user_id].push(result.value.restaurant);
+            }
           }
         }
 
@@ -215,13 +227,21 @@ export default function AdminPage() {
     onError: (err: unknown) => toast.error(parseApiError(err).message),
   });
 
+  if (!authResolved) {
+    return (
+      <div className="max-w-2xl mx-auto p-4 md:p-8">
+        <p className="text-sm text-gray-500">Verifying access...</p>
+      </div>
+    );
+  }
+
   if (!isSuperAdmin) {
     return (
       <div className="max-w-2xl mx-auto p-4 md:p-8">
         <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
           <h1 className="text-lg font-bold text-red-700">Access denied</h1>
           <p className="text-sm text-red-600 mt-1">
-            Only super admins can create new admin users.
+            Only super admins can access this page.
           </p>
         </div>
       </div>
@@ -233,7 +253,14 @@ export default function AdminPage() {
     tableContent = (
       <div className="px-5 py-6 text-sm text-gray-500">Loading admins...</div>
     );
-  } else if (admins.length === 0) {
+  } else if (isAdminsError || isAssignmentsError || isRestaurantsError) {
+    tableContent = (
+      <div className="px-5 py-6 text-sm text-red-500 bg-red-50/50 rounded-xl m-4 border border-red-100">
+        <p className="font-semibold mb-1">Failed to load administration data</p>
+        <p>There was an error communicating with the server. Please try refreshing.</p>
+      </div>
+    );
+  } else if (!admins || admins.length === 0) {
     tableContent = (
       <div className="px-5 py-6 text-sm text-gray-500">No admin users found.</div>
     );
@@ -257,8 +284,8 @@ export default function AdminPage() {
               <AdminUserRow
                 key={a.id}
                 admin={a}
-                restaurants={restaurants}
-                assignments={assignmentsByUser[a.id] ?? []}
+                restaurants={restaurants || []}
+                assignments={(assignmentsByUser || {})[a.id] ?? []}
                 loadingAssignments={loadingAssignments}
                 onLink={(userId, restaurantId) =>
                   linkRestaurant.mutate({ userId, restaurantId })

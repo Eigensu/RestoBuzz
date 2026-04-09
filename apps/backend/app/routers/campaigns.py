@@ -305,6 +305,7 @@ async def get_analytics(
 
     if not campaign_ids:
         return {
+            "totals": {"sent": 0, "delivered": 0, "read": 0, "failed": 0},
             "failure_breakdown": [],
             "ttr_distribution": [
                 {"range": "0-5 min", "count": 0},
@@ -324,7 +325,33 @@ async def get_analytics(
 
     base_match = {"job_id": {"$in": campaign_ids}}
 
-    # ── 1. Failure Breakdown ──────────────────────────────────────────────────
+    # ── 1. Totals ─────────────────────────────────────────────────────────────
+    totals_cursor = db.campaign_jobs.aggregate(
+        [
+            {_MATCH: {"restaurant_id": validated_rid}},
+            {
+                _GROUP: {
+                    "_id": None,
+                    "sent": {"$sum": "$sent_count"},
+                    "delivered": {"$sum": "$delivered_count"},
+                    "read": {"$sum": "$read_count"},
+                    "failed": {"$sum": "$failed_count"},
+                    "total_campaigns": {"$sum": 1},
+                }
+            },
+        ]
+    )
+    totals_list = await totals_cursor.to_list(1)
+    totals_dict = totals_list[0] if totals_list else {"sent": 0, "delivered": 0, "read": 0, "failed": 0, "total_campaigns": 0}
+    totals = {
+        "sent": totals_dict.get("sent", 0),
+        "delivered": totals_dict.get("delivered", 0),
+        "read": totals_dict.get("read", 0),
+        "failed": totals_dict.get("failed", 0),
+        "total_campaigns": totals_dict.get("total_campaigns", 0),
+    }
+
+    # ── 2. Failure Breakdown ──────────────────────────────────────────────────
     failure_cursor = db.message_logs.aggregate(
         [
             {_MATCH: {**base_match, "status": "failed"}},
@@ -338,12 +365,34 @@ async def get_analytics(
         async for r in failure_cursor
     ]
 
-    # ── 2. TTR Distribution ───────────────────────────────────────────────────
+    # ── 3. TTR Distribution ───────────────────────────────────────────────────
     # For each message that reached "read" status, find the timestamp of the
-    # first "read" entry in status_history and diff against created_at.
+    # first "read" entry in status_history and diff against sent_at.
     ttr_cursor = db.message_logs.aggregate(
         [
             {_MATCH: {**base_match, "status": "read"}},
+            {
+                "$addFields": {
+                    "sent_locs": {
+                        "$filter": {
+                            "input": "$status_history",
+                            "as": "sh",
+                            "cond": {"$in": ["$$sh.status", ["sent", "delivered"]]},
+                        }
+                    }
+                }
+            },
+            {
+                "$addFields": {
+                    "sent_at": {
+                        "$cond": [
+                            {"$gt": [{"$size": "$sent_locs"}, 0]},
+                            {"$arrayElemAt": ["$sent_locs.timestamp", 0]},
+                            _CREATED_AT,
+                        ]
+                    }
+                }
+            },
             # Unwind status_history to find the first "read" event
             {"$unwind": "$status_history"},
             {_MATCH: {"status_history.status": "read"}},
@@ -352,7 +401,7 @@ async def get_analytics(
             {
                 _GROUP: {
                     "_id": "$_id",
-                    "created_at": {"$first": _CREATED_AT},
+                    "sent_at": {"$first": "$sent_at"},
                     "read_at": {"$first": "$status_history.timestamp"},
                 }
             },
@@ -361,7 +410,7 @@ async def get_analytics(
                 "$addFields": {
                     "minutes": {
                         "$divide": [
-                            {"$subtract": ["$read_at", _CREATED_AT]},
+                            {"$subtract": ["$read_at", "$sent_at"]},
                             60000,  # ms -> minutes
                         ]
                     }
@@ -426,6 +475,7 @@ async def get_analytics(
         )
 
     return {
+        "totals": totals,
         "failure_breakdown": failure_results,
         "ttr_distribution": ttr_distribution,
         "hourly_performance": hourly_performance,

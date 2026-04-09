@@ -11,7 +11,7 @@ import { BRAND_GRADIENT } from "@/lib/brand";
 const INPUT_CLS =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/20 focus:border-[#24422e]";
 
-type Category = "MARKETING" | "UTILITY" | "AUTHENTICATION";
+
 
 interface ComponentRow {
   type: string;
@@ -333,8 +333,8 @@ export function TemplateFormModal({
                 >
                   <option value="TEXT">Text</option>
                   <option value="IMAGE">Image</option>
-                  <option value="VIDEO">Video</option>
-                  <option value="DOCUMENT">Document</option>
+                  <option value="VIDEO" disabled>Video (Unsupported)</option>
+                  <option value="DOCUMENT" disabled>Document (Unsupported)</option>
                 </select>
               )}
 

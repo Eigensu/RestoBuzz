@@ -12,6 +12,16 @@ import { timeIST } from "@/lib/date";
 
 import { BRAND_GRADIENT } from "@/lib/brand";
 
+function StatusIcon({ status, isRead }: { status?: string | null; isRead: boolean }) {
+  if (status === MessageStatus.READ || isRead) {
+    return <CheckCheck className="w-3.5 h-3.5 text-[#34B7F1]" />;
+  }
+  if (status === MessageStatus.DELIVERED) {
+    return <CheckCheck className="w-3.5 h-3.5 text-white/80" />;
+  }
+  return <Check className="w-3.5 h-3.5 text-white/60" />;
+}
+
 export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
   const out = msg.direction === "outbound";
   return (
@@ -101,13 +111,7 @@ export function MessageBubble({ msg }: Readonly<{ msg: InboundMessage }>) {
           <span className="text-[10px]">{timeIST(msg.received_at)}</span>
           {out && (
             <div className="flex items-center">
-              {msg.status === MessageStatus.READ || msg.is_read ? (
-                <CheckCheck className="w-3.5 h-3.5 text-[#34B7F1]" />
-              ) : msg.status === MessageStatus.DELIVERED ? (
-                <CheckCheck className="w-3.5 h-3.5 text-white/80" />
-              ) : (
-                <Check className="w-3.5 h-3.5 text-white/60" />
-              )}
+              <StatusIcon status={msg.status} isRead={msg.is_read} />
             </div>
           )}
         </div>

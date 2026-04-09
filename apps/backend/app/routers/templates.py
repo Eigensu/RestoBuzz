@@ -221,8 +221,13 @@ async def edit_existing_template(
     body: EditTemplateRequest,
     _current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    language: str | None = None,
 ):
-    doc = await db.templates.find_one({"name": template_name})
+    query = {"name": template_name}
+    if language:
+        query["language"] = language
+
+    doc = await db.templates.find_one(query)
     if not doc:
         raise NotFoundError(f"Template '{template_name}' not found")
 
@@ -250,10 +255,14 @@ async def sync_templates(
     _current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    templates = await fetch_templates(
-        settings.meta_waba_id,
-        settings.meta_primary_access_token,
-    )
+    try:
+        templates = await fetch_templates(
+            settings.meta_waba_id,
+            settings.meta_primary_access_token,
+        )
+    except Exception as e:
+        # If fetch fails, we return the error and do NOT prune.
+        return {"error": str(e)}
     keys: list[dict[str, str]] = []
     for t in templates:
         lang = t.get("language")

@@ -18,8 +18,6 @@ import {
   Users,
   Settings,
   X,
-  Trash2,
-  MoreVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MemberModal } from "@/components/members/molecules/MemberModal";
@@ -43,10 +41,6 @@ export default function MembersPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setPage(1);
-  }, [tab, search, restaurant?.id]);
-
   const importMutation = useMutation({
     mutationFn: (file: File) => {
       const form = new FormData();
@@ -67,12 +61,17 @@ export default function MembersPage() {
   });
 
   const catMutation = useMutation({
-    mutationFn: (cats: string[]) => 
-      api.put(`/restaurants/${restaurant!.id}/categories`, { categories: cats }),
+    mutationFn: (cats: string[]) =>
+      api.put(`/restaurants/${restaurant!.id}/categories`, {
+        categories: cats,
+      }),
     onSuccess: (res) => {
       toast.success("Categories updated");
       if (restaurant) {
-        setRestaurant({ ...restaurant, member_categories: res.data.categories });
+        setRestaurant({
+          ...restaurant,
+          member_categories: res.data.categories,
+        });
       }
       setCatModal(false);
       setNewCat("");
@@ -83,7 +82,7 @@ export default function MembersPage() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
-  const { data, isLoading } = useQuery<MemberListResponse>({
+  const { data, isLoading, isError, error, refetch } = useQuery<MemberListResponse>({
     queryKey: ["members", restaurant?.id, tab, search, page],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -108,7 +107,13 @@ export default function MembersPage() {
   });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: ({ source, deleteAll }: { source?: string; deleteAll?: boolean }) => {
+    mutationFn: ({
+      source,
+      deleteAll,
+    }: {
+      source?: string;
+      deleteAll?: boolean;
+    }) => {
       const params = new URLSearchParams({ restaurant_id: restaurant!.id });
       if (source) params.set("source", source);
       if (deleteAll) params.set("deleteAll", "true");
@@ -124,8 +129,10 @@ export default function MembersPage() {
   const members = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const to = Math.min(page * PAGE_SIZE, total);
+
+  const clampedPage = Math.min(Math.max(1, page), totalPages);
+  const from = total === 0 ? 0 : (clampedPage - 1) * PAGE_SIZE + 1;
+  const to = Math.min(clampedPage * PAGE_SIZE, total);
   if (!restaurant) return null;
 
   return (
@@ -144,45 +151,65 @@ export default function MembersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl relative">
             <button
-              onClick={() => { setCatModal(false); setNewCat(""); }}
+              onClick={() => {
+                setCatModal(false);
+                setNewCat("");
+              }}
               className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 transition"
             >
               <X className="w-5 h-5" />
             </button>
             <div className="p-6 space-y-6">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">Manage Categories</h3>
-                <p className="text-sm text-gray-500 mt-1">Add or remove member categories</p>
+                <h3 className="text-xl font-bold text-gray-900">
+                  Manage Categories
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Add or remove member categories
+                </p>
               </div>
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  {(restaurant?.member_categories || ["nfc", "ecard"]).map(c => (
-                    <div key={c} className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm font-medium">
-                      {c.toUpperCase()}
-                      <button
-                        title="Remove category"
-                        onClick={() => {
-                          const cats = (restaurant?.member_categories || []).filter(x => x !== c);
-                          catMutation.mutate(cats);
-                        }}
-                        className="text-gray-400 hover:text-red-500"
+                  {(restaurant?.member_categories || ["nfc", "ecard"]).map(
+                    (c) => (
+                      <div
+                        key={c}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm font-medium"
                       >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                        {c.toUpperCase()}
+                        <button
+                          title="Remove category"
+                          onClick={() => {
+                            const cats = (
+                              restaurant?.member_categories || []
+                            ).filter((x) => x !== c);
+                            catMutation.mutate(cats);
+                          }}
+                          className="text-gray-400 hover:text-red-500"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ),
+                  )}
                 </div>
                 <div className="flex gap-2">
-                  <input 
+                  <input
                     value={newCat}
                     onChange={(e) => setNewCat(e.target.value)}
                     placeholder="New category..."
                     className="flex-1 w-full border-gray-200 border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-900/10 focus:border-green-900/30"
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === "Enter") {
                         e.preventDefault();
                         if (newCat.trim()) {
-                          const cats = [...(restaurant?.member_categories || ["nfc", "ecard"]), newCat.trim()];
+                          const cats = [
+                            ...(restaurant?.member_categories || [
+                              "nfc",
+                              "ecard",
+                            ]),
+                            newCat.trim(),
+                          ];
                           catMutation.mutate(cats);
                         }
                       }
@@ -191,7 +218,10 @@ export default function MembersPage() {
                   <button
                     disabled={!newCat.trim() || catMutation.isPending}
                     onClick={() => {
-                      const cats = [...(restaurant?.member_categories || ["nfc", "ecard"]), newCat.trim()];
+                      const cats = [
+                        ...(restaurant?.member_categories || ["nfc", "ecard"]),
+                        newCat.trim(),
+                      ];
                       catMutation.mutate(cats);
                     }}
                     className="bg-[#24422e] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#3a6b47] disabled:opacity-50"
@@ -260,24 +290,34 @@ export default function MembersPage() {
       <div className="flex flex-col xl:flex-row gap-4">
         <div className="flex p-1 bg-[#eff2f0] rounded-xl flex-wrap">
           <button
-            onClick={() => setTab("all")}
+            onClick={() => {
+              setTab("all");
+              setPage(1);
+            }}
             className={cn(
               "flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg",
-              tab === "all" ? "text-white shadow-sm" : "text-[#24422e]/60 hover:text-[#24422e]"
+              tab === "all"
+                ? "text-white shadow-sm"
+                : "text-[#24422e]/60 hover:text-[#24422e]",
             )}
             style={tab === "all" ? { background: BRAND_GRADIENT } : undefined}
           >
             <Users className="w-3.5 h-3.5" />
             All Members
           </button>
-          
+
           {(restaurant?.member_categories || ["nfc", "ecard"]).map((cat) => (
             <button
               key={cat}
-              onClick={() => setTab(cat)}
+              onClick={() => {
+                setTab(cat);
+                setPage(1);
+              }}
               className={cn(
                 "flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg",
-                tab === cat ? "text-white shadow-sm" : "text-[#24422e]/60 hover:text-[#24422e]"
+                tab === cat
+                  ? "text-white shadow-sm"
+                  : "text-[#24422e]/60 hover:text-[#24422e]",
               )}
               style={tab === cat ? { background: BRAND_GRADIENT } : undefined}
             >
@@ -290,16 +330,19 @@ export default function MembersPage() {
               className="flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg text-[#24422e]/60 hover:text-[#24422e] hover:bg-white/50 border border-transparent"
             >
               <Settings className="w-3.5 h-3.5" />
-              Manage 
+              Manage
             </button>
           )}
-
         </div>
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
+            aria-label="Search members"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="Search name, phone, email..."
             className="w-full border-gray-100 border bg-white rounded-xl pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 focus:border-[#24422e]/30 shadow-sm"
           />
@@ -309,6 +352,16 @@ export default function MembersPage() {
       {isLoading ? (
         <div className="bg-white rounded-xl border p-12 text-center text-sm text-gray-400">
           Loading...
+        </div>
+      ) : isError ? (
+        <div className="bg-white rounded-xl border p-12 text-center text-sm">
+          <p className="text-red-500 font-medium mb-3">Failed to load members: {(error as Error)?.message || "Unknown error"}</p>
+          <button 
+            onClick={() => refetch()} 
+            className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
+          >
+            Retry
+          </button>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-3xl border border-gray-100 shadow-sm custom-scrollbar">
@@ -324,13 +377,14 @@ export default function MembersPage() {
         </div>
       )}
 
-      {!isLoading && total > 0 && (
+      {!isLoading && !isError && total > 0 && (
         <div className="flex items-center justify-between bg-white rounded-xl border px-4 py-3">
-          <p className="text-xs text-gray-500">
-            Showing {from}-{to} of {total}
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+            Showing {Math.min(from, total)}-{Math.min(to, total)} of {total}
           </p>
           <div className="flex items-center gap-2">
             <button
+              aria-label="Previous page"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"

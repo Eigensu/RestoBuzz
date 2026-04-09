@@ -138,7 +138,7 @@ interface DashboardAnalytics {
   hourlyPerformance: HourlyStat[];
   ttrDistribution: TTRStat[];
   pieData: { name: string; value: number }[];
-  timeSeriesData: any[];
+  timeSeriesData: { date: string; sortKey: number; sent: number; delivered: number; read: number; failed: number }[];
 }
 
 /* ─── Main Component ────────────────────────────────────────── */
@@ -174,7 +174,6 @@ export default function DashboardPage() {
   const {
     data: emailAnalyticsData,
     isLoading: emailLoading,
-    isError: emailError,
   } = useQuery({
     queryKey: ["dashboard-analytics-email", restaurant?.id],
     queryFn: () =>
@@ -342,14 +341,7 @@ export default function DashboardPage() {
           { range: "2h+", count: 0 },
         ]);
 
-    const sumTTR = baseTTR.reduce((acc, d) => acc + d.count, 0);
-    const ttrDistribution =
-      totals.read > sumTTR
-        ? [
-            ...baseTTR,
-            { range: "Unbucketed/Other", count: totals.read - sumTTR },
-          ]
-        : baseTTR;
+    const ttrDistribution = baseTTR;
 
     // Status Pie
     const statusCounts = campaigns.reduce(
@@ -848,9 +840,9 @@ export default function DashboardPage() {
               &quot;{templateLeaderboard[0]?.name}&quot;
             </span>{" "}
             is currently the most effective, maintaining a{" "}
-            <p className="text-gray-900 font-bold">
+            <span className="text-gray-900 font-bold">
               {(templateLeaderboard[0]?.openRate || 0).toFixed(1)}% engagement rate
-            </p>
+            </span>
             across {templateLeaderboard[0]?.sent.toLocaleString()} messages.
           </p>
         </div>
@@ -945,7 +937,8 @@ export default function DashboardPage() {
               </span>{" "}
               is responsible for{" "}
               {(
-                (failureBreakdown[0]?.count / (totals.failed || 1)) *
+                (failureBreakdown[0]?.count /
+                  (failureBreakdown.reduce((acc, f) => acc + f.count, 0) || 1)) *
                 100
               ).toFixed(1)}
               % of all unsuccessful deliveries. Reviewing your contact list for
@@ -1013,10 +1006,13 @@ export default function DashboardPage() {
                       border: "none",
                       boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
                     }}
-                    formatter={(value) => [
-                      `${Number(value).toFixed(1)}%`,
-                      "Read Rate",
-                    ]}
+                    formatter={(value: unknown) => {
+                      const num = Number(value);
+                      return [
+                        Number.isFinite(num) ? `${num.toFixed(1)}%` : "0.0%",
+                        "Read Rate",
+                      ];
+                    }}
                   />
                   <Bar
                     dataKey="rate"
@@ -1169,9 +1165,7 @@ export default function DashboardPage() {
                 </span>
                 <br />
                 {(() => {
-                  const activeWindows = ttrDistribution.filter(
-                    (d) => d.range !== "Delayed (>24h)",
-                  );
+                  const activeWindows = ttrDistribution;
                   const peak = activeWindows.reduce(
                     (prev, curr) => (curr.count > prev.count ? curr : prev),
                     activeWindows[0] || ttrDistribution[0],

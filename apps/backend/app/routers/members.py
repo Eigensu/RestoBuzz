@@ -25,6 +25,7 @@ from app.models.member import (
     MemberListResponse,
 )
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
+from app.services.contact_parser import _normalize_phone
 
 router = APIRouter(prefix="/members", tags=["members"])
 logger = get_logger(__name__)
@@ -206,7 +207,6 @@ async def members_as_contacts(
     import uuid, json
     from redis.asyncio import from_url
     from app.config import settings
-    from app.services.contact_parser import _normalize_phone
 
     query: dict = {"restaurant_id": validated_rid, "is_active": True}
     if type in ("nfc", "ecard"):
@@ -319,7 +319,7 @@ async def import_members(
 
     for row in ws.iter_rows(min_row=2, values_only=True):
         name = str(row[name_idx]).strip() if row[name_idx] else ""
-        phone = (
+        raw_phone = (
             str(row[phone_idx]).strip()
             if phone_idx is not None and row[phone_idx]
             else ""
@@ -334,10 +334,14 @@ async def import_members(
             skipped += 1
             continue
 
-        if phone and phone != "None":
-            phone = phone.replace(" ", "").replace("+", "").replace("-", "")
-            if not phone.startswith("91"):
-                phone = "91" + phone.lstrip("0")
+        # Validate and normalise phone via shared parser (E.164 output or None).
+        # Members with no phone column are stored with an explicit empty string.
+        if raw_phone and raw_phone != "None":
+            phone = _normalize_phone(raw_phone)
+            if phone is None:
+                # Parser rejected the value — skip rather than persist garbage.
+                skipped += 1
+                continue
         else:
             phone = ""
 
@@ -374,11 +378,11 @@ async def import_members(
 
 @router.delete("/bulk", status_code=204)
 async def bulk_delete_members(
-    restaurant_id: str = Query(...),
-    source: str | None = Query(None),
-    deleteAll: bool = Query(False),
-    current_user: dict = Depends(require_role("admin")),
-    db: Any = Depends(get_db),
+    restaurant_id: Annotated[str, Query()],
+    source: Annotated[str | None, Query()] = None,
+    deleteAll: Annotated[bool, Query()] = False,
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     """Bulk delete members for a restaurant. 
     Can delete all members or filter by source (e.g. 'excel')."""

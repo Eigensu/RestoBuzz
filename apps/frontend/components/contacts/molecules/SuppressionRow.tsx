@@ -1,5 +1,6 @@
 import { Trash2 } from "lucide-react";
 import { relativeIST } from "@/lib/date";
+import { cn } from "@/lib/utils";
 
 const REASON_COLORS: Record<string, string> = {
   opt_out: "bg-yellow-100 text-yellow-700",
@@ -18,7 +19,10 @@ export function SuppressionRow({ item, onRemove }: Readonly<SuppressionRowProps>
       <div className="space-y-1">
         <p className="font-bold text-gray-900">{item.phone}</p>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 bg-[#eff2f0] text-[#24422e] rounded-full">
+          <span className={cn(
+            "text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full",
+            REASON_COLORS[item.reason] || "bg-[#eff2f0] text-[#24422e]"
+          )}>
             {item.reason}
           </span>
           <span className="text-[11px] font-medium text-gray-400">

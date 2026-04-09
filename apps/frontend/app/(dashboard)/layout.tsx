@@ -103,8 +103,15 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!_hydrated) return;
-    if (user && !restaurant) router.push("/select-restaurant");
-  }, [_hydrated, user, restaurant, router]);
+    if (
+      user &&
+      !restaurant &&
+      user.role !== "super_admin" &&
+      pathname !== "/admin"
+    ) {
+      router.push("/select-restaurant");
+    }
+  }, [_hydrated, user, restaurant, pathname, router]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -356,7 +363,7 @@ export default function DashboardLayout({
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="h-14 bg-white border-b flex items-center px-4 gap-3 lg:hidden shrink-0">
-          <button onClick={() => setSidebarOpen(true)}>
+          <button aria-label="Open menu" onClick={() => setSidebarOpen(true)}>
             <Menu className="w-5 h-5 text-gray-600" />
           </button>
           <span className="font-bold text-[#24422e] tracking-tight">
