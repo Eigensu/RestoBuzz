@@ -5,7 +5,7 @@ from app.config import settings
 router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("/")
+@router.get("")
 async def health():
     status = {"mongodb": "ok", "redis": "ok", "status": "ok"}
 
@@ -18,6 +18,7 @@ async def health():
 
     try:
         from redis.asyncio import from_url
+
         r = from_url(settings.redis_url)
         await r.ping()
         await r.aclose()

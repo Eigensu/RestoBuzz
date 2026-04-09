@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
-from bson import ObjectId
+from fastapi import APIRouter, Depends, Query
+from typing import Annotated, Any
+from datetime import datetime, timedelta, timezone
 from app.database import get_db
 from app.dependencies import require_role
+from app.services.message_types import normalize_message_type
 from app.models.inbox import (
     ConversationListResponse,
     ConversationResponse,
@@ -17,13 +19,15 @@ router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(30, ge=1, le=100),
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 30,
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
+    since = datetime.now(timezone.utc) - timedelta(days=30)
     pipeline = [
+        {"$match": {"received_at": {"$gte": since}}},
         {"$sort": {"received_at": -1}},
         {
             "$group": {
@@ -54,7 +58,7 @@ async def list_conversations(
             from_phone=d["_id"],
             sender_name=d.get("sender_name"),
             last_message=d.get("last_message"),
-            last_message_type=d.get("last_message_type", "text"),
+            last_message_type=normalize_message_type(d.get("last_message_type")),
             unread_count=d.get("unread_count", 0),
             last_received_at=d["last_received_at"],
         )
@@ -68,74 +72,89 @@ async def list_conversations(
 @router.get("/conversations/{phone}", response_model=list[InboundMessageResponse])
 async def get_conversation(
     phone: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     items = []
 
-    # Inbound messages
-    inbound_cursor = (
-        db.inbound_messages.find({"from_phone": phone})
-        .sort("received_at", -1)
-        .skip(skip)
-        .limit(page_size)
-    )
-    async for doc in inbound_cursor:
-        loc = doc.get("location")
-        items.append(
-            InboundMessageResponse(
-                id=str(doc["_id"]),
-                wa_message_id=doc["wa_message_id"],
-                from_phone=doc["from_phone"],
-                sender_name=doc.get("sender_name"),
-                message_type=doc.get("message_type", "unknown"),
-                body=doc.get("body"),
-                media_url=doc.get("media_url"),
-                media_mime_type=doc.get("media_mime_type"),
-                location=LocationData(**loc) if loc else None,
-                is_read=doc.get("is_read", False),
-                received_at=doc["received_at"],
-                direction="inbound",
-            )
-        )
+    # Limit to last 30 days
+    since = datetime.now(timezone.utc) - timedelta(days=30)
 
-    # Outbound replies
-    outbound_cursor = (
-        db.outbound_messages.find({"to_phone": phone})
-        .sort("sent_at", -1)
-        .limit(page_size)
-    )
-    async for doc in outbound_cursor:
-        items.append(
-            InboundMessageResponse(
-                id=str(doc["_id"]),
-                wa_message_id=doc.get("wa_message_id", ""),
-                from_phone=phone,
-                sender_name="You",
-                message_type=doc.get("message_type", "text"),
-                body=doc.get("body"),
-                media_url=None,
-                media_mime_type=None,
-                location=None,
-                is_read=True,
-                received_at=doc["sent_at"],
-                direction="outbound",
-            )
-        )
+    pipeline = [
+        {"$match": {"from_phone": phone, "received_at": {"$gte": since}}},
+        {"$addFields": {"direction": "inbound"}},
+        {
+            "$unionWith": {
+                "coll": "outbound_messages",
+                "pipeline": [
+                    {"$match": {"to_phone": phone, "sent_at": {"$gte": since}}},
+                    {
+                        "$addFields": {
+                            "direction": "outbound",
+                            "received_at": "$sent_at",
+                            "from_phone": phone,
+                            "sender_name": "You",
+                        }
+                    },
+                ],
+            }
+        },
+        {"$sort": {"received_at": -1}},
+        {"$skip": skip},
+        {"$limit": page_size},
+    ]
 
-    # Merge and sort descending (frontend reverses for display)
-    items.sort(key=lambda x: x.received_at, reverse=True)
-    return items[:page_size]
+    async for doc in db.inbound_messages.aggregate(pipeline):
+        direction = doc.get("direction", "inbound")
+        if direction == "inbound":
+            loc = doc.get("location")
+            items.append(
+                InboundMessageResponse(
+                    id=str(doc["_id"]),
+                    wa_message_id=doc.get("wa_message_id", ""),
+                    from_phone=doc["from_phone"],
+                    sender_name=doc.get("sender_name"),
+                    message_type=normalize_message_type(doc.get("message_type")),
+                    body=doc.get("body"),
+                    media_url=doc.get("media_url"),
+                    media_mime_type=doc.get("media_mime_type"),
+                    location=LocationData(**loc) if loc else None,
+                    is_read=doc.get("is_read", False),
+                    received_at=doc["received_at"],
+                    direction="inbound",
+                    status=None,
+                )
+            )
+        else:
+            items.append(
+                InboundMessageResponse(
+                    id=str(doc["_id"]),
+                    wa_message_id=doc.get("wa_message_id", ""),
+                    from_phone=doc["from_phone"],
+                    sender_name=doc.get("sender_name", "You"),
+                    message_type=normalize_message_type(doc.get("message_type")),
+                    body=doc.get("body"),
+                    media_url=doc.get("media_url"),
+                    media_mime_type=doc.get("media_mime_type"),
+                    location=None,
+                    is_read=doc.get("status") == "read",
+                    received_at=doc["received_at"],
+                    direction="outbound",
+                    status=doc.get("status", "sent"),
+                )
+            )
+
+    return items
 
 
 @router.post("/conversations/{phone}/read")
 async def mark_read(
     phone: str,
-    current_user: dict = Depends(require_role("viewer")),
-    db=Depends(get_db),
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
     await db.inbound_messages.update_many(
         {"from_phone": phone, "is_read": False},
@@ -148,11 +167,9 @@ async def mark_read(
 async def reply(
     phone: str,
     body: ReplyRequest,
-    current_user: dict = Depends(require_role("admin")),
-    db=Depends(get_db),
+    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
 ):
-    from datetime import datetime, timezone
-
     wa_id = await send_text_message(
         to=phone,
         body=body.body,
@@ -168,6 +185,7 @@ async def reply(
             "message_type": "text",
             "sent_by": str(current_user["_id"]),
             "sent_at": datetime.now(timezone.utc),
+            "status": "sent",
         }
     )
     return {"wa_message_id": wa_id}

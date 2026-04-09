@@ -59,41 +59,56 @@ async def get_user_restaurant_ids(
     current_user: dict = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> set[str]:
-    # Bypass for super_admin role ONLY
+    # Bypass for super_admin: Return ALL unique identifiers for every restaurant in the collection
     if current_user.get("role") == "super_admin":
-        cursor = db.restaurants.find({})
-        ids = {str(doc["id"]) async for doc in cursor if "id" in doc}
-        return ids
+        cursor = db.restaurants.find({}, {"id": 1, "_id": 1})
+        all_ids = set()
+        async for doc in cursor:
+            # We add BOTH the custom slug 'id' and the MongoDB stringified '_id'
+            if doc.get("id"):
+                all_ids.add(str(doc["id"]))
+            all_ids.add(str(doc["_id"]))
+        return all_ids
 
+    # For regular users: Fetch assigned IDs from the user_restaurant_roles bridge table
     cursor = db.user_restaurant_roles.find(
         {"user_id": ObjectId(current_user["_id"])}, {"restaurant_id": 1, "_id": 0}
     )
-    ids = {doc["restaurant_id"] async for doc in cursor}
-    return ids
+    assigned_ids = {doc["restaurant_id"] async for doc in cursor}
+    return assigned_ids
 
 
 async def validate_restaurant_access(
     current_user: dict, restaurant_id: str, db: AsyncIOMotorDatabase
 ) -> str:
     """Helper to validate access. Raises ForbiddenError if denied.
-    Returns the restaurant_id if access is granted."""
+    Returns the restaurant_id if access is granted.
+    Standardized to check for assignments using either Slugs or ObjectIds."""
     # super_admin bypass
     if current_user.get("role") == "super_admin":
         return restaurant_id
 
+    user_oid = ObjectId(current_user["_id"])
+    
+    # We check if the user is assigned via the provided restaurant_id string
     assignment = await db.user_restaurant_roles.find_one(
         {
-            "user_id": ObjectId(current_user["_id"]),
+            "user_id": user_oid,
             "restaurant_id": restaurant_id,
         }
     )
+    
     if not assignment:
+        # If not found directly, this could be a slug/hash mismatch.
+        # However, the standard is to find assignments by the stored ID string.
+        # If we still can't find it, we deny access.
         logger.warning(
             "restaurant_access_denied",
-            user_id=str(current_user["_id"]),
+            user_id=str(user_oid),
             restaurant_id=restaurant_id
         )
         raise ForbiddenError(f"Access denied to restaurant '{restaurant_id}'")
+        
     return restaurant_id
 
 

@@ -7,6 +7,7 @@ from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
 from app.core.errors import WebhookSignatureError
+from app.services.message_types import normalize_message_type
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -112,7 +113,7 @@ async def _process_payload(db, payload: dict) -> None:
 
                 from_phone = msg.get("from")
                 sender_name = contacts.get(from_phone)
-                msg_type = msg.get("type", "unknown")
+                msg_type = normalize_message_type(msg.get("type"))
                 body_text = None
                 media_url = None
                 media_mime = None
@@ -183,3 +184,183 @@ async def _process_payload(db, payload: dict) -> None:
                             upsert=True,
                         )
                         logger.info("auto_suppressed", phone=from_phone)
+
+            # Handle status updates (delivered, read, failed)
+            statuses = value.get("statuses", [])
+            for status in statuses:
+                wa_id = status.get("id")
+                wa_status = status.get("status")
+                if not wa_id or not wa_status:
+                    continue
+
+                if wa_status not in {"queued", "sending", "sent", "delivered", "read", "failed", "cancelled"}:
+                    logger.warning("webhook_invalid_status", wa_id=wa_id, status=wa_status)
+                    continue
+
+                # Update outbound_messages (inbox replies) in real time;
+                # campaign-related status handling (message_logs, status_history,
+                # counters, etc.) is delegated to the Celery worker.
+                result = await db.outbound_messages.update_one(
+                    {"wa_message_id": wa_id}, {"$set": {"status": wa_status, "updated_at": datetime.now(timezone.utc)}}
+                )
+                if result.modified_count > 0:
+                    logger.info(
+                        "outbound_status_updated", wa_id=wa_id, status=wa_status
+                    )
+
+
+# ── Resend Webhooks ───────────────────────────────────────────────────────────
+
+# Map Resend event types to our internal status names
+_RESEND_EVENT_MAP = {
+    "email.sent": "sent",
+    "email.delivered": "delivered",
+    "email.opened": "opened",
+    "email.clicked": "clicked",
+    "email.bounced": "bounced",
+    "email.failed": "failed",
+    "email.complained": "complained",
+    "email.delivery_delayed": None,  # logged but no status change
+    "email.suppressed": "suppressed",
+}
+
+# Map event types to the counter fields on email_campaign_jobs
+_RESEND_COUNTER_MAP = {
+    "delivered": "delivered_count",
+    "opened": "opened_count",
+    "clicked": "clicked_count",
+    "bounced": "bounced_count",
+    "failed": "failed_count",
+    "complained": "complained_count",
+}
+
+
+@router.post("/resend", status_code=200)
+async def receive_resend_webhook(request: Request, db=Depends(get_db)):
+    """Handle Resend webhook events with svix signature verification and idempotency."""
+    body = await request.body()
+    payload_str = body.decode("utf-8")
+
+    # 1. Verify webhook signature
+    try:
+        from app.services.resend_client import verify_webhook
+
+        event = verify_webhook(
+            payload_str,
+            {
+                "svix-id": request.headers.get("svix-id", ""),
+                "svix-timestamp": request.headers.get("svix-timestamp", ""),
+                "svix-signature": request.headers.get("svix-signature", ""),
+            },
+        )
+    except Exception as e:
+        logger.warning("resend_webhook_invalid_signature", error=str(e))
+        raise WebhookSignatureError("Invalid Resend webhook signature")
+
+    # 2. Idempotency: deduplicate by svix-id
+    svix_id = request.headers.get("svix-id", "")
+    if svix_id:
+        try:
+            await db.resend_webhook_events.insert_one(
+                {
+                    "svix_id": svix_id,
+                    "received_at": datetime.now(timezone.utc),
+                    "event_type": event.get("type"),
+                }
+            )
+        except Exception:
+            # Duplicate key → already processed
+            logger.info("resend_webhook_duplicate", svix_id=svix_id)
+            return {"status": "ok"}
+
+    event_type = event.get("type", "")
+    data = event.get("data", {})
+    email_id = data.get("email_id")
+    new_status = _RESEND_EVENT_MAP.get(event_type)
+
+    logger.info(
+        "resend_webhook_received",
+        type=event_type,
+        email_id=email_id,
+    )
+
+    if not email_id or new_status is None:
+        return {"status": "ok"}
+
+    await _process_resend_status_update(db, email_id, new_status, event_type, svix_id, data)
+    return {"status": "ok"}
+
+
+async def _process_resend_status_update(db, email_id, new_status, event_type, svix_id, data):
+    now = datetime.now(timezone.utc)
+    status_order = ["queued", "sending", "sent", "delivered", "opened", "clicked"]
+    terminal_statuses = {"bounced", "failed", "complained", "suppressed"}
+
+    status_query = {
+        "resend_email_id": email_id,
+        "status": {"$nin": list(terminal_statuses)},
+    }
+
+    if new_status in status_order:
+        status_query["status"]["$in"] = status_order[: status_order.index(new_status)]
+
+    result = await db.email_logs.find_one_and_update(
+        status_query,
+        {
+            "$set": {"status": new_status, "updated_at": now},
+            "$push": {
+                "status_history": {
+                    "status": new_status,
+                    "timestamp": now,
+                    "meta": {"event_type": event_type, "svix_id": svix_id},
+                }
+            },
+        },
+        return_document=True,
+    )
+
+    if result:
+        await _update_campaign_counters(db, result, new_status)
+        await _handle_error_reporting(db, result, new_status, data)
+        await _handle_auto_suppression(db, result, new_status, data)
+
+
+async def _update_campaign_counters(db, log, new_status):
+    counter_field = _RESEND_COUNTER_MAP.get(new_status)
+    if counter_field:
+        await db.email_campaign_jobs.update_one(
+            {"_id": log["campaign_id"]},
+            {"$inc": {counter_field: 1}},
+        )
+
+
+async def _handle_error_reporting(db, log, new_status, data):
+    if new_status in ("bounced", "failed"):
+        bounce_info = data.get("bounce", {})
+        error_reason = (
+            bounce_info.get("message")
+            or data.get("error", {}).get("message")
+            or f"Email {new_status}"
+        )
+        await db.email_logs.update_one(
+            {"_id": log["_id"]},
+            {"$set": {"error_reason": error_reason}},
+        )
+
+
+async def _handle_auto_suppression(db, log, new_status, data):
+    if new_status in ("bounced", "complained"):
+        from app.services.email_suppression import add_email_suppression
+
+        bounce_type = data.get("bounce", {}).get("type", "")
+        reason = (
+            "complaint"
+            if new_status == "complained"
+            else ("soft_bounce" if bounce_type == "Transient" else "hard_bounce")
+        )
+        await add_email_suppression(db, log["recipient_email"], reason=reason)
+        logger.info(
+            "email_auto_suppressed",
+            email=log["recipient_email"],
+            reason=reason,
+        )

@@ -1,8 +1,24 @@
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from app.config import settings
+from urllib.parse import urlparse
 
 _client: AsyncIOMotorClient | None = None
+
+
+def _resolve_db_name() -> str:
+    configured = (settings.mongodb_db_name or "").strip()
+    if configured:
+        return configured
+
+    parsed = urlparse(settings.mongodb_url)
+    uri_db = parsed.path.lstrip("/").strip()
+    if uri_db:
+        return uri_db
+
+    raise ValueError(
+        "MongoDB database name is missing. Set mongodb_db_name or include /<db> in mongodb_url."
+    )
 
 
 def get_client() -> AsyncIOMotorClient:
@@ -13,7 +29,7 @@ def get_client() -> AsyncIOMotorClient:
 
 
 def get_db() -> AsyncIOMotorDatabase:
-    return get_client().get_default_database(settings.mongodb_db_name)
+    return get_client().get_database(_resolve_db_name())
 
 
 def get_fresh_db() -> AsyncIOMotorDatabase:
@@ -21,7 +37,7 @@ def get_fresh_db() -> AsyncIOMotorDatabase:
     Celery forks processes and the parent's event loop is closed in the child,
     so we must never reuse the global _client across fork boundaries."""
     client = AsyncIOMotorClient(settings.mongodb_url)
-    return client.get_default_database(settings.mongodb_db_name)
+    return client.get_database(_resolve_db_name())
 
 
 async def init_indexes() -> None:
@@ -109,6 +125,93 @@ async def init_indexes() -> None:
         [
             IndexModel([("user_id", ASCENDING), ("timestamp", DESCENDING)]),
             IndexModel([("resource_type", ASCENDING)]),
+        ]
+    )
+
+    # ── Email campaign collections ────────────────────────────────────────────
+
+    # email_campaign_jobs
+    await db.email_campaign_jobs.create_indexes(
+        [
+            IndexModel([("status", ASCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING), ("created_at", DESCENDING)]),
+        ]
+    )
+
+    # email_logs — compound unique prevents duplicate sends
+    await db.email_logs.create_indexes(
+        [
+            IndexModel([("campaign_id", ASCENDING), ("status", ASCENDING)]),
+            IndexModel(
+                [("campaign_id", ASCENDING), ("recipient_email", ASCENDING)],
+                unique=True,
+            ),
+            IndexModel(
+                [("resend_email_id", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"resend_email_id": {"$type": "string"}},
+            ),
+            IndexModel([("campaign_id", ASCENDING), ("created_at", DESCENDING)]),
+        ]
+    )
+
+    # email_templates
+    await db.email_templates.create_indexes(
+        [
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("name", ASCENDING)], unique=True
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("updated_at", DESCENDING)]),
+        ]
+    )
+
+    # email_suppression_list — with bounce type and expiry
+    await db.email_suppression_list.create_indexes(
+        [
+            IndexModel([("email", ASCENDING)], unique=True),
+            IndexModel([("expires_at", ASCENDING)], sparse=True),
+        ]
+    )
+
+    # webhook event dedup
+    await db.resend_webhook_events.create_indexes(
+        [
+            IndexModel([("svix_id", ASCENDING)], unique=True),
+            IndexModel([("received_at", ASCENDING)]),
+        ]
+    )
+
+    # ── ReserveGo collections ─────────────────────────────────────────────────
+
+    # reservego_uploads (guest profiles)
+    await db.reservego_uploads.create_indexes(
+        [
+            IndexModel([("phone", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel(
+                [
+                    ("guest_name", ASCENDING),
+                    ("email", ASCENDING),
+                    ("sheet", ASCENDING),
+                    ("restaurant_id", ASCENDING),
+                ]
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("uploaded_at", DESCENDING)]),
+        ]
+    )
+
+    # reservego_bill_data (booking/billing records)
+    await db.reservego_bill_data.create_indexes(
+        [
+            IndexModel([("bill_number", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel(
+                [
+                    ("guest_name", ASCENDING),
+                    ("booking_time", ASCENDING),
+                    ("restaurant_id", ASCENDING),
+                ]
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("uploaded_at", DESCENDING)]),
         ]
     )
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -7,15 +7,18 @@ import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
 import { getRestaurants } from "@/lib/restaurants";
 import { useUIStore } from "@/lib/ui-store";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   LayoutDashboard,
   Send,
   Inbox,
   FileText,
+  Mail,
   Users,
-  Settings,
+  Shield,
   LogOut,
   MessageSquare,
+  MessageCircle,
   Menu,
   ChevronDown,
   Check,
@@ -26,12 +29,20 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/campaigns", label: "Campaigns", icon: Send },
+  {
+    href: "/campaigns",
+    label: "Campaigns",
+    icon: Send,
+    children: [
+      { href: "/campaigns/whatsapp", label: "WhatsApp", icon: MessageCircle },
+      { href: "/campaigns/email", label: "Email", icon: Mail },
+      { href: "/campaigns/sms", label: "SMS", icon: MessageSquare },
+    ],
+  },
   { href: "/members", label: "Members", icon: UserCheck },
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/contacts", label: "Suppression", icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function DashboardLayout({
@@ -45,9 +56,20 @@ export default function DashboardLayout({
     useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Track whether the user has explicitly toggled the campaigns submenu.
+  // null = no override (follow pathname); true/false = user forced it.
+  const [campaignsToggle, setCampaignsToggle] = useState<boolean | null>(null);
   const isResolvingSession = _hydrated && !user;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inboxUnread = useUIStore((s) => s.inboxUnread);
+
+  // Derive open state: if the current path is under /campaigns always open;
+  // otherwise respect the user's manual toggle (default closed).
+  const campaignsOpen = useMemo(() => {
+    if (pathname.startsWith("/campaigns")) return true;
+    return campaignsToggle ?? false;
+  }, [pathname, campaignsToggle]);
+
   const { data: restaurants = [] } = useQuery({
     queryKey: ["restaurants", user?.id ?? null],
     queryFn: getRestaurants,
@@ -55,27 +77,41 @@ export default function DashboardLayout({
   });
 
   useEffect(() => {
-    if (!_hydrated) return; // wait for localStorage rehydration
+    if (!_hydrated) return;
     let cancelled = false;
 
-    if (user) return;
-
+    // Always verify the session on mount — the request interceptor will
+    // silently refresh the access token if it's expired. Only redirect to
+    // /login if the server explicitly rejects auth (getMe returns null).
     getMe()
       .then((u) => {
         if (cancelled) return;
-        if (!u) router.push("/login");
-        else setUser(u);
+        if (!u) {
+          router.push("/login");
+        } else if (!user) {
+          setUser(u);
+        }
+      })
+      .catch(() => {
+        // Network / server error — don't wipe the session, just stay put
       });
 
     return () => {
       cancelled = true;
     };
-  }, [_hydrated, user, router, setUser]);
+  }, [_hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!_hydrated) return;
-    if (user && !restaurant) router.push("/select-restaurant");
-  }, [_hydrated, user, restaurant, router]);
+    if (
+      user &&
+      !restaurant &&
+      user.role !== "super_admin" &&
+      pathname !== "/admin"
+    ) {
+      router.push("/select-restaurant");
+    }
+  }, [_hydrated, user, restaurant, pathname, router]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -97,6 +133,11 @@ export default function DashboardLayout({
     router.push("/login");
   };
 
+  const navItems =
+    user?.role === "super_admin"
+      ? [...NAV, { href: "/admin", label: "Admin", icon: Shield }]
+      : NAV;
+
   return (
     <div className="flex h-screen bg-gray-50">
       {sidebarOpen && (
@@ -114,14 +155,14 @@ export default function DashboardLayout({
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #24422e, #3a6b47)" }}
-          >
-            <MessageSquare className="w-4 h-4 text-white" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo-final.webp"
+            alt="DishPatch"
+            className="w-8 h-8 rounded-lg object-cover"
+          />
           <span className="font-semibold text-sm text-[#24422e]">
-            RestoBuzz
+            DishPatch
           </span>
         </div>
 
@@ -180,54 +221,136 @@ export default function DashboardLayout({
           </div>
         )}
 
-        <nav className="flex-1 p-3 space-y-0.5 mt-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => setSidebarOpen(false)}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
-                pathname.startsWith(href) && href !== "/dashboard"
-                  ? "bg-[#24422e]/10 text-[#24422e] font-medium"
-                  : pathname === href
+        <nav className="flex-1 p-3 space-y-0.5 mt-1 overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const hasChildren = item.children && item.children.length > 0;
+            const isActive =
+              pathname === item.href ||
+              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+
+            if (hasChildren) {
+              const isOpen = item.href === "/campaigns" ? campaignsOpen : false;
+              const toggle = () => {
+                if (item.href === "/campaigns")
+                  setCampaignsToggle((prev) => !(prev ?? campaignsOpen));
+              };
+
+              return (
+                <div key={item.href} className="space-y-0.5">
+                  <button
+                    onClick={toggle}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition group",
+                      isActive
+                        ? "bg-[#24422e]/10 text-[#24422e] font-medium"
+                        : "text-gray-600 hover:bg-[#24422e] hover:text-white",
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span className="flex-1 text-left">{item.label}</span>
+                    <ChevronDown
+                      className={cn(
+                        "w-3.5 h-3.5 transition-transform duration-200",
+                        isOpen && "rotate-180",
+                      )}
+                    />
+                  </button>
+
+                  <div
+                    className={cn(
+                      "overflow-hidden transition-all duration-200 space-y-0.5",
+                      isOpen ? "max-h-40 opacity-100" : "max-h-0 opacity-0",
+                    )}
+                  >
+                    {item.children?.map((child) => {
+                      const isChildActive = pathname === child.href;
+                      const ChildIcon = child.icon;
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          onClick={() => setSidebarOpen(false)}
+                          className={cn(
+                            "flex items-center gap-3 pl-10 pr-3 py-1.5 rounded-lg text-xs transition",
+                            isChildActive
+                              ? "text-[#24422e] font-bold"
+                              : "text-gray-500 hover:text-[#24422e] hover:bg-[#24422e]/5",
+                          )}
+                        >
+                          {ChildIcon && <ChildIcon className="w-3.5 h-3.5" />}
+                          {child.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setSidebarOpen(false)}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
+                  isActive
                     ? "bg-[#24422e]/10 text-[#24422e] font-medium"
                     : "text-gray-600 hover:bg-[#24422e] hover:text-white",
-              )}
-            >
-              <Icon className="w-4 h-4" />
-              <span className="flex-1">{label}</span>
-              {href === "/inbox" && inboxUnread > 0 && (
-                <span
-                  className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
-                  style={{
-                    background: "linear-gradient(135deg, #24422e, #3a6b47)",
-                  }}
-                >
-                  {inboxUnread > 9 ? "9+" : inboxUnread}
-                </span>
-              )}
-            </Link>
-          ))}
+                )}
+              >
+                {Icon && <Icon className="w-4 h-4" />}
+                <span className="flex-1">{item.label}</span>
+                {item.href === "/inbox" && inboxUnread > 0 && (
+                  <span
+                    className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                    style={{
+                      background: BRAND_GRADIENT,
+                    }}
+                  >
+                    {inboxUnread > 9 ? "9+" : inboxUnread}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="p-3 border-t">
-          <div className="flex items-center gap-2 px-3 py-2 mb-1">
+          <Link
+            href="/profile"
+            onClick={() => setSidebarOpen(false)}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg transition-colors group",
+              pathname === "/profile" ? "bg-[#24422e]/5" : "hover:bg-gray-50",
+            )}
+          >
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium text-white shrink-0 shadow-sm transition-transform group-hover:scale-105"
               style={{
-                background: "linear-gradient(135deg, #24422e, #3a6b47)",
+                background: BRAND_GRADIENT,
               }}
             >
               {user?.email?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium truncate">{user?.email}</p>
+              <p
+                className={cn(
+                  "text-xs font-medium truncate transition-colors",
+                  pathname === "/profile"
+                    ? "text-[#24422e]"
+                    : "text-gray-700 group-hover:text-[#24422e]",
+                )}
+              >
+                {user?.email}
+              </p>
               <p className="text-xs text-gray-400 capitalize">
                 {user?.role?.replace("_", " ")}
               </p>
             </div>
-          </div>
+          </Link>
+
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 w-full transition"
@@ -238,18 +361,18 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 bg-white border-b flex items-center px-4 gap-3 lg:hidden">
-          <button onClick={() => setSidebarOpen(true)}>
-            <Menu className="w-5 h-5" />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header className="h-14 bg-white border-b flex items-center px-4 gap-3 lg:hidden shrink-0">
+          <button aria-label="Open menu" onClick={() => setSidebarOpen(true)}>
+            <Menu className="w-5 h-5 text-gray-600" />
           </button>
-          <span className="font-semibold text-sm">
+          <span className="font-bold text-[#24422e] tracking-tight">
             {restaurant
               ? `${restaurant.emoji} ${restaurant.name}`
-              : "RestoBuzz"}
+              : "DishPatch"}
           </span>
         </header>
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

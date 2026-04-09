@@ -1,26 +1,20 @@
+import { CampaignStatus, MessageStatus } from "./common/enums";
+
 export interface Restaurant {
   id: string;
   name: string;
   location: string;
   emoji: string;
   color: string; // tailwind bg color class
+  member_categories: string[];
 }
-
 
 export interface Campaign {
   id: string;
   name: string;
   template_id: string;
   template_name: string;
-  priority: "MARKETING" | "UTILITY";
-  status:
-    | "draft"
-    | "queued"
-    | "running"
-    | "paused"
-    | "completed"
-    | "failed"
-    | "cancelled";
+  status: CampaignStatus;
   total_count: number;
   sent_count: number;
   delivered_count: number;
@@ -32,6 +26,7 @@ export interface Campaign {
   created_by: string;
   include_unsubscribe: boolean;
   created_at: string;
+  parent_campaign_id: string | null;
 }
 
 export interface MessageLog {
@@ -40,7 +35,7 @@ export interface MessageLog {
   recipient_phone: string;
   recipient_name: string;
   wa_message_id: string | null;
-  status: "queued" | "sending" | "sent" | "delivered" | "read" | "failed";
+  status: MessageStatus;
   retry_count: number;
   endpoint_used: "primary" | "fallback" | null;
   fallback_used: boolean;
@@ -78,6 +73,7 @@ export interface InboundMessage {
   is_read: boolean;
   received_at: string;
   direction?: "inbound" | "outbound";
+  status?: MessageStatus | null;
 }
 
 export interface PreflightResult {
@@ -142,4 +138,67 @@ export interface MemberListResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+// ── Email Campaign Types ─────────────────────────────────────────────────────
+
+export interface EmailCampaign {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  template_id: string;
+  subject: string;
+  from_email: string;
+  status: string;
+  total_count: number;
+  sent_count: number;
+  delivered_count: number;
+  opened_count: number;
+  clicked_count: number;
+  bounced_count: number;
+  failed_count: number;
+  complained_count: number;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface EmailLog {
+  id: string;
+  campaign_id: string;
+  recipient_email: string;
+  recipient_name: string;
+  resend_email_id: string | null;
+  status: string;
+  status_history: Array<{
+    status: string;
+    timestamp: string;
+    meta: Record<string, unknown>;
+  }>;
+  retry_count: number;
+  error_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailTemplate {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  subject: string;
+  html: string;
+  text: string | null;
+  variables: Array<{
+    key: string;
+    type: "string" | "number";
+    fallback_value: string | number | null;
+  }>;
+  version: number;
+  synced_from: string | null;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }

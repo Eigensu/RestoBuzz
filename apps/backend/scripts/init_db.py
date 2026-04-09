@@ -21,9 +21,9 @@ async def main():
     client = AsyncIOMotorClient(settings.mongodb_url)
     db = client.get_default_database(settings.mongodb_db_name)
 
-    admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-    admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
-    reset_password = os.getenv("RESET_PASSWORD") == "1"
+    admin_email = settings.admin_email
+    admin_password = (settings.admin_password or "").strip()
+    reset_password = settings.reset_password
 
     def require_admin_password_or_exit(reason: str) -> str:
         if not admin_password:
@@ -75,42 +75,42 @@ async def main():
         {
             "id": "r1",
             "name": "Soraia",
-            "location": "Downtown",
+            "location": "Mahalaxmi",
             "emoji": "🍔",
             "color": "bg-orange-500",
         },
         {
             "id": "r2",
             "name": "Fielia",
-            "location": "Midtown",
+            "location": "Mahalaxmi",
             "emoji": "🍣",
             "color": "bg-pink-500",
         },
         {
             "id": "r3",
             "name": "Gigi",
-            "location": "West End",
+            "location": "Bandra",
             "emoji": "🍕",
             "color": "bg-red-500",
         },
         {
             "id": "r4",
             "name": "Scarlett House Bandra",
-            "location": "East Side",
+            "location": "Bandra",
             "emoji": "🍛",
             "color": "bg-yellow-500",
         },
         {
             "id": "r5",
             "name": "Scarlett House Juhu",
-            "location": "Uptown",
+            "location": "Juhu",
             "emoji": "🥗",
             "color": "bg-green-500",
         },
         {
             "id": "r6",
             "name": "Sweeney",
-            "location": "Waterfront",
+            "location": "Khar",
             "emoji": "🦞",
             "color": "bg-blue-500",
         },

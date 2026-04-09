@@ -3,7 +3,9 @@ from typing import Literal
 from datetime import datetime
 
 
-CampaignStatus = Literal["draft", "queued", "running", "paused", "completed", "failed", "cancelled"]
+CampaignStatus = Literal[
+    "draft", "queued", "running", "paused", "completed", "failed", "cancelled"
+]
 Priority = Literal["MARKETING", "UTILITY"]
 
 
@@ -14,7 +16,7 @@ class CampaignCreate(BaseModel):
     template_name: str = Field(min_length=1)
     template_variables: dict = Field(default_factory=dict)
     media_url: str | None = None
-    priority: Priority = "MARKETING"
+    priority: Priority = Field(default="MARKETING")
     scheduled_at: datetime | None = None
     include_unsubscribe: bool = True
     contact_file_ref: str = Field(min_length=1)  # temp file key from upload step
@@ -39,6 +41,7 @@ class CampaignResponse(BaseModel):
     created_by: str
     include_unsubscribe: bool
     created_at: datetime
+    parent_campaign_id: str | None = None  # set on retry campaigns
 
 
 class CampaignListResponse(BaseModel):
@@ -46,3 +49,16 @@ class CampaignListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class CampaignTestMessageRequest(BaseModel):
+    restaurant_id: str = Field(min_length=1)
+    to_phone: str = Field(min_length=7, max_length=20)
+    template_name: str = Field(min_length=1)
+    template_variables: dict = Field(default_factory=dict)
+    media_url: str | None = None
+
+
+class CampaignTestMessageResponse(BaseModel):
+    wa_message_id: str
+    endpoint_used: Literal["primary", "fallback"]
