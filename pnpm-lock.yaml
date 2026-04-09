@@ -14,8 +14,6 @@ importers:
 
   apps/backend: {}
 
-  apps/backend: {}
-
   apps/frontend:
     dependencies:
       '@hookform/resolvers':
