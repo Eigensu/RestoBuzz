@@ -47,3 +47,4 @@ htmlcov/
 
 # Pytest
 .pytest_cache/
+apps/frontend/tsconfig.tsbuildinfo
