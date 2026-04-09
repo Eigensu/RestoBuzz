@@ -1,11 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ContactRow(BaseModel):
     name: str | None = None
     phone: str | None = None  # E.164 normalized
     email: str | None = None
-    variables: dict[str, str] = {}
+    variables: dict[str, str] = Field(default_factory=dict)
 
 
 class InvalidRow(BaseModel):
@@ -28,4 +28,6 @@ class ColumnMapping(BaseModel):
     phone_column: str | None = None
     email_column: str | None = None
     name_column: str | None = None
-    variable_columns: dict[str, str] = {}  # template_var -> column_name
+    variable_columns: dict[str, str] = Field(
+        default_factory=dict
+    )  # template_var -> column_name

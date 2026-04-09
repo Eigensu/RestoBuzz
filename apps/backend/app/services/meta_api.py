@@ -29,7 +29,7 @@ async def _resolve_app_id(token: str, configured_app_id: str | None = None) -> s
             except Exception as esc:
                 raise MetaAPIError(
                     "parse_error",
-                    f"Non-JSON response from Meta (status {resp.status_code})"
+                    f"Non-JSON response from Meta (status {resp.status_code})",
                 ) from esc
             if resp.status_code != 200:
                 error = data.get("error", {})
@@ -67,7 +67,13 @@ def _build_payload(
         )
 
     if variables:
-        body_params = [{"type": "text", "text": v} for v in variables.values()]
+        # Sort variables by numeric key (1, 2, 3...) to ensure correct order for Meta API
+        try:
+            sorted_vars = sorted(variables.items(), key=lambda x: int(x[0]))
+            body_params = [{"type": "text", "text": str(v)} for k, v in sorted_vars]
+        except (ValueError, TypeError):
+            # If keys aren't numeric, fall back to value order
+            body_params = [{"type": "text", "text": str(v)} for v in variables.values()]
         components.append({"type": "body", "parameters": body_params})
 
     template_obj = {
@@ -183,6 +189,7 @@ async def create_template(waba_id: str, token: str, payload: dict) -> dict:
 
 MAX_MEDIA_BYTES = 10 * 1024 * 1024  # 10MB limit
 
+
 async def create_media_handle_from_url(
     media_url: str,
     app_id: str,
@@ -204,7 +211,10 @@ async def create_media_handle_from_url(
                 async for chunk in fetch_resp.aiter_bytes():
                     content += chunk
                     if len(content) > MAX_MEDIA_BYTES:
-                        raise MetaAPIError("media_too_large", f"Media exceeds limit of {MAX_MEDIA_BYTES} bytes")
+                        raise MetaAPIError(
+                            "media_too_large",
+                            f"Media exceeds limit of {MAX_MEDIA_BYTES} bytes",
+                        )
 
                 content_type = (
                     fetch_resp.headers.get("content-type", "application/octet-stream")
@@ -230,7 +240,9 @@ async def create_media_handle_from_url(
             try:
                 create_data = create_resp.json()
             except Exception as esc:
-                raise MetaAPIError("parse_error", "Failed to parse create upload session response") from esc
+                raise MetaAPIError(
+                    "parse_error", "Failed to parse create upload session response"
+                ) from esc
 
             if create_resp.status_code not in (200, 201):
                 error = create_data.get("error", {})
@@ -258,7 +270,9 @@ async def create_media_handle_from_url(
             try:
                 uploaded = upload_resp.json()
             except Exception as esc:
-                raise MetaAPIError("parse_error", "Failed to parse upload session response") from esc
+                raise MetaAPIError(
+                    "parse_error", "Failed to parse upload session response"
+                ) from esc
 
             if upload_resp.status_code not in (200, 201):
                 error = uploaded.get("error", {})

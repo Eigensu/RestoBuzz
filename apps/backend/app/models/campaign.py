@@ -49,3 +49,16 @@ class CampaignListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class CampaignTestMessageRequest(BaseModel):
+    restaurant_id: str = Field(min_length=1)
+    to_phone: str = Field(min_length=7, max_length=20)
+    template_name: str = Field(min_length=1)
+    template_variables: dict = Field(default_factory=dict)
+    media_url: str | None = None
+
+
+class CampaignTestMessageResponse(BaseModel):
+    wa_message_id: str
+    endpoint_used: Literal["primary", "fallback"]

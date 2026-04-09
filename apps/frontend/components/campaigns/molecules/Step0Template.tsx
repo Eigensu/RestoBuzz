@@ -45,6 +45,11 @@ export function Step0Template({
   const filteredTemplates = templates.filter((t) =>
     t.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
+  const requiresMedia =
+    selectedTemplate?.components.some(
+      (component) =>
+        component.type === "HEADER" && component.format === "IMAGE",
+    ) ?? false;
 
   return (
     <div className="flex gap-6">
@@ -87,6 +92,7 @@ export function Step0Template({
                 onClick={() => {
                   setSelectedTemplate(t);
                   setVariables({});
+                  setMediaUrl("");
                 }}
                 className={cn(
                   "text-left border rounded-lg px-4 py-3 transition",
@@ -133,7 +139,7 @@ export function Step0Template({
           </div>
         )}
 
-        {selectedTemplate && (
+        {selectedTemplate && requiresMedia && (
           <div className="space-y-1.5">
             <label
               htmlFor="media-upload-input"
@@ -203,15 +209,24 @@ export function Step0Template({
             <input
               value={mediaUrl}
               readOnly
-              className={cn(INPUT_CLS, "bg-gray-50 text-gray-500 cursor-not-allowed")}
+              className={cn(
+                INPUT_CLS,
+                "bg-gray-50 text-gray-500 cursor-not-allowed",
+              )}
               placeholder="Or paste a URL directly…"
             />
+          </div>
+        )}
+
+        {selectedTemplate && !requiresMedia && (
+          <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/70 px-3 py-2 text-xs text-gray-500">
+            This template does not require a media header.
           </div>
         )}
       </div>
 
       {/* Right: preview */}
-      <div className="hidden lg:flex w-2/5 border-l pl-6 flex-col self-stretch min-h-[400px]">
+      <div className="hidden lg:flex w-2/5 border-l pl-6 flex-col self-stretch min-h-100">
         <WizardTemplatePreview
           template={selectedTemplate}
           variables={variables}

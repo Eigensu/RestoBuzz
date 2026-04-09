@@ -14,16 +14,17 @@ import redis as sync_redis
 
 logger = get_logger(__name__)
 
-_redis_client = None
+_redis_state = {"client": None}
 
 
 def _get_redis():
-    global _redis_client
-    if _redis_client is None:
+    if _redis_state["client"] is None:
         from app.config import settings
 
-        _redis_client = sync_redis.from_url(settings.redis_url, decode_responses=True)
-    return _redis_client
+        _redis_state["client"] = sync_redis.from_url(
+            settings.redis_url, decode_responses=True
+        )
+    return _redis_state["client"]
 
 
 def _get_async_redis():
@@ -34,7 +35,7 @@ def _get_async_redis():
 
 
 @celery_app.task(bind=True, name="app.workers.send_task.dispatch_campaign_task")
-def dispatch_campaign_task(self: Task, job_id: str) -> None:
+def dispatch_campaign_task(_task: Task, job_id: str) -> None:
     asyncio.run(_dispatch(job_id))
 
 
@@ -43,6 +44,10 @@ async def _dispatch(job_id: str) -> None:
     job = await db.campaign_jobs.find_one({"_id": ObjectId(job_id)})
     if not job:
         logger.error("dispatch_job_not_found", job_id=job_id)
+        return
+
+    if job.get("status") in {"cancelled", "paused"}:
+        logger.info("dispatch_skipped", job_id=job_id, status=job.get("status"))
         return
 
     await db.campaign_jobs.update_one(
@@ -108,6 +113,35 @@ async def _send(task: Task, message_log_id: str) -> None:
             )
             if not msg:
                 logger.info("message_already_claimed", id=message_log_id)
+                return
+
+            campaign = await db.campaign_jobs.find_one(
+                {"_id": msg["job_id"]}, {"status": 1}
+            )
+            if not campaign or campaign.get("status") in {"cancelled", "paused"}:
+                await db.message_logs.update_one(
+                    {"_id": ObjectId(message_log_id)},
+                    {
+                        "$set": {
+                            "status": "cancelled",
+                            "locked_until": None,
+                            "updated_at": datetime.now(timezone.utc),
+                        },
+                        "$push": {
+                            "status_history": {
+                                "status": "cancelled",
+                                "timestamp": datetime.now(timezone.utc),
+                                "meta": {
+                                    "campaign_status": (
+                                        campaign.get("status")
+                                        if campaign
+                                        else "missing"
+                                    )
+                                },
+                            }
+                        },
+                    },
+                )
                 return
 
             # Suppression check

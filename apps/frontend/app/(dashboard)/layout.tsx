@@ -13,10 +13,12 @@ import {
   Send,
   Inbox,
   FileText,
+  Mail,
   Users,
   Shield,
   LogOut,
   MessageSquare,
+  MessageCircle,
   Menu,
   ChevronDown,
   Check,
@@ -33,9 +35,9 @@ const NAV = [
     label: "Campaigns",
     icon: Send,
     children: [
-      { href: "/campaigns/whatsapp", label: "WhatsApp" },
-      { href: "/campaigns/email", label: "Email" },
-      { href: "/campaigns/sms", label: "SMS" },
+      { href: "/campaigns/whatsapp", label: "WhatsApp", icon: MessageCircle },
+      { href: "/campaigns/email", label: "Email", icon: Mail },
+      { href: "/campaigns/sms", label: "SMS", icon: MessageSquare },
     ],
   },
   { href: "/members", label: "Members", icon: UserCheck },
@@ -258,6 +260,7 @@ export default function DashboardLayout({
                   >
                     {item.children?.map((child) => {
                       const isChildActive = pathname === child.href;
+                      const ChildIcon = child.icon;
                       return (
                         <Link
                           key={child.href}
@@ -270,6 +273,7 @@ export default function DashboardLayout({
                               : "text-gray-500 hover:text-[#24422e] hover:bg-[#24422e]/5",
                           )}
                         >
+                          {ChildIcon && <ChildIcon className="w-3.5 h-3.5" />}
                           {child.label}
                         </Link>
                       );
@@ -295,7 +299,7 @@ export default function DashboardLayout({
                 <span className="flex-1">{item.label}</span>
                 {item.href === "/inbox" && inboxUnread > 0 && (
                   <span
-                    className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                    className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-4.5 text-center"
                     style={{
                       background: BRAND_GRADIENT,
                     }}
