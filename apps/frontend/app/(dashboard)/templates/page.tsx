@@ -30,6 +30,8 @@ import {
 } from "@/components/templates/organisms/TemplateGrid";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils";
+import { TemplateFormModal } from "@/components/templates/molecules/TemplateFormModal";
+
 
 type TabType = "whatsapp" | "email";
 
@@ -41,6 +43,8 @@ export default function UnifiedTemplatesPage() {
   // WhatsApp State
   const [waSearch, setWaSearch] = useState("");
   const [waFilterStatus, setWaFilterStatus] = useState<"ALL" | "APPROVED" | "PENDING">("ALL");
+  const [showWaCreator, setShowWaCreator] = useState(false);
+
 
   // Email State
   const [showEmailEditor, setShowEmailEditor] = useState(false);
@@ -195,16 +199,26 @@ export default function UnifiedTemplatesPage() {
         {/* Action Buttons */}
         <div className="flex gap-3">
           {activeTab === "whatsapp" ? (
-            <button
-              onClick={() => syncWaMutation.mutate()}
-              disabled={syncWaMutation.isPending}
-              className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50"
-              style={{ background: BRAND_GRADIENT }}
-            >
-              <RefreshCw className={cn("w-4 h-4", syncWaMutation.isPending && "animate-spin")} />
-              Sync from Meta
-            </button>
+            <div className="flex gap-3">
+               <button
+                onClick={() => setShowWaCreator(true)}
+                className="inline-flex items-center gap-2 text-[#24422e] text-sm font-bold px-5 py-3 rounded-xl border-2 border-[#24422e] hover:bg-[#24422e] hover:text-white transition"
+              >
+                <Plus className="w-4 h-4" />
+                CREATE NEW
+              </button>
+              <button
+                onClick={() => syncWaMutation.mutate()}
+                disabled={syncWaMutation.isPending}
+                className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50"
+                style={{ background: BRAND_GRADIENT }}
+              >
+                <RefreshCw className={cn("w-4 h-4", syncWaMutation.isPending && "animate-spin")} />
+                Sync from Meta
+              </button>
+            </div>
           ) : (
+
             <div className="flex gap-3">
                <button
                 onClick={() => openEmailEditor()}
@@ -425,6 +439,15 @@ export default function UnifiedTemplatesPage() {
           </div>
         </div>
       )}
+
+      {/* WhatsApp Creator Modal */}
+      {showWaCreator && (
+        <TemplateFormModal
+          onClose={() => setShowWaCreator(false)}
+          mode="modal"
+        />
+      )}
     </div>
+
   );
 }
