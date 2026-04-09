@@ -45,31 +45,6 @@ _EMAIL_ALIASES = {
     "emailaddress",
     "address",
 }
-_PHONE_ALIASES = {
-    "phone",
-    "contact",
-    "mobile",
-    "number",
-    "tel",
-    "telephone",
-    "whatsapp",
-    "wa",
-    "cell",
-    "phone number",
-    "contact number",
-    "mobile number",
-}
-_NAME_ALIASES = {
-    "name",
-    "full name",
-    "fullname",
-    "customer",
-    "client",
-    "person",
-    "first name",
-    "firstname",
-    "contact name",
-}
 
 
 def _clean_header(h: str) -> str:
@@ -189,10 +164,7 @@ async def parse_contacts(
         phone_col=phone_col,
         email_col=email_col,
         name_col=name_col,
-        all_headers=headers,
-    )
-    print(
-        f"🔎 MAPPED COLUMNS -> Phone: [{phone_col}], Email: [{email_col}], Name: [{name_col}]"
+        header_count=len(headers),
     )
 
     valid: list[ContactRow] = []
@@ -207,19 +179,6 @@ async def parse_contacts(
 
         normalized_phone = _normalize_phone(raw_phone) if raw_phone else None
         normalized_email = _validate_email(raw_email) if raw_email else None
-
-        if i < 10:  # Print first 10 rows
-            print(
-                f"📍 ROW {i} -> Raw Email: '{raw_email}' | Parsed: '{normalized_email}'"
-            )
-            logger.info(
-                "contact_parser_row_debug",
-                row=i,
-                raw_phone=raw_phone,
-                norm_phone=normalized_phone,
-                raw_email=raw_email,
-                norm_email=normalized_email,
-            )
 
         # Row is invalid if both are missing or syntactically wrong
         if not normalized_phone and not normalized_email:

@@ -190,7 +190,7 @@ export default function EmailCampaignsPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </Link>
-                        {["failed", "bounced", "partial_failure"].includes(c.status) && (
+                        {["failed", "partial_failure"].includes(c.status) && (
                           <a
                             href={`/api/email-campaigns/${c.id}/export-failed`}
                             className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition"

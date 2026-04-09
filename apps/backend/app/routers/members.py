@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from app.database import get_db
+from app.core.logging import get_logger
 from app.dependencies import (
     require_role,
     require_restaurant_access,
@@ -26,6 +27,7 @@ from app.models.member import (
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
 
 router = APIRouter(prefix="/members", tags=["members"])
+logger = get_logger(__name__)
 
 
 def _serialize(doc: dict) -> MemberResponse:
@@ -225,12 +227,12 @@ async def members_as_contacts(
         row_num += 1
         raw_phone = doc.get("phone", "").strip() if doc.get("phone") else ""
         if not raw_phone:
-            invalid_rows.append(InvalidRow(row_number=row_num, raw_phone="", reason="Empty phone"))
+            invalid_rows.append(InvalidRow(row_number=row_num, raw_value="", reason="Empty phone"))
             continue
         
         normalized = _normalize_phone(raw_phone)
         if not normalized:
-            invalid_rows.append(InvalidRow(row_number=row_num, raw_phone=raw_phone, reason="Invalid phone number"))
+            invalid_rows.append(InvalidRow(row_number=row_num, raw_value=raw_phone, reason="Invalid phone number"))
             continue
 
         if normalized in seen_phones:
@@ -278,7 +280,11 @@ async def import_members(
     await validate_restaurant_access(current_user, restaurant_id, db)
 
     filename = file.filename or ""
-    if not filename.lower().endswith(".xlsx"):
+    content_type = file.content_type or ""
+    allowed_content_types = {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    if content_type not in allowed_content_types or not filename.lower().endswith(".xlsx"):
         raise InvalidFileFormatError("Only .xlsx Excel files are supported for import")
 
     contents = await file.read()

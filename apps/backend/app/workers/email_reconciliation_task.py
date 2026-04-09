@@ -58,7 +58,7 @@ INCREMENTAL_COUNTERS = {
 async def _reconcile_single_log(db, log: dict) -> bool:
     resend_id = log["resend_email_id"]
     try:
-        email_data = resend.Emails.get(resend_id)
+        email_data = await asyncio.to_thread(resend.Emails.get, resend_id)
         if not isinstance(email_data, dict):
             return False
 

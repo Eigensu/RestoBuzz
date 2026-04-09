@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -24,7 +24,6 @@ import {
   Check,
   UserCheck,
   Store,
-  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -46,8 +45,6 @@ const NAV = [
   { href: "/contacts", label: "Suppression", icon: Users },
 ];
 
-
-
 export default function DashboardLayout({
   children,
 }: {
@@ -59,18 +56,19 @@ export default function DashboardLayout({
     useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [campaignsOpen, setCampaignsOpen] = useState(
-    pathname.startsWith("/campaigns"),
-  );
+  // Track whether the user has explicitly toggled the campaigns submenu.
+  // null = no override (follow pathname); true/false = user forced it.
+  const [campaignsToggle, setCampaignsToggle] = useState<boolean | null>(null);
   const isResolvingSession = _hydrated && !user;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inboxUnread = useUIStore((s) => s.inboxUnread);
 
-  useEffect(() => {
-    if (pathname.startsWith("/campaigns")) {
-      setCampaignsOpen(true);
-    }
-  }, [pathname]);
+  // Derive open state: if the current path is under /campaigns always open;
+  // otherwise respect the user's manual toggle (default closed).
+  const campaignsOpen = useMemo(() => {
+    if (pathname.startsWith("/campaigns")) return true;
+    return campaignsToggle ?? false;
+  }, [pathname, campaignsToggle]);
 
   const { data: restaurants = [] } = useQuery({
     queryKey: ["restaurants", user?.id ?? null],
@@ -228,7 +226,7 @@ export default function DashboardLayout({
               const isOpen = item.href === "/campaigns" ? campaignsOpen : false;
               const toggle = () => {
                 if (item.href === "/campaigns")
-                  setCampaignsOpen((prev) => !prev);
+                  setCampaignsToggle((prev) => !(prev ?? campaignsOpen));
               };
 
               return (
@@ -313,12 +311,12 @@ export default function DashboardLayout({
         </nav>
 
         <div className="p-3 border-t">
-          <Link 
+          <Link
             href="/profile"
             onClick={() => setSidebarOpen(false)}
             className={cn(
               "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg transition-colors group",
-              pathname === "/profile" ? "bg-[#24422e]/5" : "hover:bg-gray-50"
+              pathname === "/profile" ? "bg-[#24422e]/5" : "hover:bg-gray-50",
             )}
           >
             <div
@@ -330,10 +328,14 @@ export default function DashboardLayout({
               {user?.email?.[0]?.toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <p className={cn(
-                "text-xs font-medium truncate transition-colors",
-                pathname === "/profile" ? "text-[#24422e]" : "text-gray-700 group-hover:text-[#24422e]"
-              )}>
+              <p
+                className={cn(
+                  "text-xs font-medium truncate transition-colors",
+                  pathname === "/profile"
+                    ? "text-[#24422e]"
+                    : "text-gray-700 group-hover:text-[#24422e]",
+                )}
+              >
                 {user?.email}
               </p>
               <p className="text-xs text-gray-400 capitalize">

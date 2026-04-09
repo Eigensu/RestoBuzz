@@ -84,9 +84,15 @@ export default function ProfilePage() {
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                 Active Account
               </div>
-              <div className="text-xs text-gray-400 font-medium">
-                Member since {user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : "March 2024"}
-              </div>
+              {user.created_at && (
+                <div className="text-xs text-gray-400 font-medium">
+                  Member since{" "}
+                  {new Date(user.created_at).toLocaleDateString("en-US", {
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -118,11 +124,13 @@ export default function ProfilePage() {
                 label="System Role" 
                 value={user.role.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} 
               />
-              <DetailItem 
-                icon={Calendar} 
-                label="Joined Date" 
-                value={user.created_at ? new Date(user.created_at).toLocaleDateString() : "3/28/2026"} 
-              />
+              {user.created_at && (
+                <DetailItem
+                  icon={Calendar}
+                  label="Joined Date"
+                  value={new Date(user.created_at).toLocaleDateString()}
+                />
+              )}
             </div>
             
             {/* Compact Activity at the bottom of the Card */}

@@ -9,7 +9,6 @@ import { parseApiError } from "@/lib/errors";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   Plus,
-  FileText,
   RefreshCw,
   LayoutTemplate,
   Loader2,
@@ -20,7 +19,7 @@ import {
   X,
   Code,
   Mail,
-  Smartphone
+  Smartphone,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { TemplateSearchBar } from "@/components/templates/molecules/TemplateSearchBar";

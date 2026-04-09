@@ -109,15 +109,6 @@ async def upload_contacts(
     file_hash = hashlib.sha256(content).hexdigest()
     uploader_id = str(current_user["_id"])
 
-    # TEMPORARILY DISABLED CACHE TO DEBUG YOUR 0 RECIPIENTS ISSUE
-    # existing = await db.contact_files.find_one(
-    #     {"filename": filename, "hash": file_hash, "uploaded_by": uploader_id}
-    # )
-    # if existing:
-    #     result = PreflightResult(**existing["result"])
-    #     await _cache_file_ref(result.file_ref, result.valid_rows)
-    #     return result
-
     mapping = ColumnMapping(
         phone_column=phone_column, 
         email_column=email_column, 

@@ -213,7 +213,7 @@ export function Step0Template({
                 INPUT_CLS,
                 "bg-gray-50 text-gray-500 cursor-not-allowed",
               )}
-              placeholder="Or paste a URL directly…"
+              placeholder="Uploaded URL will appear here"
             />
           </div>
         )}

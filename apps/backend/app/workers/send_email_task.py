@@ -144,7 +144,7 @@ async def _send_one(task: Task, email_log_id: str) -> None:
         # Render template from snapshot
         snapshot = job.get("template_snapshot", {})
         template_html = snapshot.get("html", "")
-        variables_schema = snapshot.get("variables_schema", [])
+        variables_schema = snapshot.get("variables", [])
 
         # Build variable dict: contact-specific + fallbacks
         render_vars = {}

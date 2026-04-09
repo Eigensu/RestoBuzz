@@ -413,7 +413,7 @@ async def reservego_upload(
 
     now = datetime.now(timezone.utc)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         parsed = await loop.run_in_executor(
             _executor, _parse_workbook, contents, filename, now, restaurant_id

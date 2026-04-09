@@ -45,8 +45,11 @@ def render_template(html: str, variables: dict) -> str:
 
 
 def extract_variables(html: str) -> list[str]:
-    """Extract unique {{ var }} names from an HTML string."""
-    return sorted(list(set(VAR_PATTERN.findall(html))))
+    """Extract unique {{ var }} names from an HTML string.
+    Normalises Resend-style {{{var}}} to {{var}} before extraction
+    so triple-brace variables are not missed."""
+    normalised = html.replace("{{{", "{{").replace("}}}", "}}")
+    return sorted(list(set(VAR_PATTERN.findall(normalised))))
 
 
 async def list_templates() -> list[dict]:

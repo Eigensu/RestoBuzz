@@ -14,6 +14,8 @@ import redis as sync_redis
 
 logger = get_logger(__name__)
 
+_PUSH = "$push"  # reused in update operations to avoid duplicate literal warnings
+
 _redis_state = {"client": None}
 
 
@@ -127,7 +129,7 @@ async def _send(task: Task, message_log_id: str) -> None:
                             "locked_until": None,
                             "updated_at": datetime.now(timezone.utc),
                         },
-                        "$push": {
+                        _PUSH: {
                             "status_history": {
                                 "status": "cancelled",
                                 "timestamp": datetime.now(timezone.utc),
@@ -162,83 +164,106 @@ async def _send(task: Task, message_log_id: str) -> None:
                 return
 
             # Send via Meta API
-            try:
-                language = msg.get("language")
-                if not language:
-                    tpl = await db.templates.find_one(
-                        {"name": msg.get("template_name", "")}, {"language": 1}
-                    )
-                    language = (tpl or {}).get("language") or "en_US"
+            await _do_send(task, db, redis, msg, message_log_id)
 
-                wa_id, endpoint = await send_template_message(
-                    to=msg["recipient_phone"],
-                    template_name=msg.get("template_name", ""),
-                    variables=msg.get("template_variables", {}),
-                    media_url=msg.get("media_url"),
-                    language=language,
-                )
-                await mark_seen(redis, wa_id)
-                await db.message_logs.update_one(
-                    {"_id": ObjectId(message_log_id)},
-                    {
-                        "$set": {
-                            "status": "sent",
-                            "wa_message_id": wa_id,
-                            "endpoint_used": endpoint,
-                            "fallback_used": endpoint == "fallback",
-                            "locked_until": None,
-                            "updated_at": datetime.now(timezone.utc),
-                        },
-                        "$push": {
-                            "status_history": {
-                                "status": "sent",
-                                "timestamp": datetime.now(timezone.utc),
-                                "meta": {"endpoint": endpoint},
-                            }
-                        },
-                    },
-                )
-                await db.campaign_jobs.update_one(
-                    {"_id": msg["job_id"]},
-                    {"$inc": {"sent_count": 1}},
-                )
-                # Auto-complete if all messages are done
-                updated_job = await db.campaign_jobs.find_one({"_id": msg["job_id"]})
-                if updated_job and (
-                    updated_job.get("sent_count", 0)
-                    + updated_job.get("failed_count", 0)
-                ) >= updated_job.get("total_count", 0):
-                    await db.campaign_jobs.update_one(
-                        {"_id": msg["job_id"], "status": "running"},
-                        {
-                            "$set": {
-                                "status": "completed",
-                                "completed_at": datetime.now(timezone.utc),
-                            }
-                        },
-                    )
-                logger.info("message_sent", id=message_log_id, wa_id=wa_id)
-
-            except MetaAPIError as e:
-                retry_count = msg.get("retry_count", 0)
-                if retry_count < 3:
-                    countdown = 30 * (4**retry_count)
-                    await db.message_logs.update_one(
-                        {"_id": ObjectId(message_log_id)},
-                        {
-                            "$set": {"status": "queued", "locked_until": None},
-                            "$inc": {"retry_count": 1},
-                        },
-                    )
-                    task.retry(countdown=countdown, exc=e)
-                else:
-                    await _fail_message(db, message_log_id, e.code, e.message)
-                    await db.campaign_jobs.update_one(
-                        {"_id": msg["job_id"]},
-                        {"$inc": {"failed_count": 1}},
-                    )
     finally:
         await redis.aclose()
+
+
+async def _do_send(
+    task: Task,
+    db,
+    redis,
+    msg: dict,
+    message_log_id: str,
+) -> None:
+    """Resolve language, call Meta API, record the result, and auto-complete the job."""
+    language = msg.get("language")
+    if not language:
+        tpl = await db.templates.find_one(
+            {"name": msg.get("template_name", "")}, {"language": 1}
+        )
+        language = (tpl or {}).get("language") or "en_US"
+
+    try:
+        wa_id, endpoint = await send_template_message(
+            to=msg["recipient_phone"],
+            template_name=msg.get("template_name", ""),
+            variables=msg.get("template_variables", {}),
+            media_url=msg.get("media_url"),
+            language=language,
+        )
+    except MetaAPIError as e:
+        await _handle_meta_error(task, db, msg, message_log_id, e)
+        return
+
+    await mark_seen(redis, wa_id)
+    await db.message_logs.update_one(
+        {"_id": ObjectId(message_log_id)},
+        {
+            "$set": {
+                "status": "sent",
+                "wa_message_id": wa_id,
+                "endpoint_used": endpoint,
+                "fallback_used": endpoint == "fallback",
+                "locked_until": None,
+                "updated_at": datetime.now(timezone.utc),
+            },
+            _PUSH: {
+                "status_history": {
+                    "status": "sent",
+                    "timestamp": datetime.now(timezone.utc),
+                    "meta": {"endpoint": endpoint},
+                }
+            },
+        },
+    )
+    await db.campaign_jobs.update_one(
+        {"_id": msg["job_id"]},
+        {"$inc": {"sent_count": 1}},
+    )
+    await _auto_complete_job(db, msg["job_id"])
+    logger.info("message_sent", id=message_log_id, wa_id=wa_id)
+
+
+async def _handle_meta_error(
+    task: Task, db, msg: dict, message_log_id: str, e: MetaAPIError
+) -> None:
+    """Retry transient Meta API errors; permanently fail after max retries."""
+    retry_count = msg.get("retry_count", 0)
+    if retry_count < 3:
+        countdown = 30 * (4**retry_count)
+        await db.message_logs.update_one(
+            {"_id": ObjectId(message_log_id)},
+            {
+                "$set": {"status": "queued", "locked_until": None},
+                "$inc": {"retry_count": 1},
+            },
+        )
+        task.retry(countdown=countdown, exc=e)
+    else:
+        await _fail_message(db, message_log_id, e.code, e.message)
+        await db.campaign_jobs.update_one(
+            {"_id": msg["job_id"]},
+            {"$inc": {"failed_count": 1}},
+        )
+
+
+async def _auto_complete_job(db, job_id) -> None:
+    """Transition job to completed once all messages are processed."""
+    updated_job = await db.campaign_jobs.find_one({"_id": job_id})
+    if updated_job and (
+        updated_job.get("sent_count", 0) + updated_job.get("failed_count", 0)
+    ) >= updated_job.get("total_count", 0):
+        await db.campaign_jobs.update_one(
+            {"_id": job_id, "status": "running"},
+            {
+                "$set": {
+                    "status": "completed",
+                    "completed_at": datetime.now(timezone.utc),
+                }
+            },
+        )
 
 
 async def _fail_message(db, message_log_id: str, code: str, message: str) -> None:
@@ -253,7 +278,7 @@ async def _fail_message(db, message_log_id: str, code: str, message: str) -> Non
                 "locked_until": None,
                 "updated_at": now,
             },
-            "$push": {
+            _PUSH: {
                 "status_history": {
                     "status": "failed",
                     "timestamp": now,

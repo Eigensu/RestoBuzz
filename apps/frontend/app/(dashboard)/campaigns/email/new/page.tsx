@@ -122,18 +122,6 @@ export default function NewEmailCampaignPage() {
     }
   };
 
-  const downloadSampleCSV = () => {
-    const csvContent = "email,name,phone,custom_field1\ntest@example.com,John Doe,+1234567890,Value1";
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "dishpatch_sample_contacts.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  };
 
   // Create campaign
   const createMutation = useMutation({
