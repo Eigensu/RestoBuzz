@@ -3,7 +3,15 @@ from typing import Literal
 from datetime import datetime
 
 
-MessageStatus = Literal["queued", "sending", "sent", "delivered", "read", "failed"]
+MessageStatus = Literal[
+    "queued",
+    "sending",
+    "sent",
+    "delivered",
+    "read",
+    "failed",
+    "cancelled",
+]
 EndpointUsed = Literal["primary", "fallback"]
 
 

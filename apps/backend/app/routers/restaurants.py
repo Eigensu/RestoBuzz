@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, Path, Body
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.database import get_db
-from app.dependencies import require_role, get_user_restaurant_ids
-from app.models.restaurant import RestaurantResponse
+from app.dependencies import require_role, get_user_restaurant_ids, get_current_user
 from app.models.user_restaurant import AssignUserRequest, UserRestaurantRole
+from app.models.restaurant import RestaurantResponse, UpdateCategoriesRequest
 from app.core.errors import NotFoundError, ValidationError
 from app.core.utils import to_object_id
 
@@ -14,12 +14,29 @@ router = APIRouter(prefix="/restaurants", tags=["restaurants"])
 
 @router.get("", response_model=list[RestaurantResponse])
 async def list_restaurants(
+    current_user: Annotated[dict, Depends(get_current_user)],
     allowed_ids: Annotated[set[str], Depends(get_user_restaurant_ids)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     """Returns only the restaurants the authenticated user has access to.
-    super_admin gets all restaurants."""
-    query = {"id": {"$in": list(allowed_ids)}} if allowed_ids else {"id": None}
+    super_admin gets all restaurants in the system."""
+    if current_user.get("role") == "super_admin":
+        # Absolute bypass: return everything
+        query = {}
+    else:
+        # Resolve all provided IDs as either the 'id' field or MongoDB '_id'
+        object_ids = []
+        for aid in allowed_ids:
+            if ObjectId.is_valid(aid):
+                object_ids.append(ObjectId(aid))
+        
+        query = {
+            "$or": [
+                {"id": {"$in": list(allowed_ids)}},
+                {"_id": {"$in": object_ids}}
+            ]
+        } if allowed_ids else {"id": None}
+    
     cursor = db.restaurants.find(query).sort("name", 1)
     return [
         RestaurantResponse(
@@ -28,6 +45,7 @@ async def list_restaurants(
             location=doc.get("location", ""),
             emoji=doc.get("emoji", "🏪"),
             color=doc.get("color", "gray"),
+            member_categories=doc.get("member_categories", ["nfc", "ecard"]),
         )
         async for doc in cursor
     ]
@@ -100,3 +118,41 @@ async def list_restaurant_users(
         )
         async for doc in cursor
     ]
+
+
+@router.put("/{restaurant_id}/categories", response_model=RestaurantResponse)
+async def update_categories(
+    restaurant_id: Annotated[str, Path()],
+    body: Annotated[UpdateCategoriesRequest, Body()],
+    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """super_admin updates the member category list for a restaurant."""
+    # Normalise: strip whitespace, lowercase, remove blanks, deduplicate preserving order
+    seen: set[str] = set()
+    categories: list[str] = []
+    for cat in body.categories:
+        normalised = cat.strip().lower()
+        if normalised and normalised not in seen:
+            seen.add(normalised)
+            categories.append(normalised)
+
+    if not categories:
+        raise ValidationError("At least one category is required")
+
+    result = await db.restaurants.find_one_and_update(
+        {"id": restaurant_id},
+        {"$set": {"member_categories": categories}},
+        return_document=True,
+    )
+    if not result:
+        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
+
+    return RestaurantResponse(
+        id=result.get("id") or str(result["_id"]),
+        name=result.get("name", ""),
+        location=result.get("location", ""),
+        emoji=result.get("emoji", "🏪"),
+        color=result.get("color", "gray"),
+        member_categories=result.get("member_categories", []),
+    )

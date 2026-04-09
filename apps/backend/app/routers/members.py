@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, UploadFile, File
 from app.database import get_db
+from app.core.logging import get_logger
 from app.dependencies import (
     require_role,
     require_restaurant_access,
@@ -26,6 +27,7 @@ from app.models.member import (
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
 
 router = APIRouter(prefix="/members", tags=["members"])
+logger = get_logger(__name__)
 
 
 def _serialize(doc: dict) -> MemberResponse:
@@ -59,7 +61,7 @@ async def list_members(
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     query: dict = {"restaurant_id": validated_rid}
-    if type in ("nfc", "ecard"):
+    if type and type != "all":
         query["type"] = type
     if search:
         query["$or"] = [
@@ -225,12 +227,12 @@ async def members_as_contacts(
         row_num += 1
         raw_phone = doc.get("phone", "").strip() if doc.get("phone") else ""
         if not raw_phone:
-            invalid_rows.append(InvalidRow(row_number=row_num, raw_phone="", reason="Empty phone"))
+            invalid_rows.append(InvalidRow(row_number=row_num, raw_value="", reason="Empty phone"))
             continue
         
         normalized = _normalize_phone(raw_phone)
         if not normalized:
-            invalid_rows.append(InvalidRow(row_number=row_num, raw_phone=raw_phone, reason="Invalid phone number"))
+            invalid_rows.append(InvalidRow(row_number=row_num, raw_value=raw_phone, reason="Invalid phone number"))
             continue
 
         if normalized in seen_phones:
@@ -282,9 +284,7 @@ async def import_members(
     allowed_content_types = {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
-    if content_type not in allowed_content_types or not filename.lower().endswith(
-        ".xlsx"
-    ):
+    if content_type not in allowed_content_types or not filename.lower().endswith(".xlsx"):
         raise InvalidFileFormatError("Only .xlsx Excel files are supported for import")
 
     contents = await file.read()
@@ -364,8 +364,38 @@ async def import_members(
                 "last_visit": None,
                 "is_active": True,
                 "joined_at": now,
+                "source": "excel",
             }
         )
         inserted += 1
 
     return {"inserted": inserted, "skipped": skipped}
+
+
+@router.delete("/bulk", status_code=204)
+async def bulk_delete_members(
+    restaurant_id: str = Query(...),
+    source: str | None = Query(None),
+    deleteAll: bool = Query(False),
+    current_user: dict = Depends(require_role("admin")),
+    db: Any = Depends(get_db),
+):
+    """Bulk delete members for a restaurant. 
+    Can delete all members or filter by source (e.g. 'excel')."""
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
+    logger.info(f"Bulk Delete Request - RID: {restaurant_id}, Source: {source}, DeleteAll: {deleteAll}")
+
+    query = {"restaurant_id": restaurant_id}
+    
+    if deleteAll:
+        # No additional filters
+        pass
+    elif source:
+        query["source"] = source
+    else:
+        raise ValidationError("Must specify either 'deleteAll=true' or a 'source' to delete in bulk")
+
+    result = await db.members.delete_many(query)
+    logger.info(f"Bulk Deletion Result: {result.deleted_count} documents removed")
+    return None

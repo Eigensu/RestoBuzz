@@ -67,7 +67,7 @@ services:
       - app_network
     volumes:
       - ./backend:/app
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q utility,marketing
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-4} -Q utility,marketing,email
 
   beat:
     build:

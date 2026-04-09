@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 from datetime import datetime
 
-MemberType = Literal["nfc", "ecard"]
+MemberType = str
 
 
 class MemberCreate(BaseModel):

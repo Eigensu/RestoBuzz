@@ -36,8 +36,7 @@ export function TemplateEmptyState() {
         No templates yet
       </h2>
       <p className="text-sm text-gray-500 mt-2 font-medium">
-        Click &quot;Sync Templates&quot; to pull your approved templates from
-        Meta.
+        Click &quot;Sync Templates&quot; to pull from Meta or create one manually.
       </p>
     </div>
   );

@@ -20,14 +20,27 @@ RESULT_FILE_REF_KEY = "result.file_ref"
 async def _cache_file_ref(file_ref: str, valid_rows: list) -> None:
     from redis.asyncio import from_url
     from app.config import settings
+    from app.core.logging import get_logger
 
-    redis = from_url(settings.redis_url, decode_responses=True)
-    await redis.set(
-        f"file_ref:{file_ref}",
-        json.dumps([r.model_dump() for r in valid_rows]),
-        ex=3600,
-    )
-    await redis.aclose()
+    logger = get_logger(__name__)
+
+    try:
+        redis = from_url(settings.redis_url, decode_responses=True)
+        await redis.ping()  # Minimal connection check
+        await redis.set(
+            f"file_ref:{file_ref}",
+            json.dumps([r.model_dump() for r in valid_rows]),
+            ex=3600,
+        )
+        await redis.aclose()
+    except Exception as e:
+        logger.warning(
+            "redis_cache_failed", 
+            file_ref=file_ref, 
+            error=str(e),
+            detail="Contact file caching skipped. Fallback to DB will be used on campaign creation."
+        )
+
 
 
 @router.get("/template")
@@ -43,7 +56,7 @@ async def download_template(
     ws.title = "Contacts"
 
     # Header row
-    headers = ["Name", "Number"]
+    headers = ["Name", "Email", "Phone"]
     for col, header in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -52,17 +65,18 @@ async def download_template(
 
     # Sample rows so users know the expected format
     samples = [
-        ("Jane Doe", "9820000001"),
-        ("John Smith", "9820000002"),
+        ("Jane Doe", "jane@example.com", "9820000001"),
+        ("John Smith", "john@example.com", "9820000002"),
     ]
-    for row_idx, (name, number) in enumerate(samples, start=2):
+    for row_idx, (name, email, phone) in enumerate(samples, start=2):
         ws.cell(row=row_idx, column=1, value=name)
-        # Store as text to avoid float conversion
-        cell = ws.cell(row=row_idx, column=2, value=number)
+        ws.cell(row=row_idx, column=2, value=email)
+        cell = ws.cell(row=row_idx, column=3, value=phone)
         cell.number_format = "@"
 
     ws.column_dimensions["A"].width = 25
-    ws.column_dimensions["B"].width = 20
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 20
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -78,13 +92,14 @@ async def download_template(
 @router.post("/upload", response_model=PreflightResult)
 async def upload_contacts(
     file: UploadFile = File(...),
-    phone_column: str = "phone",
-    name_column: str = "name",
+    phone_column: str | None = None,
+    email_column: str | None = None,
+    name_column: str | None = None,
     current_user: Annotated[dict, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
-    if not file.filename.endswith((".xlsx", ".xls", ".csv")):
-        raise InvalidFileFormatError("Only .xlsx, .xls, and .csv files are supported")
+    if not file.filename.endswith((".xlsx", ".csv")):
+        raise InvalidFileFormatError("Only .xlsx and .csv files are supported")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
@@ -94,15 +109,11 @@ async def upload_contacts(
     file_hash = hashlib.sha256(content).hexdigest()
     uploader_id = str(current_user["_id"])
 
-    existing = await db.contact_files.find_one(
-        {"filename": filename, "hash": file_hash, "uploaded_by": uploader_id}
+    mapping = ColumnMapping(
+        phone_column=phone_column, 
+        email_column=email_column, 
+        name_column=name_column
     )
-    if existing:
-        result = PreflightResult(**existing["result"])
-        await _cache_file_ref(result.file_ref, result.valid_rows)
-        return result
-
-    mapping = ColumnMapping(phone_column=phone_column, name_column=name_column)
 
     suppressed = set()
     async for doc in db.suppression_list.find({}, {"phone": 1}):

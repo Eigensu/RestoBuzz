@@ -21,9 +21,9 @@ async def main():
     client = AsyncIOMotorClient(settings.mongodb_url)
     db = client.get_default_database(settings.mongodb_db_name)
 
-    admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-    admin_password = (os.getenv("ADMIN_PASSWORD") or "").strip()
-    reset_password = os.getenv("RESET_PASSWORD") == "1"
+    admin_email = settings.admin_email
+    admin_password = (settings.admin_password or "").strip()
+    reset_password = settings.reset_password
 
     def require_admin_password_or_exit(reason: str) -> str:
         if not admin_password:

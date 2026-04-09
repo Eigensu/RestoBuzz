@@ -1,15 +1,16 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ContactRow(BaseModel):
-    name: str
-    phone: str  # E.164 normalized
-    variables: dict[str, str] = {}
+    name: str | None = None
+    phone: str | None = None  # E.164 normalized
+    email: str | None = None
+    variables: dict[str, str] = Field(default_factory=dict)
 
 
 class InvalidRow(BaseModel):
     row_number: int
-    raw_phone: str
+    raw_value: str
     reason: str
 
 
@@ -24,6 +25,9 @@ class PreflightResult(BaseModel):
 
 
 class ColumnMapping(BaseModel):
-    phone_column: str
+    phone_column: str | None = None
+    email_column: str | None = None
     name_column: str | None = None
-    variable_columns: dict[str, str] = {}  # template_var -> column_name
+    variable_columns: dict[str, str] = Field(
+        default_factory=dict
+    )  # template_var -> column_name

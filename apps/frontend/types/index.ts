@@ -6,6 +6,7 @@ export interface Restaurant {
   location: string;
   emoji: string;
   color: string; // tailwind bg color class
+  member_categories: string[];
 }
 
 export interface Campaign {
@@ -13,7 +14,6 @@ export interface Campaign {
   name: string;
   template_id: string;
   template_name: string;
-  priority: "MARKETING" | "UTILITY";
   status: CampaignStatus;
   total_count: number;
   sent_count: number;
@@ -138,4 +138,67 @@ export interface MemberListResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+// ── Email Campaign Types ─────────────────────────────────────────────────────
+
+export interface EmailCampaign {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  template_id: string;
+  subject: string;
+  from_email: string;
+  status: string;
+  total_count: number;
+  sent_count: number;
+  delivered_count: number;
+  opened_count: number;
+  clicked_count: number;
+  bounced_count: number;
+  failed_count: number;
+  complained_count: number;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface EmailLog {
+  id: string;
+  campaign_id: string;
+  recipient_email: string;
+  recipient_name: string;
+  resend_email_id: string | null;
+  status: string;
+  status_history: Array<{
+    status: string;
+    timestamp: string;
+    meta: Record<string, unknown>;
+  }>;
+  retry_count: number;
+  error_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailTemplate {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  subject: string;
+  html: string;
+  text: string | null;
+  variables: Array<{
+    key: string;
+    type: "string" | "number";
+    fallback_value: string | number | null;
+  }>;
+  version: number;
+  synced_from: string | null;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }

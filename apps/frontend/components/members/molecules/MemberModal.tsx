@@ -4,28 +4,30 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
-import { Wifi, CreditCard, X } from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import type { Member } from "@/types";
 
 interface MemberModalProps {
   restaurantId: string;
+  memberCategories: string[];
   editing: Member | null;
-  defaultType: "all" | "nfc" | "ecard";
+  defaultType: string;
   onClose: () => void;
 }
 
 export function MemberModal({
   restaurantId,
+  memberCategories,
   editing,
   defaultType,
   onClose,
 }: Readonly<MemberModalProps>) {
   const qc = useQueryClient();
+  const fallbackCat = memberCategories.length > 0 ? memberCategories[0] : "nfc";
   const [form, setForm] = useState({
-    type: (editing?.type ?? (defaultType === "all" ? "nfc" : defaultType)) as
-      | "nfc"
-      | "ecard",
+    type: editing?.type ?? (defaultType === "all" ? fallbackCat : defaultType),
     name: editing?.name ?? "",
     phone: editing?.phone ?? "",
     email: editing?.email ?? "",
@@ -76,31 +78,32 @@ export function MemberModal({
         </div>
         <div className="p-5 space-y-4">
           {!editing && (
-            <div className="flex rounded-lg border overflow-hidden">
-              {(["nfc", "ecard"] as const).map((t) => (
+            <div className="flex rounded-lg border overflow-hidden bg-gray-50 flex-wrap">
+              {memberCategories.map((t) => (
                 <button
                   key={t}
                   onClick={() => set("type", t)}
                   className={cn(
-                    "flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition",
+                    "flex-1 min-w-[30%] flex items-center justify-center gap-2 py-2.5 text-xs uppercase font-bold transition",
                     form.type === t
-                      ? "text-white bg-linear-to-r from-[#24422e] to-[#3a6b47]"
-                      : "text-[#24422e] hover:bg-[#24422e]/10",
+                      ? "text-white shadow-sm"
+                      : "text-[#24422e]/60 hover:text-[#24422e] hover:bg-[#24422e]/5 border-r last:border-0",
                   )}
+                  style={
+                    form.type === t ? { background: BRAND_GRADIENT } : undefined
+                  }
                 >
-                  {t === "nfc" ? (
-                    <Wifi className="w-4 h-4" />
-                  ) : (
-                    <CreditCard className="w-4 h-4" />
-                  )}
-                  {t === "nfc" ? "NFC Card" : "E-Card"}
+                  {t}
                 </button>
               ))}
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label htmlFor="member-name" className="block text-xs font-medium text-gray-600 mb-1">
+              <label
+                htmlFor="member-name"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
                 Full Name *
               </label>
               <input
@@ -112,7 +115,10 @@ export function MemberModal({
               />
             </div>
             <div>
-              <label htmlFor="member-phone" className="block text-xs font-medium text-gray-600 mb-1">
+              <label
+                htmlFor="member-phone"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
                 Phone *
               </label>
               <input
@@ -124,7 +130,10 @@ export function MemberModal({
               />
             </div>
             <div>
-              <label htmlFor="member-email" className="block text-xs font-medium text-gray-600 mb-1">
+              <label
+                htmlFor="member-email"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
                 Email
               </label>
               <input
@@ -136,8 +145,15 @@ export function MemberModal({
               />
             </div>
             <div className="col-span-2">
-              <label htmlFor="member-card" className="block text-xs font-medium text-gray-600 mb-1">
-                {form.type === "nfc" ? "NFC Card UID *" : "E-Card Code *"}
+              <label
+                htmlFor="member-card"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
+                {form.type === "nfc"
+                  ? "NFC Card UID"
+                  : form.type === "ecard"
+                    ? "E-Card Code"
+                    : "Card/Reference Code"}
               </label>
               <input
                 id="member-card"
@@ -149,11 +165,20 @@ export function MemberModal({
                   )
                 }
                 className={cn(inputCls, "font-mono")}
-                placeholder={form.type === "nfc" ? "A3F2B1C4..." : "EC-0042"}
+                placeholder={
+                  form.type === "nfc"
+                    ? "A3F2B1C4..."
+                    : form.type === "ecard"
+                      ? "EC-0042"
+                      : "Optional Reference"
+                }
               />
             </div>
             <div className="col-span-2">
-              <label htmlFor="member-notes" className="block text-xs font-medium text-gray-600 mb-1">
+              <label
+                htmlFor="member-notes"
+                className="block text-xs font-medium text-gray-600 mb-1"
+              >
                 Notes
               </label>
               <textarea
@@ -179,7 +204,11 @@ export function MemberModal({
             disabled={mutation.isPending || !form.name || !form.phone}
             className="flex-1 bg-linear-to-r from-[#24422e] to-[#2a5038] text-white rounded-lg py-2 text-sm font-medium transition disabled:opacity-50"
           >
-            {mutation.isPending ? "Saving..." : editing ? "Save Changes" : "Add Member"}
+            {mutation.isPending
+              ? "Saving..."
+              : editing
+                ? "Save Changes"
+                : "Add Member"}
           </button>
         </div>
       </div>

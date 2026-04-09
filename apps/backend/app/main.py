@@ -20,6 +20,9 @@ from app.routers import (
     members,
     media,
     restaurants,
+    email_templates,
+    email_campaigns,
+    reservego,
 )
 from app.sse.campaign_stream import router as sse_router
 
@@ -95,3 +98,6 @@ app.include_router(sse_router, prefix="/api")
 app.include_router(members.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 app.include_router(restaurants.router, prefix="/api")
+app.include_router(email_templates.router, prefix="/api")
+app.include_router(email_campaigns.router, prefix="/api")
+app.include_router(reservego.router, prefix="/api")

@@ -14,26 +14,23 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
-  Wifi,
-  CreditCard,
   CheckCircle2,
+  Users,
+  Settings,
+  X,
+  Trash2,
+  MoreVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MemberModal } from "@/components/members/molecules/MemberModal";
 import { MembersTable } from "@/components/members/organisms/MembersTable";
 
-type Tab = "all" | "nfc" | "ecard";
-
-const TABS: { key: Tab; label: string; icon: React.ElementType }[] = [
-  { key: "all", label: "All Members", icon: CheckCircle2 },
-  { key: "nfc", label: "NFC Card", icon: Wifi },
-  { key: "ecard", label: "E-Card", icon: CreditCard },
-];
+type Tab = string;
 
 const PAGE_SIZE = 25;
 
 export default function MembersPage() {
-  const { restaurant } = useAuthStore();
+  const { restaurant, user, setRestaurant } = useAuthStore();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
@@ -41,6 +38,9 @@ export default function MembersPage() {
   const [modal, setModal] = useState<{ open: boolean; editing: Member | null }>(
     { open: false, editing: null },
   );
+  const [catModal, setCatModal] = useState(false);
+  const [newCat, setNewCat] = useState("");
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -62,6 +62,23 @@ export default function MembersPage() {
         `Imported ${res.data.inserted} members, skipped ${res.data.skipped}`,
       );
       qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
+    },
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
+  });
+
+  const catMutation = useMutation({
+    mutationFn: (cats: string[]) => 
+      api.put(`/restaurants/${restaurant!.id}/categories`, { categories: cats }),
+    onSuccess: (res) => {
+      toast.success("Categories updated");
+      if (restaurant) {
+        setRestaurant({ ...restaurant, member_categories: res.data.categories });
+      }
+      setCatModal(false);
+      setNewCat("");
+      if (!res.data.categories.includes(tab) && tab !== "all") {
+        setTab("all");
+      }
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
@@ -90,6 +107,20 @@ export default function MembersPage() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: ({ source, deleteAll }: { source?: string; deleteAll?: boolean }) => {
+      const params = new URLSearchParams({ restaurant_id: restaurant!.id });
+      if (source) params.set("source", source);
+      if (deleteAll) params.set("deleteAll", "true");
+      return api.delete(`/members/bulk?${params}`);
+    },
+    onSuccess: () => {
+      toast.success("Bulk deletion successful");
+      qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
+    },
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
+  });
+
   const members = data?.items ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -102,10 +133,76 @@ export default function MembersPage() {
       {modal.open && (
         <MemberModal
           restaurantId={restaurant.id}
+          memberCategories={restaurant.member_categories || ["nfc", "ecard"]}
           editing={modal.editing}
           defaultType={tab}
           onClose={() => setModal({ open: false, editing: null })}
         />
+      )}
+
+      {catModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl relative">
+            <button
+              onClick={() => { setCatModal(false); setNewCat(""); }}
+              className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="p-6 space-y-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Manage Categories</h3>
+                <p className="text-sm text-gray-500 mt-1">Add or remove member categories</p>
+              </div>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {(restaurant?.member_categories || ["nfc", "ecard"]).map(c => (
+                    <div key={c} className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm font-medium">
+                      {c.toUpperCase()}
+                      <button
+                        title="Remove category"
+                        onClick={() => {
+                          const cats = (restaurant?.member_categories || []).filter(x => x !== c);
+                          catMutation.mutate(cats);
+                        }}
+                        className="text-gray-400 hover:text-red-500"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input 
+                    value={newCat}
+                    onChange={(e) => setNewCat(e.target.value)}
+                    placeholder="New category..."
+                    className="flex-1 w-full border-gray-200 border rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-900/10 focus:border-green-900/30"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newCat.trim()) {
+                          const cats = [...(restaurant?.member_categories || ["nfc", "ecard"]), newCat.trim()];
+                          catMutation.mutate(cats);
+                        }
+                      }
+                    }}
+                  />
+                  <button
+                    disabled={!newCat.trim() || catMutation.isPending}
+                    onClick={() => {
+                      const cats = [...(restaurant?.member_categories || ["nfc", "ecard"]), newCat.trim()];
+                      catMutation.mutate(cats);
+                    }}
+                    className="bg-[#24422e] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#3a6b47] disabled:opacity-50"
+                  >
+                    ADD
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -126,9 +223,9 @@ export default function MembersPage() {
           <a
             href="/downloads/member-import-template.xlsx"
             download
-            className="flex items-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-all duration-300"
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-sm font-bold px-6 py-3 rounded-xl transition-all duration-300"
           >
-            <Download className="w-4 h-4" /> Download Template
+            <Download className="w-4 h-4" /> DOWNLOAD TEMPLATE
           </a>
           <input
             ref={fileInputRef}
@@ -147,8 +244,9 @@ export default function MembersPage() {
             className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-sm font-bold px-6 py-3 rounded-xl disabled:opacity-50 transition-all duration-300"
           >
             <Upload className="w-4 h-4" />
-            {importMutation.isPending ? "Importing..." : "IMPORT EXCEL"}
+            {importMutation.isPending ? "IMPORTING..." : "IMPORT EXCEL"}
           </button>
+
           <button
             onClick={() => setModal({ open: true, editing: null })}
             className="flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
@@ -159,24 +257,43 @@ export default function MembersPage() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="flex p-1 bg-[#eff2f0] rounded-xl">
-          {TABS.map(({ key, label, icon: Icon }) => (
+      <div className="flex flex-col xl:flex-row gap-4">
+        <div className="flex p-1 bg-[#eff2f0] rounded-xl flex-wrap">
+          <button
+            onClick={() => setTab("all")}
+            className={cn(
+              "flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg",
+              tab === "all" ? "text-white shadow-sm" : "text-[#24422e]/60 hover:text-[#24422e]"
+            )}
+            style={tab === "all" ? { background: BRAND_GRADIENT } : undefined}
+          >
+            <Users className="w-3.5 h-3.5" />
+            All Members
+          </button>
+          
+          {(restaurant?.member_categories || ["nfc", "ecard"]).map((cat) => (
             <button
-              key={key}
-              onClick={() => setTab(key)}
+              key={cat}
+              onClick={() => setTab(cat)}
               className={cn(
                 "flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg",
-                tab === key
-                  ? "text-white shadow-sm"
-                  : "text-[#24422e]/60 hover:text-[#24422e]",
+                tab === cat ? "text-white shadow-sm" : "text-[#24422e]/60 hover:text-[#24422e]"
               )}
-              style={tab === key ? { background: BRAND_GRADIENT } : undefined}
+              style={tab === cat ? { background: BRAND_GRADIENT } : undefined}
             >
-              <Icon className="w-3.5 h-3.5" />
-              {label}
+              {cat}
             </button>
           ))}
+          {user?.role === "super_admin" && (
+            <button
+              onClick={() => setCatModal(true)}
+              className="flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg text-[#24422e]/60 hover:text-[#24422e] hover:bg-white/50 border border-transparent"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Manage 
+            </button>
+          )}
+
         </div>
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

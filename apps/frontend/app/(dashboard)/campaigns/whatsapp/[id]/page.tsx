@@ -107,7 +107,7 @@ export default function CampaignDetailPage() {
         <div>
           <h1 className="text-xl font-semibold">{campaign?.name}</h1>
           <p className="text-sm text-gray-400">
-            {campaign?.template_name} · {campaign?.priority}
+            {campaign?.template_name}
           </p>
         </div>
         <div className="flex gap-2">
@@ -194,7 +194,7 @@ export default function CampaignDetailPage() {
               value: live.delivered,
               color: "text-green-600",
             },
-            { label: "Read", value: live.read, color: "text-purple-600" },
+            { label: "Opened", value: live.read, color: "text-purple-600" },
             { label: "Failed", value: live.failed, color: "text-red-600" },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-gray-50 rounded-lg p-3">

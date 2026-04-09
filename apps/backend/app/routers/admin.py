@@ -98,3 +98,71 @@ async def list_admin_users(
         )
         for doc in rows
     ]
+
+
+class UserAccessDetail(BaseModel):
+    restaurant_name: str
+    role: str
+
+
+class UserAccessReport(BaseModel):
+    user: UserResponse
+    accesses: list[UserAccessDetail]
+
+
+@router.get("/access-report", response_model=list[UserAccessReport])
+async def get_access_report(
+    _current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    # 1. Fetch all users
+    users_cursor = db.users.find({})
+    users = [doc async for doc in users_cursor]
+
+    # 2. Fetch all roles/assignments
+    roles_cursor = db.user_restaurant_roles.find({})
+    all_roles = [doc async for doc in roles_cursor]
+
+    # 3. Fetch all restaurants (to map names to roles)
+    rest_cursor = db.restaurants.find({}, {"id": 1, "_id": 1, "name": 1})
+    restaurants_map = {}
+    async for doc in rest_cursor:
+        name = doc.get("name", "Unknown Restaurant")
+        # Map both Slug and Hex ID to the same Name
+        if doc.get("id"):
+            restaurants_map[str(doc["id"])] = name
+        restaurants_map[str(doc["_id"])] = name
+
+    report = []
+    for user in users:
+        user_id_str = str(user["_id"])
+        user_accesses = []
+        
+        # Filter roles for this user
+        for role in all_roles:
+            if str(role["user_id"]) == user_id_str:
+                rest_id = str(role["restaurant_id"])
+                # Resolve name from map
+                rest_name = restaurants_map.get(rest_id, f"Rest ID: {rest_id}")
+                user_accesses.append(
+                    UserAccessDetail(restaurant_name=rest_name, role=role["role"])
+                )
+        
+        report.append(
+            UserAccessReport(
+                user=UserResponse(
+                    id=user_id_str,
+                    email=user["email"],
+                    role=user.get("role", "viewer"),
+                    first_name=user.get("first_name"),
+                    last_name=user.get("last_name"),
+                    phone=user.get("phone"),
+                    is_active=user.get("is_active", True),
+                    created_at=user.get("created_at") or datetime.now(timezone.utc),
+                ),
+                accesses=user_accesses
+            )
+        )
+    
+    return report
+

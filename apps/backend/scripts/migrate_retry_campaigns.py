@@ -25,8 +25,8 @@ async def migrate_retry_campaigns():
     """
     from app.config import settings
 
-    client = AsyncIOMotorClient(settings.mongo_uri)
-    db = client[settings.mongo_db_name]
+    client = AsyncIOMotorClient(settings.mongodb_url)
+    db = client[settings.mongodb_db_name]
 
     print("🔍 Scanning for retry campaigns...")
 
