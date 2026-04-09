@@ -226,7 +226,7 @@ export function Step0Template({
       </div>
 
       {/* Right: preview */}
-      <div className="hidden lg:flex w-2/5 border-l pl-6 flex-col self-stretch min-h-100">
+      <div className="hidden lg:flex w-2/5 border-l pl-6 flex-col self-stretch min-h-[400px]">
         <WizardTemplatePreview
           template={selectedTemplate}
           variables={variables}

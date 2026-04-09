@@ -296,9 +296,11 @@ export default function NewEmailCampaignPage() {
                       }
                       return (
                         <div className="bg-white rounded-xl shadow-2xl border border-gray-100 w-full max-w-[800px] min-h-full overflow-hidden mx-auto">
-                          <div
-                            className="p-8"
-                            dangerouslySetInnerHTML={{ __html: previewHtml }}
+                          <iframe
+                            title="Email template preview"
+                            srcDoc={previewHtml}
+                            sandbox=""
+                            className="w-full h-full min-h-[500px] border-0"
                           />
                         </div>
                       );

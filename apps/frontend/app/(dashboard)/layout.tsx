@@ -297,7 +297,7 @@ export default function DashboardLayout({
                 <span className="flex-1">{item.label}</span>
                 {item.href === "/inbox" && inboxUnread > 0 && (
                   <span
-                    className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-4.5 text-center"
+                    className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
                     style={{
                       background: BRAND_GRADIENT,
                     }}

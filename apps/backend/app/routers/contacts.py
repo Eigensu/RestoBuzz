@@ -98,8 +98,8 @@ async def upload_contacts(
     current_user: Annotated[dict, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
-    if not file.filename.endswith((".xlsx", ".xls", ".csv")):
-        raise InvalidFileFormatError("Only .xlsx, .xls, and .csv files are supported")
+    if not file.filename.endswith((".xlsx", ".csv")):
+        raise InvalidFileFormatError("Only .xlsx and .csv files are supported")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:

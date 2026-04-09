@@ -274,7 +274,7 @@ export function NewCampaignWizard() {
                   !testPhone.trim() ||
                   !selectedTemplate
                 }
-                className="h-10 min-w-30 whitespace-nowrap px-4 text-sm"
+                className="h-10 min-w-[120px] whitespace-nowrap px-4 text-sm"
               >
                 {sendTestMutation.isPending ? "Sending..." : "Send Test"}
               </GradientButton>

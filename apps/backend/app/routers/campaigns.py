@@ -198,6 +198,14 @@ async def create_campaign(
     result = await db.campaign_jobs.insert_one(job_doc)
     job_id = result.inserted_id
 
+    # WhatsApp requires a phone for every message — strip email-only contacts.
+    phone_contacts = [c for c in contacts if c.get("phone")]
+    if not phone_contacts:
+        raise ValidationError(
+            "No contacts with a valid phone number found. "
+            "WhatsApp campaigns require a phone number for every recipient."
+        )
+
     message_docs = [
         {
             "job_id": job_id,
@@ -221,7 +229,7 @@ async def create_campaign(
             "created_at": now,
             "updated_at": now,
         }
-        for c in contacts
+        for c in phone_contacts
     ]
     if message_docs:
         try:

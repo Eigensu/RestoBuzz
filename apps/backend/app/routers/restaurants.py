@@ -118,3 +118,41 @@ async def list_restaurant_users(
         )
         async for doc in cursor
     ]
+
+
+@router.put("/{restaurant_id}/categories", response_model=RestaurantResponse)
+async def update_categories(
+    restaurant_id: Annotated[str, Path()],
+    body: Annotated[UpdateCategoriesRequest, Body()],
+    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """super_admin updates the member category list for a restaurant."""
+    # Normalise: strip whitespace, lowercase, remove blanks, deduplicate preserving order
+    seen: set[str] = set()
+    categories: list[str] = []
+    for cat in body.categories:
+        normalised = cat.strip().lower()
+        if normalised and normalised not in seen:
+            seen.add(normalised)
+            categories.append(normalised)
+
+    if not categories:
+        raise ValidationError("At least one category is required")
+
+    result = await db.restaurants.find_one_and_update(
+        {"id": restaurant_id},
+        {"$set": {"member_categories": categories}},
+        return_document=True,
+    )
+    if not result:
+        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
+
+    return RestaurantResponse(
+        id=result.get("id") or str(result["_id"]),
+        name=result.get("name", ""),
+        location=result.get("location", ""),
+        emoji=result.get("emoji", "🏪"),
+        color=result.get("color", "gray"),
+        member_categories=result.get("member_categories", []),
+    )
