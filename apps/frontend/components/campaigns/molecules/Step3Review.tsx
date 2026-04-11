@@ -64,19 +64,21 @@ export function Step3Review({
     setScheduledAt(parseISTDatetimeLocal(e.target.value));
   }
 
+  const scheduledAtFormatted = scheduledAt
+    ? scheduledAt.toLocaleString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        dateStyle: "medium",
+        timeStyle: "short",
+      }) + " IST"
+    : "—";
+
   const sendsAtLabel =
-    sendMode === "immediate"
-      ? "Immediately"
-      : scheduledAt
-        ? scheduledAt.toLocaleString("en-IN", {
-            timeZone: "Asia/Kolkata",
-            dateStyle: "medium",
-            timeStyle: "short",
-          }) + " IST"
-        : "—";
+    sendMode === "immediate" ? "Immediately" : scheduledAtFormatted;
 
   const scheduledInPast =
-    sendMode === "scheduled" && scheduledAt !== null && scheduledAt <= new Date();
+    sendMode === "scheduled" &&
+    scheduledAt !== null &&
+    scheduledAt <= new Date();
 
   return (
     <div className="space-y-5">
@@ -116,7 +118,7 @@ export function Step3Review({
 
         {/* Send Immediately option */}
         <label
-          id="send-mode-immediate-label"
+          htmlFor="send-mode-immediate"
           className={cn(
             "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition",
             sendMode === "immediate"
@@ -137,7 +139,9 @@ export function Step3Review({
             className="mt-0.5 accent-[#24422e]"
           />
           <div>
-            <p className="text-sm font-medium leading-none">Send immediately</p>
+            <span className="text-sm font-medium leading-none">
+              Send immediately
+            </span>
             <p className="mt-1 text-xs text-gray-500">
               Campaign starts as soon as you click Launch.
             </p>
@@ -146,7 +150,7 @@ export function Step3Review({
 
         {/* Schedule for later option */}
         <label
-          id="send-mode-scheduled-label"
+          htmlFor="send-mode-scheduled"
           className={cn(
             "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition",
             sendMode === "scheduled"
@@ -165,16 +169,23 @@ export function Step3Review({
           />
           <div className="flex-1 space-y-3">
             <div>
-              <p className="text-sm font-medium leading-none">
+              <span className="text-sm font-medium leading-none">
                 Schedule for later
-              </p>
+              </span>
               <p className="mt-1 text-xs text-gray-500">
-                Pick a future date &amp; time — we&apos;ll fire it automatically.
+                Pick a future date &amp; time — we&apos;ll fire it
+                automatically.
               </p>
             </div>
 
             {sendMode === "scheduled" && (
               <div className="space-y-1">
+                <label
+                  htmlFor="scheduled-datetime"
+                  className="text-xs font-medium text-gray-600"
+                >
+                  Scheduled date &amp; time (IST)
+                </label>
                 <div className="flex items-center gap-2">
                   <input
                     id="scheduled-datetime"
@@ -186,8 +197,11 @@ export function Step3Review({
                     className={cn(
                       INPUT_CLS,
                       "flex-1 py-2",
-                      scheduledInPast && "border-red-400",
-                      !scheduledAt && "border-amber-400",
+                      scheduledInPast
+                        ? "border-red-400"
+                        : !scheduledAt
+                          ? "border-amber-400"
+                          : "",
                     )}
                   />
                   <span className="shrink-0 rounded-md bg-[#24422e]/10 px-2 py-1.5 text-xs font-semibold text-[#24422e]">

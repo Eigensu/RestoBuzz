@@ -52,7 +52,9 @@ export function NewCampaignWizard() {
   const [campaignName, setCampaignName] = useState("");
   const [includeUnsub, setIncludeUnsub] = useState(true);
   const [testPhone, setTestPhone] = useState("");
-  const [sendMode, setSendMode] = useState<"immediate" | "scheduled">("immediate");
+  const [sendMode, setSendMode] = useState<"immediate" | "scheduled">(
+    "immediate",
+  );
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
 
   const {
@@ -196,11 +198,23 @@ export function NewCampaignWizard() {
     sendMode === "immediate" ||
     (scheduledAt !== null && scheduledAt > new Date());
 
-  let canNext = false;
-  if (step === 0) canNext = !!selectedTemplate;
-  else if (step === 1) canNext = !!preflight;
-  else if (step === 2) canNext = (preflight?.valid_count ?? 0) > 0;
-  else canNext = !!campaignName && scheduleValid;
+  const launchLabel = (() => {
+    if (createMutation.isPending) {
+      return sendMode === "scheduled" ? "Scheduling..." : "Creating...";
+    }
+    return sendMode === "scheduled"
+      ? "📅 Schedule Campaign"
+      : "🚀 Launch Campaign";
+  })();
+
+  function getCanNext(): boolean {
+    if (step === 0) return !!selectedTemplate;
+    if (step === 1) return !!preflight;
+    if (step === 2) return (preflight?.valid_count ?? 0) > 0;
+    return !!campaignName && scheduleValid;
+  }
+
+  const canNext = getCanNext();
 
   if (!restaurant) return null;
 
@@ -317,16 +331,12 @@ export function NewCampaignWizard() {
           ) : (
             <GradientButton
               onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !campaignName || !scheduleValid}
+              disabled={
+                createMutation.isPending || !campaignName || !scheduleValid
+              }
               className="px-6 py-2 text-sm"
             >
-              {createMutation.isPending
-                ? sendMode === "scheduled"
-                  ? "Scheduling..."
-                  : "Creating..."
-                : sendMode === "scheduled"
-                  ? "📅 Schedule Campaign"
-                  : "🚀 Launch Campaign"}
+              {launchLabel}
             </GradientButton>
           )}
         </div>

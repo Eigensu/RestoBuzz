@@ -168,7 +168,7 @@ async def mark_read(
 @router.post("/conversations/{phone}/resolve")
 async def resolve_conversation(
     phone: str,
-    _current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    _current_user: Annotated[dict | None, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     await db.inbound_messages.update_many(
