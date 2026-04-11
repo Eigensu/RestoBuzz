@@ -182,7 +182,7 @@ async def create_email_campaign(
 
     now = datetime.now(timezone.utc)
 
-    # Create the campaign job (Manual start)
+    # Create the campaign job
     job_doc = {
         "restaurant_id": body.restaurant_id,
         "name": body.name,
@@ -192,6 +192,7 @@ async def create_email_campaign(
         "from_email": body.from_email or settings.resend_from_email,
         "reply_to": body.reply_to,
         "status": "draft",
+        "scheduled_at": body.scheduled_at,
         "created_at": now,
         "updated_at": now,
         "started_at": None,
@@ -242,6 +243,27 @@ async def create_email_campaign(
                     error=str(e),
                 )
                 raise ServerError("Failed to create email logs") from e
+
+    # ── Dispatch or schedule ──────────────────────────────────────────────────
+    if body.scheduled_at is None:
+        # Send Immediately: transition to queued and fire the Celery task now.
+        await db.email_campaign_jobs.update_one(
+            {"_id": campaign_id}, {"$set": {"status": "queued"}}
+        )
+        from app.workers.send_email_task import dispatch_email_campaign_task
+
+        dispatch_email_campaign_task.delay(str(campaign_id))
+        job_doc["status"] = "queued"
+        logger.info(
+            "email_campaign_dispatched_immediately", campaign_id=str(campaign_id)
+        )
+    else:
+        # Scheduled: leave as draft — the Beat poller will pick it up.
+        logger.info(
+            "email_campaign_scheduled",
+            campaign_id=str(campaign_id),
+            scheduled_at=body.scheduled_at.isoformat(),
+        )
 
     job_doc["_id"] = campaign_id
     return _serialize_campaign(job_doc)

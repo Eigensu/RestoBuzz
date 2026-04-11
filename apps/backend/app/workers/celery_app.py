@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.workers.template_sync",
         "app.workers.send_email_task",
         "app.workers.email_reconciliation_task",
+        "app.workers.scheduled_poller",
     ],
 )
 
@@ -46,6 +47,10 @@ celery_app.conf.update(
         "reconcile-email-statuses-every-30m": {
             "task": "app.workers.email_reconciliation_task.reconcile_email_statuses",
             "schedule": crontab(minute="*/30"),
+        },
+        "poll-scheduled-campaigns-every-minute": {
+            "task": "app.workers.scheduled_poller.poll_scheduled_campaigns",
+            "schedule": crontab(minute="*"),
         },
     },
 )

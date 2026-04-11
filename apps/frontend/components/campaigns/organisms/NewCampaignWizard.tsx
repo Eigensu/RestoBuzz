@@ -52,6 +52,8 @@ export function NewCampaignWizard() {
   const [campaignName, setCampaignName] = useState("");
   const [includeUnsub, setIncludeUnsub] = useState(true);
   const [testPhone, setTestPhone] = useState("");
+  const [sendMode, setSendMode] = useState<"immediate" | "scheduled">("immediate");
+  const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
 
   const {
     data: apiTemplates,
@@ -153,9 +155,15 @@ export function NewCampaignWizard() {
         media_url: mediaUrl || null,
         include_unsubscribe: includeUnsub,
         contact_file_ref: preflight?.file_ref,
+        scheduled_at:
+          sendMode === "scheduled" && scheduledAt
+            ? scheduledAt.toISOString()
+            : null,
       }),
     onSuccess: (res) => {
-      toast.success("Campaign created");
+      toast.success(
+        sendMode === "scheduled" ? "Campaign scheduled" : "Campaign created",
+      );
       router.push(`/campaigns/whatsapp/${res.data.id}`);
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
@@ -184,11 +192,15 @@ export function NewCampaignWizard() {
       ?.text?.match(/\{\{(\d+)\}\}/g)
       ?.map((v) => v.replaceAll("{", "").replaceAll("}", "")) ?? [];
 
+  const scheduleValid =
+    sendMode === "immediate" ||
+    (scheduledAt !== null && scheduledAt > new Date());
+
   let canNext = false;
   if (step === 0) canNext = !!selectedTemplate;
   else if (step === 1) canNext = !!preflight;
   else if (step === 2) canNext = (preflight?.valid_count ?? 0) > 0;
-  else canNext = !!campaignName;
+  else canNext = !!campaignName && scheduleValid;
 
   if (!restaurant) return null;
 
@@ -242,6 +254,10 @@ export function NewCampaignWizard() {
               setIncludeUnsub={setIncludeUnsub}
               selectedTemplate={selectedTemplate}
               preflight={preflight}
+              sendMode={sendMode}
+              setSendMode={setSendMode}
+              scheduledAt={scheduledAt}
+              setScheduledAt={setScheduledAt}
             />
           )}
         </div>
@@ -301,10 +317,16 @@ export function NewCampaignWizard() {
           ) : (
             <GradientButton
               onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !campaignName}
+              disabled={createMutation.isPending || !campaignName || !scheduleValid}
               className="px-6 py-2 text-sm"
             >
-              {createMutation.isPending ? "Creating..." : "🚀 Launch Campaign"}
+              {createMutation.isPending
+                ? sendMode === "scheduled"
+                  ? "Scheduling..."
+                  : "Creating..."
+                : sendMode === "scheduled"
+                  ? "📅 Schedule Campaign"
+                  : "🚀 Launch Campaign"}
             </GradientButton>
           )}
         </div>

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
@@ -132,6 +132,37 @@ async def _handle_messages(db, redis, value: dict) -> None:
             {"$setOnInsert": doc},
             upsert=True,
         )
+
+        context = msg.get("context", {})
+        replied_to_wa_id = context.get("id")
+        orig_msg = None
+
+        if replied_to_wa_id:
+            orig_msg = await db.message_logs.find_one_and_update(
+                {"wa_message_id": replied_to_wa_id, "replied": {"$ne": True}},
+                {"$set": {"replied": True}}
+            )
+        else:
+            forty_eight_hours_ago = datetime.now(timezone.utc) - timedelta(hours=48)
+            recent_outbound = await db.message_logs.find_one(
+                {
+                    "recipient_phone": {"$in": [from_phone, f"+{from_phone}"]},
+                    "created_at": {"$gte": forty_eight_hours_ago},
+                    "replied": {"$ne": True}
+                },
+                sort=[("created_at", -1)]
+            )
+            if recent_outbound:
+                orig_msg = await db.message_logs.find_one_and_update(
+                    {"_id": recent_outbound["_id"]},
+                    {"$set": {"replied": True}}
+                )
+
+        if orig_msg and orig_msg.get("job_id"):
+            await db.campaign_jobs.update_one(
+                {"_id": orig_msg["job_id"]},
+                {"$inc": {"replies_count": 1}}
+            )
 
         # STOP keyword → suppression
         if body and body.strip().lower() in STOP_KEYWORDS:

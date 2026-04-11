@@ -35,6 +35,7 @@ class CampaignResponse(BaseModel):
     delivered_count: int
     read_count: int
     failed_count: int
+    replies_count: int
     scheduled_at: datetime | None
     started_at: datetime | None
     completed_at: datetime | None

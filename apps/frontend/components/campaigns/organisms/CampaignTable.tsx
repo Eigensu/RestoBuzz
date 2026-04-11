@@ -58,7 +58,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
       <table className="w-full text-sm">
         <thead className="bg-gray-50 border-b">
           <tr>
-            {["Campaign", "Status", "Progress", "Created", ""].map(
+            {["Campaign", "Status", "Progress", "Replies", "Created", ""].map(
               (h) => (
                 <th
                   key={h}
@@ -130,7 +130,24 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <CampaignStatusBadge status={root.status} />
+                    <div className="flex items-center gap-2">
+                      <CampaignStatusBadge status={root.status} />
+                      {root.status === "draft" && root.scheduled_at && (
+                        <span
+                          title={new Date(root.scheduled_at).toLocaleString(
+                            "en-IN",
+                            {
+                              timeZone: "Asia/Kolkata",
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            },
+                          ) + " IST"}
+                          className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-200"
+                        >
+                          📅 Scheduled
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 w-40">
                     <div className="flex items-center gap-2">
@@ -147,8 +164,30 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       </span>
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-center w-24">
+                    <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full bg-green-50 text-green-700 text-xs font-bold border border-green-200" title="Actual Replies Received">
+                      {root.replies_count ?? 0}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-gray-400 text-xs">
-                    {new Date(root.created_at).toLocaleDateString()}
+                    {root.scheduled_at && root.status === "draft" ? (
+                      <span
+                        title="Scheduled send time (IST)"
+                        className="text-amber-600 font-medium"
+                      >
+                        {new Date(root.scheduled_at).toLocaleString("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          hour12: true,
+                        })}{" "}
+                        IST
+                      </span>
+                    ) : (
+                      new Date(root.created_at).toLocaleDateString()
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {root.status !== "running" && (
@@ -206,6 +245,11 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                             {retry.sent_count}/{retry.total_count}
                           </span>
                         </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-center w-24">
+                        <span className="text-xs font-medium text-gray-500">
+                          {retry.replies_count ?? 0}
+                        </span>
                       </td>
                       <td className="px-4 py-2.5 text-gray-400 text-xs">
                         {new Date(retry.created_at).toLocaleDateString()}

@@ -209,6 +209,7 @@ export default function DashboardPage() {
     let totalDelivered = 0;
     let totalRead = 0;
     let totalFailed = 0;
+    let totalReplies = 0;
 
     rootCampaigns.forEach((root) => {
       const retries = retryMap.get(root.id) || [];
@@ -225,6 +226,7 @@ export default function DashboardPage() {
         totalSent += c.sent_count;
         totalDelivered += c.delivered_count;
         totalRead += c.read_count;
+        totalReplies += c.replies_count || 0;
       });
 
       // For failed: use the last campaign's failed_count (remaining failures)
@@ -238,6 +240,7 @@ export default function DashboardPage() {
       delivered: totalDelivered,
       read: totalRead,
       failed: totalFailed,
+      replies: totalReplies,
     };
 
     // 1. KPI Calculations
@@ -288,6 +291,16 @@ export default function DashboardPage() {
             ? ((totals.delivered - totals.read) / totals.delivered) * 100
             : 0,
         fill: GREEN_PALETTE.darkest,
+      },
+      {
+        name: "Replied",
+        display: `Replied: ${totals.replies.toLocaleString()}`,
+        value: totals.replies,
+        drop:
+          totals.read > 0
+            ? ((totals.read - totals.replies) / totals.read) * 100
+            : 0,
+        fill: "#1a2f21",
       },
     ];
 
@@ -491,6 +504,13 @@ export default function DashboardPage() {
               : 0,
           fill: GREEN_PALETTE.darkest,
         },
+        {
+          name: "Replied",
+          display: `Replied: 0`,
+          value: 0,
+          drop: 0,
+          fill: "#1a2f21",
+        },
       ],
       templateLeaderboard: [],
       failureBreakdown: failure_breakdown || [],
@@ -606,8 +626,8 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* TOP ROW: KPI CARDS (3 Per Row) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+      {/* TOP ROW: KPI CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <StatCard
           label={activeChannel === "whatsapp" ? "WA Campaigns" : "Email Campaigns"}
           value={activeChannel === "whatsapp" ? campaigns.length : (emailAnalyticsData?.totals?.sent ? 1 : 0)} // simplified for now
@@ -642,6 +662,13 @@ export default function DashboardPage() {
           subtitle={activeChannel === "whatsapp" ? "Read / Total Audience" : "Clicks / Sent"}
           icon={TrendingUp}
           color="bg-[#6bb97b]"
+        />
+        <StatCard
+          label="Total Replies"
+          value={activeChannel === "whatsapp" ? (waAnalytics?.totals.replies || 0).toLocaleString() : "0"}
+          subtitle="Direct responses"
+          icon={Send}
+          color="bg-[#1a2f21]"
         />
         <StatCard
           label={activeChannel === "whatsapp" ? "Failure Rate" : "Bounce Rate"}
@@ -692,7 +719,7 @@ export default function DashboardPage() {
               </FunnelChart>
             </ResponsiveContainer>
           </div>
-          <div className="mt-8 grid grid-cols-3 gap-4 border-t pt-6">
+          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4 border-t pt-6">
             {(() => {
               const stages = [
                 {
@@ -712,6 +739,12 @@ export default function DashboardPage() {
                   drop: activeChannel === "whatsapp"
                     ? funnelData.find(s => s.name === "Opened")?.drop
                     : funnelData.find(s => s.name === "Clicked")?.drop
+                },
+                {
+                  label: activeChannel === "whatsapp" ? "Opened → Replied" : "Clicked → Replied",
+                  drop: activeChannel === "whatsapp"
+                    ? funnelData.find(s => s.name === "Replied")?.drop
+                    : funnelData.find(s => s.name === "Replied")?.drop
                 }
               ];
 
