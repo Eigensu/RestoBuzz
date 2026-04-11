@@ -6,6 +6,7 @@ import phonenumbers
 import openpyxl
 from app.models.contact import ContactRow, InvalidRow, PreflightResult, ColumnMapping
 from app.core.logging import get_logger
+from app.utils.phone import normalize_phone
 
 logger = get_logger(__name__)
 
@@ -65,33 +66,6 @@ def _detect_columns(headers: list[str]) -> tuple[str | None, str | None, str | N
             name_col = raw
     return phone_col, email_col, name_col
 
-
-def _normalize_phone(raw: str, default_region: str = "IN") -> str | None:
-    raw = str(raw).strip()
-    # Strip common non-digit prefixes like leading apostrophe from Excel
-    raw = raw.lstrip("'")
-    # Excel stores numeric cells as floats — strip trailing .0
-    if raw.endswith(".0") and raw[:-2].isdigit():
-        raw = raw[:-2]
-    try:
-        parsed = phonenumbers.parse(raw, default_region)
-        if phonenumbers.is_valid_number(parsed):
-            return phonenumbers.format_number(
-                parsed, phonenumbers.PhoneNumberFormat.E164
-            )
-    except (phonenumbers.NumberParseException, TypeError, ValueError):
-        pass
-    # Try prepending + if it looks like a full number without it
-    if raw.isdigit() and len(raw) >= 10:
-        try:
-            parsed = phonenumbers.parse(f"+{raw}", None)
-            if phonenumbers.is_valid_number(parsed):
-                return phonenumbers.format_number(
-                    parsed, phonenumbers.PhoneNumberFormat.E164
-                )
-        except (phonenumbers.NumberParseException, TypeError, ValueError):
-            pass
-    return None
 
 
 def _validate_email(raw: str) -> str | None:
@@ -177,7 +151,7 @@ async def parse_contacts(
         raw_phone = str(row.get(phone_col, "") or "").strip() if phone_col else ""
         raw_email = str(row.get(email_col, "") or "").strip() if email_col else ""
 
-        normalized_phone = _normalize_phone(raw_phone) if raw_phone else None
+        normalized_phone = normalize_phone(raw_phone) if raw_phone else None
         normalized_email = _validate_email(raw_email) if raw_email else None
 
         # Row is invalid if both are missing or syntactically wrong

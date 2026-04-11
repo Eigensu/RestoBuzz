@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Literal
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 CampaignStatus = Literal[
@@ -20,6 +20,16 @@ class CampaignCreate(BaseModel):
     scheduled_at: datetime | None = None
     include_unsubscribe: bool = True
     contact_file_ref: str = Field(min_length=1)  # temp file key from upload step
+
+    @validator("scheduled_at")
+    @classmethod
+    def validate_scheduled_at(cls, v):
+        if v is not None:
+            now = datetime.now(timezone.utc)
+            cmp_v = v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+            if cmp_v <= now:
+                raise ValueError("scheduled_at must be strictly in the future")
+        return v
 
 
 class CampaignResponse(BaseModel):

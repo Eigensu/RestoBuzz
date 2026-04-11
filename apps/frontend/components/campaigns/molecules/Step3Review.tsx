@@ -1,8 +1,12 @@
 import { cn } from "@/lib/utils";
+import { absoluteIST } from "@/lib/date";
 import type { Template, PreflightResult } from "@/types";
 
 const INPUT_CLS =
   "w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30";
+
+// IST-only behavior is intentional. All campaigns are scheduled in IST universally
+// to match our backend and server setups. Thus, hardcoding the 5.5 hour offset is required.
 
 /** Returns a datetime-local string clamped to now in IST (UTC+5:30) */
 function toDatetimeLocalMin(): string {
@@ -17,7 +21,7 @@ function parseISTDatetimeLocal(value: string): Date {
   const [datePart, timePart] = value.split("T");
   const [year, month, day] = datePart.split("-").map(Number);
   const [hours, minutes] = timePart.split(":").map(Number);
-  // Subtract IST offset (5h 30m) to get UTC
+  // Subtract IST offset (5h 30m) from the local time components
   return new Date(Date.UTC(year, month - 1, day, hours - 5, minutes - 30));
 }
 
@@ -65,11 +69,7 @@ export function Step3Review({
   }
 
   const scheduledAtFormatted = scheduledAt
-    ? scheduledAt.toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata",
-        dateStyle: "medium",
-        timeStyle: "short",
-      }) + " IST"
+    ? absoluteIST(scheduledAt) + " (IST)"
     : "—";
 
   const sendsAtLabel =
@@ -184,7 +184,7 @@ export function Step3Review({
                   htmlFor="scheduled-datetime"
                   className="text-xs font-medium text-gray-600"
                 >
-                  Scheduled date &amp; time (IST)
+                  Scheduled date &amp; time
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -201,13 +201,14 @@ export function Step3Review({
                         ? "border-red-400"
                         : !scheduledAt
                           ? "border-amber-400"
-                          : "",
+                          : ""
                     )}
                   />
                   <span className="shrink-0 rounded-md bg-[#24422e]/10 px-2 py-1.5 text-xs font-semibold text-[#24422e]">
                     IST
                   </span>
                 </div>
+
                 {scheduledInPast && (
                   <p className="text-xs text-red-500">
                     Please pick a future date and time.

@@ -6,7 +6,7 @@ from app.core.logging import get_logger
 from app.services.deduplication import is_duplicate, mark_seen
 from app.services.suppression import add_suppression
 from app.services.message_types import normalize_message_type
-from app.services.contact_parser import _normalize_phone
+from app.utils.phone import normalize_phone
 
 logger = get_logger(__name__)
 
@@ -155,7 +155,7 @@ async def _handle_messages(db, redis, value: dict) -> None:
 
         context = msg.get("context", {})
         replied_to_wa_id = context.get("id")
-        orig_msg = await _find_and_mark_replied(db, replied_to_wa_id, from_phone)
+        orig_msg = await _find_and_mark_replied(db, replied_to_wa_id, from_phone, doc["received_at"])
 
         if orig_msg and orig_msg.get("job_id"):
             await db.campaign_jobs.update_one(
@@ -169,7 +169,7 @@ async def _handle_messages(db, redis, value: dict) -> None:
 
 
 async def _find_and_mark_replied(
-    db, replied_to_wa_id: str | None, from_phone: str
+    db, replied_to_wa_id: str | None, from_phone: str, received_at: datetime
 ) -> dict | None:
     """Find the original outbound message this inbound is replying to and mark it replied."""
     if replied_to_wa_id:
@@ -178,13 +178,13 @@ async def _find_and_mark_replied(
             {"$set": {"replied": True}},
         )
 
-    forty_eight_hours_ago = datetime.now(timezone.utc) - timedelta(hours=48)
-    normalized = _normalize_phone(from_phone)
+    forty_eight_hours_ago = received_at - timedelta(hours=48)
+    normalized = normalize_phone(from_phone)
     phone_variants = list({p for p in [normalized, from_phone, f"+{from_phone}"] if p})
     return await db.message_logs.find_one_and_update(
         {
             "recipient_phone": {"$in": phone_variants},
-            "created_at": {"$gte": forty_eight_hours_ago},
+            "created_at": {"$gte": forty_eight_hours_ago, "$lt": received_at},
             "replied": {"$ne": True},
         },
         {"$set": {"replied": True}},

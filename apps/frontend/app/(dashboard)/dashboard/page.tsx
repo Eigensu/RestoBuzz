@@ -621,15 +621,13 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <StatCard
           label={
-            activeChannel === "whatsapp" ? "WA Campaigns" : "Email Campaigns"
+            activeChannel === "whatsapp" ? "WA Campaigns" : "Emails Sent"
           }
           value={
             activeChannel === "whatsapp"
               ? campaigns.length
-              : emailAnalyticsData?.totals?.sent
-                ? 1
-                : 0
-          } // simplified for now
+              : emailAnalyticsData?.totals?.sent || 0
+          }
           subtitle="All time"
           icon={Megaphone}
           color="bg-gray-800"
@@ -825,8 +823,8 @@ export default function DashboardPage() {
               <PieChart>
                 <Pie
                   data={[
-                    { name: "Sent", value: totals.sent, fill: GREEN_PALETTE.medium },
-                    { name: "Delivered", value: totals.delivered, fill: GREEN_PALETTE.dark },
+                    { name: "Sent (no delivery)", value: Math.max(0, totals.sent - totals.delivered), fill: GREEN_PALETTE.light },
+                    { name: "Delivered (no reply)", value: Math.max(0, totals.delivered - totals.replies), fill: GREEN_PALETTE.dark },
                     { name: "Replied", value: totals.replies, fill: "#1a2f21" }
                   ]}
                   dataKey="value"
@@ -843,7 +841,7 @@ export default function DashboardPage() {
                   {/* Cells styling done via fill property directly */}
                 </Pie>
                 <Tooltip
-                  formatter={(value: number | string | undefined) => Number(value || 0).toLocaleString()}
+                  formatter={(value: unknown) => Number(value || 0).toLocaleString()}
                   contentStyle={{
                     borderRadius: "10px",
                     border: "none",

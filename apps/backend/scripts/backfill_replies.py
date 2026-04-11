@@ -6,11 +6,10 @@ from urllib.parse import urlparse
 
 REPLY_WINDOW_HOURS = 48
 
-
-def normalize(p):
-    if not p:
-        return ""
-    return "".join(filter(str.isdigit, str(p)))
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from app.utils.phone import normalize_phone
 
 
 def _parse_db_name(mongo_url: str, default: str = "restobuzz") -> str:
@@ -27,12 +26,12 @@ async def _build_recipient_map(db) -> dict:
     """Build a normalized phone → sorted list of outbound logs map."""
     recipient_map: dict = {}
     async for log in db.message_logs.find():
-        norm = normalize(log.get("recipient_phone"))
+        norm = normalize_phone(log.get("recipient_phone"))
         if not norm:
             continue
         recipient_map.setdefault(norm, []).append(log)
     for logs in recipient_map.values():
-        logs.sort(key=lambda x: x.get("created_at"))
+        logs.sort(key=lambda x: x.get("created_at") or datetime.min.replace(tzinfo=timezone.utc))
     return recipient_map
 
 
@@ -57,7 +56,7 @@ async def _process_inbound_message(
     db, recipient_map: dict, msg: dict, wa_message_logs: dict
 ) -> bool:
     """Match one inbound message to an outbound log and collect updates. Returns True if matched."""
-    from_phone = normalize(msg.get("from_phone"))
+    from_phone = normalize_phone(msg.get("from_phone"))
     received_at = msg.get("received_at")
     if not from_phone or not received_at:
         return False
@@ -102,13 +101,12 @@ async def backfill():
     print("Building recipient map...")
     recipient_map = await _build_recipient_map(db)
 
-    # Build wa_message_id → log lookup for direct-reply matching
+    # Build wa_message_id → log lookup for direct-reply matching using all message_logs
     wa_message_logs: dict = {}
-    for logs in recipient_map.values():
-        for log in logs:
-            wa_id = log.get("wa_message_id")
-            if wa_id:
-                wa_message_logs[wa_id] = log
+    async for log in db.message_logs.find():
+        wa_id = log.get("wa_message_id")
+        if wa_id:
+            wa_message_logs[wa_id] = log
 
     print("Processing inbound messages...")
     updated_messages = 0
@@ -116,7 +114,7 @@ async def backfill():
     job_increments: dict = {}
 
     async for msg in db.inbound_messages.find():
-        from_phone = normalize(msg.get("from_phone"))
+        from_phone = normalize_phone(msg.get("from_phone"))
         received_at = msg.get("received_at")
         if not from_phone or not received_at:
             continue
@@ -145,12 +143,10 @@ async def backfill():
 
     # Apply all updates atomically after full scan
     print(f"Applying updates for {updated_messages} matched replies...")
+    await db.message_logs.update_many({}, {"$set": {"replied": False}})
     if matched_log_ids:
         await db.message_logs.update_many(
             {"_id": {"$in": matched_log_ids}}, {"$set": {"replied": True}}
-        )
-        await db.message_logs.update_many(
-            {"_id": {"$nin": matched_log_ids}}, {"$set": {"replied": False}}
         )
 
     await db.campaign_jobs.update_many({}, {"$set": {"replies_count": 0}})
