@@ -20,6 +20,7 @@ export interface Campaign {
   delivered_count: number;
   read_count: number;
   failed_count: number;
+  replies_count: number;
   scheduled_at: string | null;
   started_at: string | null;
   completed_at: string | null;

@@ -39,8 +39,10 @@ async def list_conversations(
                 "unread_count": {
                     "$sum": {"$cond": [{"$eq": ["$is_read", False]}, 1, 0]}
                 },
+                "is_resolved": {"$first": "$is_resolved"},
             }
         },
+        {"$match": {"is_resolved": {"$ne": True}}},
         {"$sort": {"last_received_at": -1}},
         {
             "$facet": {
@@ -159,6 +161,19 @@ async def mark_read(
     await db.inbound_messages.update_many(
         {"from_phone": phone, "is_read": False},
         {"$set": {"is_read": True}},
+    )
+    return {"status": "ok"}
+
+
+@router.post("/conversations/{phone}/resolve")
+async def resolve_conversation(
+    phone: str,
+    _current_user: Annotated[dict | None, Depends(require_role("admin"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
+):
+    await db.inbound_messages.update_many(
+        {"from_phone": phone},
+        {"$set": {"is_resolved": True}},
     )
     return {"status": "ok"}
 

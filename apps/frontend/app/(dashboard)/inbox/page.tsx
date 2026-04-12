@@ -6,7 +6,7 @@ import { useUIStore } from "@/lib/ui-store";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import type { Conversation, InboundMessage } from "@/types";
-import { Send, ArrowLeft, Search } from "lucide-react";
+import { Send, ArrowLeft, Search, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MessageBubble } from "@/components/inbox/atoms/MessageBubble";
 import { ConversationItem } from "@/components/inbox/molecules/ConversationItem";
@@ -63,7 +63,7 @@ export default function InboxPage() {
   }>({
     queryKey: ["inbox-conversations"],
     queryFn: () =>
-      api.get("/inbox/conversations?page=1&page_size=50").then((r) => r.data),
+      api.get("/inbox/conversations?page=1&page_size=100").then((r) => r.data),
     refetchInterval: 15_000,
   });
 
@@ -110,6 +110,17 @@ export default function InboxPage() {
     setSelected(phone);
     markReadMutation.mutate(phone);
   };
+
+  const resolveMutation = useMutation({
+    mutationFn: (phone: string) =>
+      api.post(`/inbox/conversations/${encodeURIComponent(phone)}/resolve`),
+    onSuccess: () => {
+      setSelected(null);
+      qc.invalidateQueries({ queryKey: ["inbox-conversations"] });
+      toast.success("Conversation marked as done");
+    },
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
+  });
 
   const replyMutation = useMutation({
     mutationFn: (body: string) =>
@@ -215,6 +226,14 @@ export default function InboxPage() {
                   </p>
                 </div>
               </div>
+              <button
+                onClick={() => resolveMutation.mutate(activeConv.from_phone)}
+                disabled={resolveMutation.isPending}
+                className="px-4 py-2 text-[10px] sm:text-xs font-black uppercase tracking-widest bg-gray-100/80 hover:bg-green-50 text-gray-600 hover:text-green-700 rounded-xl transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span className="hidden sm:inline">Mark Done</span>
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 bg-gray-50/30 custom-scrollbar">
               {thread.map((msg, i) => {

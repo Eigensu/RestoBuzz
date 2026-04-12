@@ -30,6 +30,8 @@ import {
   Legend,
   BarChart,
   Bar,
+  PieChart,
+  Pie,
 } from "recharts";
 
 import { BRAND_GRADIENT, GREEN as GREEN_PALETTE } from "@/lib/brand";
@@ -114,6 +116,7 @@ interface DashboardAnalytics {
     sent: number;
     delivered: number;
     read: number;
+    replies: number;
     opened?: number;
     clicked?: number;
     bounced?: number;
@@ -138,16 +141,23 @@ interface DashboardAnalytics {
   hourlyPerformance: HourlyStat[];
   ttrDistribution: TTRStat[];
   pieData: { name: string; value: number }[];
-  timeSeriesData: { date: string; sortKey: number; sent: number; delivered: number; read: number; failed: number }[];
+  timeSeriesData: {
+    date: string;
+    sortKey: number;
+    sent: number;
+    delivered: number;
+    read: number;
+    failed: number;
+  }[];
 }
 
 /* ─── Main Component ────────────────────────────────────────── */
 
 export default function DashboardPage() {
   const { restaurant } = useAuthStore();
-  const [activeChannel, setActiveChannel] = React.useState<"whatsapp" | "email">(
-    "whatsapp",
-  );
+  const [activeChannel, setActiveChannel] = React.useState<
+    "whatsapp" | "email"
+  >("whatsapp");
 
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-campaigns", restaurant?.id],
@@ -171,10 +181,7 @@ export default function DashboardPage() {
     enabled: !!restaurant,
   });
 
-  const {
-    data: emailAnalyticsData,
-    isLoading: emailLoading,
-  } = useQuery({
+  const { data: emailAnalyticsData, isLoading: emailLoading } = useQuery({
     queryKey: ["dashboard-analytics-email", restaurant?.id],
     queryFn: () =>
       api
@@ -209,6 +216,7 @@ export default function DashboardPage() {
     let totalDelivered = 0;
     let totalRead = 0;
     let totalFailed = 0;
+    let totalReplies = 0;
 
     rootCampaigns.forEach((root) => {
       const retries = retryMap.get(root.id) || [];
@@ -225,6 +233,7 @@ export default function DashboardPage() {
         totalSent += c.sent_count;
         totalDelivered += c.delivered_count;
         totalRead += c.read_count;
+        totalReplies += c.replies_count || 0;
       });
 
       // For failed: use the last campaign's failed_count (remaining failures)
@@ -238,6 +247,7 @@ export default function DashboardPage() {
       delivered: totalDelivered,
       read: totalRead,
       failed: totalFailed,
+      replies: totalReplies,
     };
 
     // 1. KPI Calculations
@@ -437,6 +447,7 @@ export default function DashboardPage() {
         sent: totals?.sent ?? 0,
         delivered: totals?.delivered ?? 0,
         read: totals?.opened ?? 0,
+        replies: 0,
         opened: totals?.opened ?? 0,
         clicked: totals?.clicked ?? 0,
         bounced: totals?.bounced ?? 0,
@@ -606,11 +617,17 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* TOP ROW: KPI CARDS (3 Per Row) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+      {/* TOP ROW: KPI CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         <StatCard
-          label={activeChannel === "whatsapp" ? "WA Campaigns" : "Email Campaigns"}
-          value={activeChannel === "whatsapp" ? campaigns.length : (emailAnalyticsData?.totals?.sent ? 1 : 0)} // simplified for now
+          label={
+            activeChannel === "whatsapp" ? "WA Campaigns" : "Emails Sent"
+          }
+          value={
+            activeChannel === "whatsapp"
+              ? campaigns.length
+              : emailAnalyticsData?.totals?.sent || 0
+          }
           subtitle="All time"
           icon={Megaphone}
           color="bg-gray-800"
@@ -631,17 +648,34 @@ export default function DashboardPage() {
         />
         <StatCard
           label={activeChannel === "whatsapp" ? "Read Rate" : "Open Rate"}
-          value={`${(activeChannel === "whatsapp" ? rates.openRate : rates.openRate || 0).toFixed(1)}%`}
+          value={`${(rates.openRate || 0).toFixed(1)}%`}
           subtitle="Interaction velocity"
           icon={Eye}
           color="bg-[#24422e]"
         />
         <StatCard
-          label={activeChannel === "whatsapp" ? "Effective Reach" : "Click Rate"}
+          label={
+            activeChannel === "whatsapp" ? "Effective Reach" : "Click Rate"
+          }
           value={`${(activeChannel === "whatsapp" ? rates.effectiveReach : rates.clickRate || 0).toFixed(1)}%`}
-          subtitle={activeChannel === "whatsapp" ? "Read / Total Audience" : "Clicks / Sent"}
+          subtitle={
+            activeChannel === "whatsapp"
+              ? "Read / Total Audience"
+              : "Clicks / Sent"
+          }
           icon={TrendingUp}
           color="bg-[#6bb97b]"
+        />
+        <StatCard
+          label="Total Replies"
+          value={
+            activeChannel === "whatsapp"
+              ? (waAnalytics?.totals.replies || 0).toLocaleString()
+              : "0"
+          }
+          subtitle="Direct responses"
+          icon={Send}
+          color="bg-[#1a2f21]"
         />
         <StatCard
           label={activeChannel === "whatsapp" ? "Failure Rate" : "Bounce Rate"}
@@ -652,9 +686,9 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* MIDDLE ROW: FUNNEL */}
-      <div className="grid grid-cols-1 gap-8">
-        <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
+      {/* MIDDLE ROW: FUNNEL AND PIE */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm lg:col-span-2">
           <SectionHeader
             title="Where are we losing users?"
             subtitle="Conversion funnel analysis with drop-off impact"
@@ -696,23 +730,35 @@ export default function DashboardPage() {
             {(() => {
               const stages = [
                 {
-                  label: activeChannel === "whatsapp" ? "Audience → Sent" : "Sent → Deliv",
-                  drop: activeChannel === "whatsapp" 
-                    ? funnelData.find(s => s.name === "Sent")?.drop 
-                    : funnelData.find(s => s.name === "Delivered")?.drop
+                  label:
+                    activeChannel === "whatsapp"
+                      ? "Audience → Sent"
+                      : "Sent → Deliv",
+                  drop:
+                    activeChannel === "whatsapp"
+                      ? funnelData.find((s) => s.name === "Sent")?.drop
+                      : funnelData.find((s) => s.name === "Delivered")?.drop,
                 },
                 {
-                  label: activeChannel === "whatsapp" ? "Sent → Deliv" : "Deliv → Opened",
-                  drop: activeChannel === "whatsapp"
-                    ? funnelData.find(s => s.name === "Delivered")?.drop
-                    : funnelData.find(s => s.name === "Opened")?.drop
+                  label:
+                    activeChannel === "whatsapp"
+                      ? "Sent → Deliv"
+                      : "Deliv → Opened",
+                  drop:
+                    activeChannel === "whatsapp"
+                      ? funnelData.find((s) => s.name === "Delivered")?.drop
+                      : funnelData.find((s) => s.name === "Opened")?.drop,
                 },
                 {
-                  label: activeChannel === "whatsapp" ? "Deliv → Opened" : "Opened → Clicked",
-                  drop: activeChannel === "whatsapp"
-                    ? funnelData.find(s => s.name === "Opened")?.drop
-                    : funnelData.find(s => s.name === "Clicked")?.drop
-                }
+                  label:
+                    activeChannel === "whatsapp"
+                      ? "Deliv → Opened"
+                      : "Opened → Clicked",
+                  drop:
+                    activeChannel === "whatsapp"
+                      ? funnelData.find((s) => s.name === "Opened")?.drop
+                      : funnelData.find((s) => s.name === "Clicked")?.drop,
+                },
               ];
 
               return stages.map((s) => (
@@ -720,7 +766,9 @@ export default function DashboardPage() {
                   <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">
                     {s.label}
                   </p>
-                  <p className={`text-sm font-bold ${Number(s.drop) > 10 ? "text-red-500" : "text-green-600"}`}>
+                  <p
+                    className={`text-sm font-bold ${Number(s.drop) > 10 ? "text-red-500" : "text-green-600"}`}
+                  >
                     {Number(s.drop).toFixed(1)}% Loss
                   </p>
                 </div>
@@ -735,8 +783,12 @@ export default function DashboardPage() {
               </span>
               <br />
               {(() => {
-                const techLoss = Number(funnelData.find(s => s.name === "Delivered")?.drop || 0); // Sent -> Deliv
-                const contentLoss = Number(funnelData.find(s => s.name === "Opened")?.drop || 0); // Deliv -> Opened
+                const techLoss = Number(
+                  funnelData.find((s) => s.name === "Delivered")?.drop || 0,
+                ); // Sent -> Deliv
+                const contentLoss = Number(
+                  funnelData.find((s) => s.name === "Opened")?.drop || 0,
+                ); // Deliv -> Opened
 
                 if (techLoss > 10) {
                   return `You have a significant technical delivery gap (${techLoss.toFixed(1)}%). This usually points to invalid numbers or provider-level blocking—consider cleaning your customer list. `;
@@ -756,6 +808,53 @@ export default function DashboardPage() {
                 }{" "}
                 stage.
               </span>
+            </p>
+          </div>
+        </div>
+        
+        {/* PIE CHART SIDEBAR */}
+        <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm lg:col-span-1 flex flex-col items-center relative">
+          <SectionHeader
+            title="Engagement Split"
+            subtitle="Proportions of Sent, Delivered, and Replied"
+          />
+          <div className="h-[400px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: "Sent (no delivery)", value: Math.max(0, totals.sent - totals.delivered), fill: GREEN_PALETTE.light },
+                    { name: "Delivered (no reply)", value: Math.max(0, totals.delivered - totals.replies), fill: GREEN_PALETTE.dark },
+                    { name: "Replied", value: totals.replies, fill: "#1a2f21" }
+                  ]}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={130}
+                  innerRadius={70}
+                  paddingAngle={3}
+                  label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                  labelLine={false}
+                  stroke="none"
+                >
+                  {/* Cells styling done via fill property directly */}
+                </Pie>
+                <Tooltip
+                  formatter={(value: unknown) => Number(value || 0).toLocaleString()}
+                  contentStyle={{
+                    borderRadius: "10px",
+                    border: "none",
+                    boxShadow: "0 4px 12px rgb(0 0 0 / 0.1)",
+                  }}
+                />
+                <Legend verticalAlign="bottom" height={36} iconType="circle" />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-6 p-4 rounded-xl flex gap-3 bg-[#eff2f0] border border-[#24422e]/10 w-full text-center items-center justify-center">
+            <p className="text-[11px] text-[#24422e] font-bold uppercase tracking-wider">
+              Total Replies: {totals.replies.toLocaleString()}
             </p>
           </div>
         </div>
@@ -841,7 +940,8 @@ export default function DashboardPage() {
             </span>{" "}
             is currently the most effective, maintaining a{" "}
             <span className="text-gray-900 font-bold">
-              {(templateLeaderboard[0]?.openRate || 0).toFixed(1)}% engagement rate
+              {(templateLeaderboard[0]?.openRate || 0).toFixed(1)}% engagement
+              rate
             </span>
             across {templateLeaderboard[0]?.sent.toLocaleString()} messages.
           </p>
@@ -938,7 +1038,8 @@ export default function DashboardPage() {
               is responsible for{" "}
               {(
                 (failureBreakdown[0]?.count /
-                  (failureBreakdown.reduce((acc, f) => acc + f.count, 0) || 1)) *
+                  (failureBreakdown.reduce((acc, f) => acc + f.count, 0) ||
+                    1)) *
                 100
               ).toFixed(1)}
               % of all unsuccessful deliveries. Reviewing your contact list for
@@ -1020,22 +1121,24 @@ export default function DashboardPage() {
                     fill={GREEN_PALETTE.darkest}
                     radius={[4, 4, 0, 0]}
                   >
-                    {hourlyPerformance.map((entry: HourlyStat, index: number) => {
-                      const avgReadRate = rates.openRate || 0;
-                      const isWinningPeak =
-                        entry.rate >= avgReadRate &&
-                        entry.delivered > totals.delivered / 24;
-                      return (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            isWinningPeak
-                              ? GREEN_PALETTE.darkest
-                              : GREEN_PALETTE.dark
-                          }
-                        />
-                      );
-                    })}
+                    {hourlyPerformance.map(
+                      (entry: HourlyStat, index: number) => {
+                        const avgReadRate = rates.openRate || 0;
+                        const isWinningPeak =
+                          entry.rate >= avgReadRate &&
+                          entry.delivered > totals.delivered / 24;
+                        return (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              isWinningPeak
+                                ? GREEN_PALETTE.darkest
+                                : GREEN_PALETTE.dark
+                            }
+                          />
+                        );
+                      },
+                    )}
                     <LabelList
                       dataKey="delivered"
                       position="top"
@@ -1061,8 +1164,10 @@ export default function DashboardPage() {
                   // Calculate a Weighted Engagement Score: Rate * Log(Volume + 1)
                   // This ensures we pick hours with high volume AND high interaction.
                   const peak = hourlyPerformance.reduce((prev, curr) => {
-                    const prevScore = prev.rate * Math.log10(prev.delivered + 1);
-                    const currScore = curr.rate * Math.log10(curr.delivered + 1);
+                    const prevScore =
+                      prev.rate * Math.log10(prev.delivered + 1);
+                    const currScore =
+                      curr.rate * Math.log10(curr.delivered + 1);
                     return currScore > prevScore ? curr : prev;
                   }, hourlyPerformance[0]);
 
@@ -1174,9 +1279,10 @@ export default function DashboardPage() {
                   return (
                     <>
                       Apart from the delayed reads, the{" "}
-                      <span className="font-bold">{peak.range}</span> window shows
-                      your highest immediate interaction. This timeframe accounts
-                      for <span className="font-bold">{prob.toFixed(1)}%</span> of
+                      <span className="font-bold">{peak.range}</span> window
+                      shows your highest immediate interaction. This timeframe
+                      accounts for{" "}
+                      <span className="font-bold">{prob.toFixed(1)}%</span> of
                       total interactions, indicating your most effective
                       engagement zone for new broadcasts.
                     </>

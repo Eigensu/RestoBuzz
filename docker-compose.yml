@@ -35,7 +35,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: ./apps/backend
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
@@ -49,12 +49,12 @@ services:
     networks:
       - app_network
     volumes:
-      - ./backend:/app
+      - ./apps/backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   worker:
     build:
-      context: ./backend
+      context: ./apps/backend
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
@@ -66,12 +66,12 @@ services:
     networks:
       - app_network
     volumes:
-      - ./backend:/app
+      - ./apps/backend:/app
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-4} -Q utility,marketing,email
 
   beat:
     build:
-      context: ./backend
+      context: ./apps/backend
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
@@ -80,12 +80,12 @@ services:
     networks:
       - app_network
     volumes:
-      - ./backend:/app
+      - ./apps/backend:/app
     command: celery -A app.workers.celery_app beat --loglevel=info
 
   flower:
     build:
-      context: ./backend
+      context: ./apps/backend
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
@@ -99,7 +99,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./apps/frontend
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env

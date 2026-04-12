@@ -25,7 +25,7 @@ from app.models.member import (
     MemberListResponse,
 )
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
-from app.services.contact_parser import _normalize_phone
+from app.utils.phone import normalize_phone
 
 router = APIRouter(prefix="/members", tags=["members"])
 logger = get_logger(__name__)
@@ -230,7 +230,7 @@ async def members_as_contacts(
             invalid_rows.append(InvalidRow(row_number=row_num, raw_value="", reason="Empty phone"))
             continue
         
-        normalized = _normalize_phone(raw_phone)
+        normalized = normalize_phone(raw_phone)
         if not normalized:
             invalid_rows.append(InvalidRow(row_number=row_num, raw_value=raw_phone, reason="Invalid phone number"))
             continue
@@ -337,7 +337,7 @@ async def import_members(
         # Validate and normalise phone via shared parser (E.164 output or None).
         # Members with no phone column are stored with an explicit empty string.
         if raw_phone and raw_phone != "None":
-            phone = _normalize_phone(raw_phone)
+            phone = normalize_phone(raw_phone)
             if phone is None:
                 # Parser rejected the value — skip rather than persist garbage.
                 skipped += 1

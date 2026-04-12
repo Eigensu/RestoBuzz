@@ -91,6 +91,7 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
         delivered_count=doc.get("delivered_count", 0),
         read_count=doc.get("read_count", 0),
         failed_count=doc.get("failed_count", 0),
+        replies_count=doc.get("replies_count", 0),
         scheduled_at=doc.get("scheduled_at"),
         started_at=doc.get("started_at"),
         completed_at=doc.get("completed_at"),
@@ -188,6 +189,7 @@ async def create_campaign(
         "delivered_count": 0,
         "read_count": 0,
         "failed_count": 0,
+        "replies_count": 0,
         "scheduled_at": body.scheduled_at,
         "started_at": None,
         "completed_at": None,
@@ -242,6 +244,25 @@ async def create_campaign(
                 error=str(e),
             )
             raise ServerError("Failed to create message logs") from e
+
+    # ── Dispatch or schedule ──────────────────────────────────────────────────
+    if body.scheduled_at is None:
+        # Send Immediately: transition to queued and fire the Celery task now.
+        await db.campaign_jobs.update_one(
+            {"_id": job_id}, {"$set": {"status": "queued"}}
+        )
+        from app.workers.send_task import dispatch_campaign_task
+
+        dispatch_campaign_task.delay(str(job_id))
+        job_doc["status"] = "queued"
+        logger.info("campaign_dispatched_immediately", campaign_id=str(job_id))
+    else:
+        # Scheduled: leave as draft — the Beat poller will pick it up.
+        logger.info(
+            "campaign_scheduled",
+            campaign_id=str(job_id),
+            scheduled_at=body.scheduled_at.isoformat(),
+        )
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
@@ -336,18 +357,20 @@ async def get_analytics(
                     "delivered": {"$sum": "$delivered_count"},
                     "read": {"$sum": "$read_count"},
                     "failed": {"$sum": "$failed_count"},
+                    "replies": {"$sum": "$replies_count"},
                     "total_campaigns": {"$sum": 1},
                 }
             },
         ]
     )
     totals_list = await totals_cursor.to_list(1)
-    totals_dict = totals_list[0] if totals_list else {"sent": 0, "delivered": 0, "read": 0, "failed": 0, "total_campaigns": 0}
+    totals_dict = totals_list[0] if totals_list else {"sent": 0, "delivered": 0, "read": 0, "failed": 0, "replies": 0, "total_campaigns": 0}
     totals = {
         "sent": totals_dict.get("sent", 0),
         "delivered": totals_dict.get("delivered", 0),
         "read": totals_dict.get("read", 0),
         "failed": totals_dict.get("failed", 0),
+        "replies": totals_dict.get("replies", 0),
         "total_campaigns": totals_dict.get("total_campaigns", 0),
     }
 
@@ -766,6 +789,7 @@ async def retry_failed(
         "delivered_count": 0,
         "read_count": 0,
         "failed_count": 0,
+        "replies_count": 0,
         "scheduled_at": None,
         "started_at": None,
         "completed_at": None,
