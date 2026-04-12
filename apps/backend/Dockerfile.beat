@@ -9,7 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY app/ ./app/
+COPY scripts/ ./scripts/
 
 RUN groupadd --gid 1001 celery && \
     useradd --uid 1001 --gid celery --no-create-home celery && \

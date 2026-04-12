@@ -9,9 +9,12 @@ so concurrent Beat workers cannot double-dispatch the same campaign.
 import asyncio
 from datetime import datetime, timezone, timedelta
 
+import kombu.exceptions
 from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
+from app.workers.send_task import dispatch_campaign_task
+from app.workers.send_email_task import dispatch_email_campaign_task
 
 logger = get_logger(__name__)
 
@@ -33,7 +36,7 @@ async def _poll() -> None:
             {
                 "$or": [
                     {"status": "draft", "scheduled_at": {"$lte": now, "$ne": None}},
-                    {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "started_at": {"$exists": False}}
+                    {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "$or": [{"started_at": {"$exists": False}}, {"started_at": None}]}
                 ]
             }
         )
@@ -45,15 +48,14 @@ async def _poll() -> None:
                     "_id": job["_id"],
                     "$or": [
                         {"status": "draft"},
-                        {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "started_at": {"$exists": False}}
+                        {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "$or": [{"started_at": {"$exists": False}}, {"started_at": None}]}
                     ]
                 },
                 {"$set": {"status": "dispatching", "claimed_at": now}},
                 return_document=False,
             )
             if claimed is not None:  # None means another worker won the race
-                from app.workers.send_task import dispatch_campaign_task
-                import kombu.exceptions
+
 
                 try:
                     dispatch_campaign_task.delay(job_id)
@@ -81,7 +83,7 @@ async def _poll() -> None:
             {
                 "$or": [
                     {"status": "draft", "scheduled_at": {"$lte": now, "$ne": None}},
-                    {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "started_at": {"$exists": False}}
+                    {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "$or": [{"started_at": {"$exists": False}}, {"started_at": None}]}
                 ]
             }
         )
@@ -92,15 +94,14 @@ async def _poll() -> None:
                     "_id": job["_id"],
                     "$or": [
                         {"status": "draft"},
-                        {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "started_at": {"$exists": False}}
+                        {"status": {"$in": ["queued", "dispatching"]}, "claimed_at": {"$lte": stale_threshold}, "$or": [{"started_at": {"$exists": False}}, {"started_at": None}]}
                     ]
                 },
                 {"$set": {"status": "dispatching", "claimed_at": now}},
                 return_document=False,
             )
             if claimed is not None:
-                from app.workers.send_email_task import dispatch_email_campaign_task
-                import kombu.exceptions
+
 
                 try:
                     dispatch_email_campaign_task.delay(job_id)
