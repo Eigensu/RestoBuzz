@@ -376,14 +376,14 @@ export default function UnifiedTemplatesPage() {
                     <input id="emailSubject" type="text" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="w-full px-3 py-2.5 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-[#24422e]/20" />
                   </div>
                   <div>
-                    <label htmlFor="emailHtml" className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1 flex items-center gap-1"><Code className="w-3 h-3"/> HTML Body *</label>
+                    <label htmlFor="emailHtml" className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1 mb-1"><Code className="w-3 h-3"/> HTML Body *</label>
                     <textarea id="emailHtml" value={emailHtml} onChange={(e) => setEmailHtml(e.target.value)} rows={10} className="w-full px-3 py-2.5 border rounded-xl text-sm font-mono focus:ring-2 focus:ring-[#24422e]/20 resize-none h-64" />
                   </div>
 
                    {/* Template Variables Section */}
                    <div>
                     <div className="flex items-center justify-between mb-2">
-                       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block flex items-center gap-1">Template Variables</span>
+                       <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">Template Variables</span>
                        <button onClick={() => setEmailVariables([...emailVariables, { key: "", type: "string", fallback_value: "" }])} className="text-xs text-[#24422e] font-bold hover:underline">+ Add Variable</button>
                     </div>
                     <div className="space-y-2">

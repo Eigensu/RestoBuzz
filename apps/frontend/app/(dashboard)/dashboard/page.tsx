@@ -40,7 +40,7 @@ export default function DashboardPage() {
   if (!campaigns?.length && activeChannel === "whatsapp") {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto text-center px-4">
-        <div className="w-20 h-20 rounded-[2rem] bg-[#eff2f0] flex items-center justify-center mb-6">
+        <div className="w-20 h-20 rounded-4xl bg-[#eff2f0] flex items-center justify-center mb-6">
           <Send className="w-8 h-8 text-[#24422e]" />
         </div>
         <h2 className="text-2xl font-black text-gray-900 mb-3 tracking-tight">

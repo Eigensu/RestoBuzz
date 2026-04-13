@@ -537,7 +537,7 @@ export default function NewTemplatePage() {
 
             {/* Phone Frame */}
             <div className="p-4">
-              <div className="mx-auto w-[280px] rounded-[2rem] border-4 border-gray-800 bg-gray-800 overflow-hidden shadow-xl">
+              <div className="mx-auto w-[280px] rounded-4xl border-4 border-gray-800 bg-gray-800 overflow-hidden shadow-xl">
                 {/* Status bar */}
                 <div className="bg-gray-800 text-white text-[10px] flex justify-between items-center px-4 py-1">
                   <span className="font-medium">9:42</span>
@@ -598,7 +598,7 @@ export default function NewTemplatePage() {
 
                         {/* Body */}
                         <p
-                          className="text-[11px] text-gray-800 leading-relaxed break-words preview-whatsapp-message"
+                          className="text-[11px] text-gray-800 leading-relaxed wrap-break-word preview-whatsapp-message"
                           dangerouslySetInnerHTML={{
                             __html:
                               renderPreviewText(body) ||

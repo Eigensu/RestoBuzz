@@ -53,7 +53,7 @@ def _serialize(doc: dict) -> MemberResponse:
 @router.get("", response_model=MemberListResponse)
 async def list_members(
     restaurant_id: Annotated[str, Query()],
-    type: Annotated[str | None, Query()] = None,
+    member_type: Annotated[str | None, Query(alias="type")] = None,
     search: Annotated[str | None, Query()] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -62,8 +62,8 @@ async def list_members(
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     query: dict = {"restaurant_id": validated_rid}
-    if type and type != "all":
-        query["type"] = type
+    if member_type and member_type != "all":
+        query["type"] = member_type
     if search:
         query["$or"] = [
             {"name": {"$regex": search, "$options": "i"}},
@@ -201,7 +201,7 @@ async def members_as_contacts(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
     db: Annotated[Any, Depends(get_db)] = None,
-    type: Annotated[str | None, Query()] = None,
+    member_type: Annotated[str | None, Query(alias="type")] = None,
     limit: Annotated[int | None, Query(ge=1)] = None,
 ):
     """Convert members into a PreflightResult so they can be used as campaign contacts."""
@@ -209,7 +209,7 @@ async def members_as_contacts(
     from redis.asyncio import from_url
     from app.config import settings
 
-    if type == "reservego":
+    if member_type == "reservego":
         q1 = db.reservego_uploads.find(
             {"restaurant_id": validated_rid},
             {"guest_name": 1, "phone": 1}
@@ -298,7 +298,7 @@ async def import_members(
     file: Annotated[UploadFile, File()],
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[Any, Depends(get_db)],
-    type: Annotated[str, Query()] = "ecard",
+    member_type: Annotated[str, Query(alias="type")] = "ecard",
 ):
     await validate_restaurant_access(current_user, restaurant_id, db)
 
@@ -379,7 +379,7 @@ async def import_members(
         await db.members.insert_one(
             {
                 "restaurant_id": restaurant_id,
-                "type": type,
+                "type": member_type,
                 "name": name,
                 "phone": phone,
                 "email": email,
