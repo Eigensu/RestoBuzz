@@ -1,6 +1,7 @@
 import React from "react";
 import { LayoutDashboard, Megaphone } from "lucide-react";
 import Link from "next/link";
+import { BRAND_GRADIENT } from "@/lib/brand";
 
 export function DashboardHeader({
   restaurantName,
@@ -66,7 +67,7 @@ export function DashboardHeader({
               : "/campaigns/email/new"
           }
           className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: "linear-gradient(135deg, #24422e 0%, #3a6b47 100%)" }}
+          style={{ background: BRAND_GRADIENT }}
         >
           <Megaphone className="w-4 h-4" />
           {activeChannel === "whatsapp" ? "LAUNCH WHATSAPP" : "LAUNCH EMAIL"}

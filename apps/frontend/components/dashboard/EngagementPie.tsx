@@ -9,6 +9,19 @@ export function EngagementPie({
 }: {
   data: DashboardAnalytics["pieData"];
 }) {
+  if (!data || data.length === 0 || data.every((d) => d.value === 0)) {
+    return (
+      <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm lg:col-span-1 flex flex-col relative">
+        <SectionHeader
+          title="Engagement Split"
+          subtitle="Proportions of Sent, Delivered, and Replied"
+        />
+        <div className="flex-1 flex items-center justify-center min-h-[200px] text-gray-400 text-sm font-medium">
+          No engagement data yet
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm lg:col-span-1 flex flex-col relative">
       <SectionHeader
@@ -61,7 +74,7 @@ export function EngagementPie({
             <span className="font-bold uppercase tracking-wider not-italic text-xs block mb-1">
               Note on Opened/Read accuracy
             </span>
-            The number of "Opened" messages shown here is lower than reality. Because many WhatsApp users disable read receipts in their privacy settings, the actual number of people who have read your message will be much higher than what we can legally record.
+            The number of &quot;Opened&quot; messages shown here is lower than reality. Because many WhatsApp users disable read receipts in their privacy settings, the actual number of people who have read your message will be much higher than what we can legally record.
           </p>
         </div>
       </div>

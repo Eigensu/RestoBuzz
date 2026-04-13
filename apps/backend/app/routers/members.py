@@ -245,7 +245,8 @@ async def members_as_contacts(
     row_num = 1
     async for doc in cursor:
         row_num += 1
-        raw_phone = doc.get("phone", "").strip() if doc.get("phone") else ""
+        phone_value = doc.get("phone")
+        raw_phone = str(phone_value).strip() if phone_value else ""
         if not raw_phone:
             invalid_rows.append(InvalidRow(row_number=row_num, raw_value="", reason="Empty phone"))
             continue

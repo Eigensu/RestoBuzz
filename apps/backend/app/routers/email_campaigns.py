@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from bson import ObjectId
+
 
 from app.database import get_db
 from app.dependencies import (
@@ -284,8 +284,11 @@ async def get_email_analytics(
         )
     ]
 
+    r1 = await db.reservego_uploads.distinct("phone", {"restaurant_id": validated_rid})
+    r2 = await db.reservego_bill_data.distinct("guest_number", {"restaurant_id": validated_rid})
+    reservego_members_count = len({str(p).strip() for p in (r1 + r2) if p and str(p).strip()})
+
     if not campaign_ids:
-        reservego_members_count = await db.reservego_uploads.count_documents({"restaurant_id": validated_rid})
         return {
             "totals": {
                 "sent": 0,
@@ -398,7 +401,7 @@ async def get_email_analytics(
             "bounced": bounced,
             "failed": failed,
             "complained": complained,
-            "reservego_members": await db.reservego_uploads.count_documents({"restaurant_id": validated_rid}),
+            "reservego_members": reservego_members_count,
         },
         "delivery_rate": round(delivered / denominator * 100, 2) if denominator else 0,
         "open_rate": round(opened / denominator * 100, 2) if denominator else 0,

@@ -42,7 +42,10 @@ export function useDashboardAnalytics(restaurantId?: string) {
   const campaigns: Campaign[] = useMemo(() => data?.items ?? [], [data?.items]);
 
   const waAnalytics: DashboardAnalytics | null = useMemo(() => {
-    if (!campaigns.length) return null;
+    // Don't short-circuit on campaigns alone — analyticsData may have reservego_members
+    const hasAnyCampaignData = campaigns.length > 0;
+    const hasAnalyticsData = !!analyticsData?.totals?.reservego_members;
+    if (!hasAnyCampaignData && !hasAnalyticsData) return null;
 
     const rootCampaigns = campaigns.filter((c) => !c.parent_campaign_id);
     const retryCampaigns = campaigns.filter((c) => c.parent_campaign_id);
@@ -209,12 +212,12 @@ export function useDashboardAnalytics(restaurantId?: string) {
       },
       {
         name: "Delivered (unread)",
-        value: Math.max(0, totals.delivered - ((totals as any).read || 0)),
+        value: Math.max(0, totals.delivered - totals.read),
         fill: GREEN_PALETTE.medium,
       },
       {
         name: "Opened (no reply)",
-        value: Math.max(0, ((totals as any).read || 0) - totals.replies),
+        value: Math.max(0, totals.read - totals.replies),
         fill: GREEN_PALETTE.dark,
       },
       { name: "Replied", value: totals.replies, fill: GREEN_PALETTE.darkest },
@@ -222,7 +225,7 @@ export function useDashboardAnalytics(restaurantId?: string) {
 
     const timeSeriesMap: Record<string, { date: string; sortKey: number; sent: number; delivered: number; read: number; failed: number }> = {};
 
-    for (let i = 6; i >= 0; i--) {
+    for (let i = 13; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateKey = d.toISOString().slice(0, 10);

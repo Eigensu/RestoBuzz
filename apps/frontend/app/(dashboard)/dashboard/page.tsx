@@ -51,7 +51,7 @@ export default function DashboardPage() {
           dispatched. Launch a campaign to ignite performance tracking.
         </p>
         <Link
-          href="/dashboard/campaigns/new"
+          href="/campaigns/whatsapp/new"
           className="inline-flex items-center justify-center h-12 px-8 rounded-full bg-[#24422e] text-white font-bold hover:bg-[#1a2f21] transition-all hover:-translate-y-0.5 shadow-lg shadow-[#24422e]/20"
         >
           Launch Your First Campaign

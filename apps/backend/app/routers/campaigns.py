@@ -324,14 +324,40 @@ async def get_analytics(
         )
     ]
 
-    async def _get_rg_count():
-        r1 = await db.reservego_uploads.distinct("phone", {"restaurant_id": validated_rid})
-        r2 = await db.reservego_bill_data.distinct("guest_number", {"restaurant_id": validated_rid})
-        phones = {str(p).strip() for p in (r1 + r2) if p and str(p).strip()}
-        return len(phones)
+    async def _get_rg_count() -> int:
+        pipeline = [
+            {_MATCH: {"restaurant_id": validated_rid}},
+            {
+                "$project": {
+                    "_id": 0,
+                    "phone": {"$trim": {"input": {"$toString": "$phone"}}},
+                }
+            },
+            {_MATCH: {"phone": {"$ne": ""}}},
+            {
+                "$unionWith": {
+                    "coll": "reservego_bill_data",
+                    "pipeline": [
+                        {_MATCH: {"restaurant_id": validated_rid}},
+                        {
+                            "$project": {
+                                "_id": 0,
+                                "phone": {"$trim": {"input": {"$toString": "$guest_number"}}},
+                            }
+                        },
+                        {_MATCH: {"phone": {"$ne": ""}}},
+                    ],
+                }
+            },
+            {"$group": {"_id": "$phone"}},
+            {"$count": "count"},
+        ]
+        result = await db.reservego_uploads.aggregate(pipeline).to_list(length=1)
+        return result[0]["count"] if result else 0
+
+    reservego_members_count = await _get_rg_count()
 
     if not campaign_ids:
-        reservego_members_count = await _get_rg_count()
         return {
             "totals": {
                 "sent": 0,
@@ -387,7 +413,7 @@ async def get_analytics(
         "failed": totals_dict.get("failed", 0),
         "replies": totals_dict.get("replies", 0),
         "total_campaigns": totals_dict.get("total_campaigns", 0),
-        "reservego_members": await _get_rg_count(),
+        "reservego_members": reservego_members_count,
     }
 
     # ── 2. Failure Breakdown ──────────────────────────────────────────────────

@@ -1,7 +1,6 @@
 import React from "react";
 import {
   Send,
-  CheckCheck,
   Eye,
   TrendingUp,
   Megaphone,
@@ -20,14 +19,14 @@ export function SummaryCards({
   analytics: DashboardAnalytics;
   activeChannel: "whatsapp" | "email";
   campaignLength: number;
-  emailAnalyticsData?: any;
-  waAnalytics?: any;
+  emailAnalyticsData?: DashboardAnalytics | null;
+  waAnalytics?: DashboardAnalytics | null;
 }) {
   const { totals, rates } = analytics;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-      {totals.reservego_members ? (
+      {totals.reservego_members != null && totals.reservego_members > 0 ? (
         <StatCard
           label="Total Contacts in DB"
           value={totals.reservego_members.toLocaleString()}
@@ -41,7 +40,7 @@ export function SummaryCards({
           value={
             activeChannel === "whatsapp"
               ? campaignLength
-              : emailAnalyticsData?.totals?.sent || 0
+              : emailAnalyticsData?.totals.sent || 0
           }
           subtitle="All time"
           icon={Megaphone}
@@ -64,7 +63,7 @@ export function SummaryCards({
       />
       <StatCard
         label={activeChannel === "whatsapp" ? "Effective Reach" : "Click Rate"}
-        value={`${(activeChannel === "whatsapp" ? rates.effectiveReach : rates.clickRate || 0).toFixed(1)}%`}
+        value={`${(activeChannel === "whatsapp" ? (rates.effectiveReach ?? 0) : (rates.clickRate ?? 0)).toFixed(1)}%`}
         subtitle={
           activeChannel === "whatsapp" ? "Delivered / Sent" : "Clicks / Sent"
         }

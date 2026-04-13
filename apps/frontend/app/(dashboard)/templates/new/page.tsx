@@ -62,8 +62,11 @@ export default function NewTemplatePage() {
   const uniqueVars = [...new Set(variableMatches)];
 
   const addVariable = () => {
-    const nextNum = uniqueVars.length + 1;
-    setBody((prev) => prev + `{{${nextNum}}}`);
+    const indices = (body.match(/\{\{(\d+)\}\}/g) ?? [])
+      .map((m) => parseInt(m.replace(/\{\{|\}\}/g, ""), 10))
+      .filter((n) => !isNaN(n));
+    const nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 1;
+    setBody((prev) => prev + `{{${nextIndex}}}`);
   };
 
   const applyFormat = (type: "bold" | "italic" | "strikethrough" | "code") => {
@@ -107,9 +110,18 @@ export default function NewTemplatePage() {
     }, 0);
   };
 
+  const escapeHtml = (str: string) =>
+    str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
   const renderPreviewText = (text: string) => {
     if (!text) return "";
-    return text
+    const escaped = escapeHtml(text);
+    return escaped
       .replace(/\*([^*]+)\*/g, "<strong>$1</strong>")
       .replace(/_([^_]+)_/g, "<em>$1</em>")
       .replace(/~([^~]+)~/g, "<del>$1</del>")
@@ -349,11 +361,6 @@ export default function NewTemplatePage() {
                           const { data } = await api.post(
                             "/media/upload",
                             form,
-                            {
-                              headers: {
-                                "Content-Type": "multipart/form-data",
-                              },
-                            },
                           );
                           setHeaderImageUrl(data.url);
                         } catch (err) {
