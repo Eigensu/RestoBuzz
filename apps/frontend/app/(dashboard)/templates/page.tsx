@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
@@ -29,21 +30,18 @@ import {
 } from "@/components/templates/organisms/TemplateGrid";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/utils";
-import { TemplateFormModal } from "@/components/templates/molecules/TemplateFormModal";
-
 
 type TabType = "whatsapp" | "email";
 
 export default function UnifiedTemplatesPage() {
-  const [activeTab, setActiveTab] = useState<TabType>("email");
+  const [activeTab, setActiveTab] = useState<TabType>("whatsapp");
+  const router = useRouter();
   const { restaurant } = useAuthStore();
   const qc = useQueryClient();
 
   // WhatsApp State
   const [waSearch, setWaSearch] = useState("");
   const [waFilterStatus, setWaFilterStatus] = useState<"ALL" | "APPROVED" | "PENDING">("ALL");
-  const [showWaCreator, setShowWaCreator] = useState(false);
-
 
   // Email State
   const [showEmailEditor, setShowEmailEditor] = useState(false);
@@ -179,28 +177,53 @@ export default function UnifiedTemplatesPage() {
 
   return (
     <div className="space-y-6 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
-      {/* Header */}
+      {/* Header + Tabs + Actions — single row */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-[#eff2f0] rounded-lg">
               <LayoutTemplate className="w-6 h-6 text-[#24422e]" />
             </div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
-              Message Templates
-            </h1>
+            <div>
+              <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
+                Message Templates
+              </h1>
+              <p className="text-sm text-gray-500 font-medium">
+                Manage your cross-channel message templates
+              </p>
+            </div>
           </div>
-          <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
-            Manage your cross-channel message templates
-          </p>
+
+          <div className="flex p-1 bg-gray-100 rounded-xl w-fit ml-4">
+            <button
+              onClick={() => setActiveTab("whatsapp")}
+              className={cn(
+                "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition",
+                activeTab === "whatsapp" ? "bg-white text-[#24422e] shadow-sm" : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              <Smartphone className="w-4 h-4" />
+              WhatsApp
+            </button>
+            <button
+              onClick={() => setActiveTab("email")}
+              className={cn(
+                "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition",
+                activeTab === "email" ? "bg-white text-[#24422e] shadow-sm" : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              <Mail className="w-4 h-4" />
+              Email
+            </button>
+          </div>
         </div>
 
         {/* Action Buttons */}
         <div className="flex gap-3">
           {activeTab === "whatsapp" ? (
-            <div className="flex gap-3">
-               <button
-                onClick={() => setShowWaCreator(true)}
+            <>
+              <button
+                onClick={() => router.push("/templates/new")}
                 className="inline-flex items-center gap-2 text-[#24422e] text-sm font-bold px-5 py-3 rounded-xl border-2 border-[#24422e] hover:bg-[#24422e] hover:text-white transition"
               >
                 <Plus className="w-4 h-4" />
@@ -215,11 +238,10 @@ export default function UnifiedTemplatesPage() {
                 <RefreshCw className={cn("w-4 h-4", syncWaMutation.isPending && "animate-spin")} />
                 Sync from Meta
               </button>
-            </div>
+            </>
           ) : (
-
-            <div className="flex gap-3">
-               <button
+            <>
+              <button
                 onClick={() => openEmailEditor()}
                 className="inline-flex items-center gap-2 text-[#24422e] text-sm font-bold px-5 py-3 rounded-xl border-2 border-[#24422e] hover:bg-[#24422e] hover:text-white transition"
               >
@@ -235,37 +257,13 @@ export default function UnifiedTemplatesPage() {
                 <RefreshCw className={cn("w-4 h-4", syncEmailMutation.isPending && "animate-spin")} />
                 Sync from Resend
               </button>
-            </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex p-1 bg-gray-100 rounded-xl w-full md:w-fit">
-        <button
-          onClick={() => setActiveTab("email")}
-          className={cn(
-            "flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition",
-            activeTab === "email" ? "bg-white text-[#24422e] shadow-sm" : "text-gray-500 hover:text-gray-700"
-          )}
-        >
-          <Mail className="w-4 h-4" />
-          Email Templates
-        </button>
-        <button
-          onClick={() => setActiveTab("whatsapp")}
-          className={cn(
-            "flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition",
-            activeTab === "whatsapp" ? "bg-white text-[#24422e] shadow-sm" : "text-gray-500 hover:text-gray-700"
-          )}
-        >
-          <Smartphone className="w-4 h-4" />
-          WhatsApp Templates
-        </button>
-      </div>
-
       {/* Tab Content */}
-      <div className="mt-8">
+      <div>
         {activeTab === "whatsapp" ? (
           <div className="space-y-6">
             <TemplateSearchBar
@@ -438,15 +436,6 @@ export default function UnifiedTemplatesPage() {
           </div>
         </div>
       )}
-
-      {/* WhatsApp Creator Modal */}
-      {showWaCreator && (
-        <TemplateFormModal
-          onClose={() => setShowWaCreator(false)}
-          mode="modal"
-        />
-      )}
     </div>
-
   );
 }

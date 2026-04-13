@@ -75,6 +75,13 @@ export function NewCampaignWizard() {
     enabled: step === 1,
   });
 
+  const { data: analytics } = useQuery({
+    queryKey: ["campaign-analytics", restaurant?.id],
+    queryFn: () => api.get("/campaigns/analytics", { params: { restaurant_id: restaurant?.id } }).then((r) => r.data),
+    enabled: step === 1 && !!restaurant?.id,
+  });
+  const reservegoCount = analytics?.totals?.reservego_members ?? 0;
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
       "text/csv": [".csv"],
@@ -99,11 +106,12 @@ export function NewCampaignWizard() {
     }
   };
 
-  const useMembersAsContacts = async (type: "all" | "nfc" | "ecard") => {
+  const useMembersAsContacts = async (type: "all" | "nfc" | "ecard" | "reservego", limit?: number) => {
     setLoadingMembers(true);
     try {
       const params = new URLSearchParams({ restaurant_id: restaurant!.id });
       if (type !== "all") params.set("type", type);
+      if (limit) params.set("limit", limit.toString());
       const { data } = await api.post(`/members/as-contacts?${params}`);
       if (data.valid_count === 0) {
         toast.error("No active members found for the selected type.");
@@ -257,6 +265,7 @@ export function NewCampaignWizard() {
               loadingMembers={loadingMembers}
               onSelectMembers={useMembersAsContacts}
               onDeleteFile={deleteFile}
+              reservegoCount={reservegoCount}
             />
           )}
           {step === 2 && preflight && <Step2Preflight preflight={preflight} />}

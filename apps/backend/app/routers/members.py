@@ -202,15 +202,35 @@ async def members_as_contacts(
     validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
     db: Annotated[Any, Depends(get_db)] = None,
     type: Annotated[str | None, Query()] = None,
+    limit: Annotated[int | None, Query(ge=1)] = None,
 ):
     """Convert members into a PreflightResult so they can be used as campaign contacts."""
     import uuid, json
     from redis.asyncio import from_url
     from app.config import settings
 
-    query: dict = {"restaurant_id": validated_rid, "is_active": True}
-    if type in ("nfc", "ecard"):
-        query["type"] = type
+    if type == "reservego":
+        q1 = db.reservego_uploads.find(
+            {"restaurant_id": validated_rid},
+            {"guest_name": 1, "phone": 1}
+        ).sort("_id", -1)
+        q2 = db.reservego_bill_data.find(
+            {"restaurant_id": validated_rid},
+            {"guest_name": 1, "guest_number": 1}
+        ).sort("_id", -1)
+        
+        async def combined_cursor():
+            async for doc in q1:
+                yield doc
+            async for doc in q2:
+                yield {"guest_name": doc.get("guest_name"), "phone": doc.get("guest_number")}
+                
+        cursor = combined_cursor()
+    else:
+        query: dict = {"restaurant_id": validated_rid, "is_active": True}
+        if type in ("nfc", "ecard"):
+            query["type"] = type
+        cursor = db.members.find(query, {"name": 1, "phone": 1}).sort("_id", -1)
 
     suppressed = set()
     async for doc in db.suppression_list.find({}, {"phone": 1}):
@@ -223,7 +243,7 @@ async def members_as_contacts(
     suppressed_count = 0
     
     row_num = 1
-    async for doc in db.members.find(query, {"name": 1, "phone": 1}):
+    async for doc in cursor:
         row_num += 1
         raw_phone = doc.get("phone", "").strip() if doc.get("phone") else ""
         if not raw_phone:
@@ -245,8 +265,10 @@ async def members_as_contacts(
             continue
 
         valid_rows.append(
-            ContactRow(name=doc.get("name", ""), phone=normalized, variables={})
+            ContactRow(name=doc.get("name", doc.get("guest_name", "")), phone=normalized, variables={})
         )
+        if limit and len(valid_rows) >= limit:
+            break
 
     file_ref = str(uuid.uuid4())
 

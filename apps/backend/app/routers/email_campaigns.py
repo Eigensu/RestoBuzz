@@ -285,6 +285,7 @@ async def get_email_analytics(
     ]
 
     if not campaign_ids:
+        reservego_members_count = await db.reservego_uploads.count_documents({"restaurant_id": validated_rid})
         return {
             "totals": {
                 "sent": 0,
@@ -295,6 +296,7 @@ async def get_email_analytics(
                 "bounced": 0,
                 "failed": 0,
                 "complained": 0,
+                "reservego_members": reservego_members_count,
             },
             "delivery_rate": 0,
             "open_rate": 0,
@@ -396,6 +398,7 @@ async def get_email_analytics(
             "bounced": bounced,
             "failed": failed,
             "complained": complained,
+            "reservego_members": await db.reservego_uploads.count_documents({"restaurant_id": validated_rid}),
         },
         "delivery_rate": round(delivered / denominator * 100, 2) if denominator else 0,
         "open_rate": round(opened / denominator * 100, 2) if denominator else 0,

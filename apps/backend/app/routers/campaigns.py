@@ -324,9 +324,24 @@ async def get_analytics(
         )
     ]
 
+    async def _get_rg_count():
+        r1 = await db.reservego_uploads.distinct("phone", {"restaurant_id": validated_rid})
+        r2 = await db.reservego_bill_data.distinct("guest_number", {"restaurant_id": validated_rid})
+        phones = {str(p).strip() for p in (r1 + r2) if p and str(p).strip()}
+        return len(phones)
+
     if not campaign_ids:
+        reservego_members_count = await _get_rg_count()
         return {
-            "totals": {"sent": 0, "delivered": 0, "read": 0, "failed": 0},
+            "totals": {
+                "sent": 0,
+                "delivered": 0,
+                "read": 0,
+                "failed": 0,
+                "replies": 0,
+                "total_campaigns": 0,
+                "reservego_members": reservego_members_count,
+            },
             "failure_breakdown": [],
             "ttr_distribution": [
                 {"range": "0-5 min", "count": 0},
@@ -372,6 +387,7 @@ async def get_analytics(
         "failed": totals_dict.get("failed", 0),
         "replies": totals_dict.get("replies", 0),
         "total_campaigns": totals_dict.get("total_campaigns", 0),
+        "reservego_members": await _get_rg_count(),
     }
 
     # ── 2. Failure Breakdown ──────────────────────────────────────────────────

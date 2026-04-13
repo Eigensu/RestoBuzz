@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Download,
   Trash2,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GradientButton } from "@/components/ui/GradientButton";
@@ -37,8 +38,9 @@ interface Step1UploadProps {
   reusingFile: boolean;
   reuseFile: (ref: string) => void;
   loadingMembers: boolean;
-  onSelectMembers: (type: "all" | "nfc" | "ecard") => void;
+  onSelectMembers: (type: "all" | "nfc" | "ecard" | "reservego", limit?: number) => void;
   onDeleteFile: (ref: string) => void;
+  reservegoCount: number;
 }
 
 const MEMBER_TYPES: {
@@ -68,9 +70,11 @@ export function Step1Upload({
   loadingMembers,
   onSelectMembers,
   onDeleteFile,
+  reservegoCount,
 }: Readonly<Step1UploadProps>) {
-  const [source, setSource] = useState<"file" | "members">("file");
+  const [source, setSource] = useState<"file" | "members" | "reservego">("file");
   const [downloading, setDownloading] = useState(false);
+  const [limit, setLimit] = useState<string>("");
 
   const downloadTemplate = async () => {
     setDownloading(true);
@@ -95,7 +99,7 @@ export function Step1Upload({
 
       {/* Source toggle */}
       <div className="flex rounded-xl border overflow-hidden">
-        {(["file", "members"] as const).map((s) => (
+        {(["file", "reservego", "members"] as const).map((s) => (
           <button
             key={s}
             onClick={() => setSource(s)}
@@ -107,10 +111,12 @@ export function Step1Upload({
           >
             {s === "file" ? (
               <FileSpreadsheet className="w-4 h-4" />
+            ) : s === "reservego" ? (
+              <Database className="w-4 h-4" />
             ) : (
               <Users className="w-4 h-4" />
             )}
-            {s === "file" ? "Upload File" : "From Members"}
+            {s === "file" ? "Upload File" : s === "reservego" ? "ReserveGo" : "From Members"}
           </button>
         ))}
       </div>
@@ -210,16 +216,56 @@ export function Step1Upload({
             </>
           )}
         </>
+      ) : source === "reservego" ? (
+        <div className="space-y-4">
+          <div className="p-6 text-center border rounded-xl bg-gray-50">
+            <h3 className="text-lg font-bold text-[#24422e] mb-1">
+              ReserveGo Dataset
+            </h3>
+            <p className="text-sm text-gray-500">
+              There are <strong className="text-gray-900">{reservegoCount}</strong> guests uploaded via ReserveGo for this restaurant.
+            </p>
+          </div>
+          <div className="pb-2 mt-4">
+            <label className="text-xs font-semibold text-gray-700 mb-1 block">Limit Contacts (Optional)</label>
+            <input 
+              type="number" 
+              min="1"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+              placeholder="e.g. 500"
+              className="w-full text-sm p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#24422e] transition"
+            />
+          </div>
+          <GradientButton 
+            onClick={() => onSelectMembers('reservego', limit ? parseInt(limit, 10) : undefined)}
+            disabled={loadingMembers || reservegoCount === 0}
+            className="w-full py-2"
+          >
+            {loadingMembers ? "Loading..." : "Use ReserveGo Data"}
+          </GradientButton>
+        </div>
       ) : (
         <div className="space-y-3">
           <p className="text-xs text-gray-500">
             Choose which members to target. Only active members with a phone
             number are included.
           </p>
+          <div className="pb-2">
+            <label className="text-xs font-semibold text-gray-700 mb-1 block">Limit Contacts (Optional)</label>
+            <input 
+              type="number" 
+              min="1"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+              placeholder="e.g. 500"
+              className="w-full text-sm p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#24422e] transition"
+            />
+          </div>
           {MEMBER_TYPES.map(({ key, label, desc }) => (
             <button
               key={key}
-              onClick={() => onSelectMembers(key)}
+              onClick={() => onSelectMembers(key, limit ? parseInt(limit, 10) : undefined)}
               disabled={loadingMembers}
               className="w-full flex items-center gap-4 p-4 border-2 rounded-xl hover:border-[#24422e] hover:bg-[#24422e]/5 transition text-left disabled:opacity-50 group"
             >
