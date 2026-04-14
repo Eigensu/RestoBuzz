@@ -45,7 +45,7 @@ async def list_restaurants(
             location=doc.get("location", ""),
             emoji=doc.get("emoji", "🏪"),
             color=doc.get("color", "gray"),
-            member_categories=doc.get("member_categories", ["nfc", "ecard"]),
+            member_categories=doc.get("member_categories") or doc.get("categories") or ["nfc", "ecard"],
         )
         async for doc in cursor
     ]
@@ -143,9 +143,16 @@ async def update_categories(
     if not cleaned_categories:
         raise ValidationError("At least one category is required")
 
+    # Robust Update: Ensure we match the same way get_active_restaurant did
+    # restaurant['id'] might be a slug or the stringified _id
+    rest_oid = restaurant["_id"]
+    
     result = await db.restaurants.find_one_and_update(
-        {"_id": restaurant["_id"]},
-        {"$set": {"member_categories": cleaned_categories}},
+        {"_id": rest_oid},
+        {
+            "$set": {"member_categories": cleaned_categories},
+            "$unset": {"categories": ""}
+        },
         return_document=True,
     )
 

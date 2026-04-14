@@ -153,8 +153,11 @@ async def get_active_restaurant(
     # Standardize ID field for downstream route logic
     restaurant["id"] = str(restaurant.get("id") or restaurant["_id"])
 
-    # Bulletproof Read: Ensure member_categories is never null/missing
+    # Bulletproof Read: Handle field renaming migration
+    # 1. Primary: member_categories (the new standard)
+    # 2. Secondary: categories (the legacy field)
+    # 3. Fallback: ["nfc", "ecard"] (system default)
     if not restaurant.get("member_categories"):
-        restaurant["member_categories"] = ["nfc", "ecard"]
+        restaurant["member_categories"] = restaurant.get("categories") or ["nfc", "ecard"]
 
     return restaurant
