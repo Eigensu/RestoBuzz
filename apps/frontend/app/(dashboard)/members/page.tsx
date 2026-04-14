@@ -22,6 +22,8 @@ import {
 import { cn } from "@/lib/utils";
 import { MemberModal } from "@/components/members/molecules/MemberModal";
 import { MembersTable } from "@/components/members/organisms/MembersTable";
+import { BulkAddMemberModal } from "@/components/members/molecules/BulkAddMemberModal";
+
 
 type Tab = string;
 
@@ -36,7 +38,9 @@ export default function MembersPage() {
   const [modal, setModal] = useState<{ open: boolean; editing: Member | null }>(
     { open: false, editing: null },
   );
+  const [bulkModal, setBulkModal] = useState(false);
   const [catModal, setCatModal] = useState(false);
+
   const [newCat, setNewCat] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,29 +61,38 @@ export default function MembersPage() {
       );
       qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
     },
-    onError: (e: unknown) => toast.error(parseApiError(e).message),
+    onError: (e: unknown) => {
+      console.error("Import Error:", e);
+      toast.error(parseApiError(e).message);
+    },
+
   });
 
   const catMutation = useMutation({
     mutationFn: (cats: string[]) =>
       api.put(`/restaurants/${restaurant!.id}/categories`, {
-        categories: cats,
+        member_categories: cats,
       }),
     onSuccess: (res) => {
       toast.success("Categories updated");
       if (restaurant) {
         setRestaurant({
           ...restaurant,
-          member_categories: res.data.categories,
+          member_categories: res.data.member_categories,
         });
       }
+
       setCatModal(false);
       setNewCat("");
-      if (!res.data.categories.includes(tab) && tab !== "all") {
+      if (!res.data.member_categories.includes(tab) && tab !== "all") {
         setTab("all");
       }
     },
-    onError: (e: unknown) => toast.error(parseApiError(e).message),
+    onError: (e: unknown) => {
+      console.error("Category Update Error:", e);
+      toast.error(parseApiError(e).message);
+    },
+
   });
 
   const { data, isLoading, isError, error, refetch } = useQuery<MemberListResponse>({
@@ -103,7 +116,11 @@ export default function MembersPage() {
       toast.success("Member removed");
       qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
     },
-    onError: (e: unknown) => toast.error(parseApiError(e).message),
+    onError: (e: unknown) => {
+      console.error("Delete Error:", e);
+      toast.error(parseApiError(e).message);
+    },
+
   });
 
   const bulkDeleteMutation = useMutation({
@@ -123,7 +140,11 @@ export default function MembersPage() {
       toast.success("Bulk deletion successful");
       qc.invalidateQueries({ queryKey: ["members", restaurant?.id] });
     },
-    onError: (e: unknown) => toast.error(parseApiError(e).message),
+    onError: (e: unknown) => {
+      console.error("Bulk Delete Error:", e);
+      toast.error(parseApiError(e).message);
+    },
+
   });
 
   const members = data?.items ?? [];
@@ -137,15 +158,41 @@ export default function MembersPage() {
 
   return (
     <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
+      {importMutation.isPending && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white/60 backdrop-blur-md">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 flex flex-col items-center gap-4 scale-up-center">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-[#24422e]/10 border-t-[#24422e] rounded-full animate-spin" />
+              <Upload className="w-6 h-6 text-[#24422e] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">Processing Excel</h3>
+              <p className="text-sm text-gray-500 font-medium">Please wait while we sync your members...</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modal.open && (
         <MemberModal
           restaurantId={restaurant.id}
           memberCategories={restaurant.member_categories || ["nfc", "ecard"]}
+
           editing={modal.editing}
           defaultType={tab}
           onClose={() => setModal({ open: false, editing: null })}
         />
       )}
+
+      {bulkModal && (
+        <BulkAddMemberModal
+          restaurantId={restaurant.id}
+          memberCategories={restaurant.member_categories || ["nfc", "ecard"]}
+          defaultType={tab}
+          onClose={() => setBulkModal(false)}
+        />
+      )}
+
 
       {catModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -181,8 +228,9 @@ export default function MembersPage() {
                           title="Remove category"
                           onClick={() => {
                             const cats = (
-                              restaurant?.member_categories || []
+                              restaurant?.member_categories || ["nfc", "ecard"]
                             ).filter((x) => x !== c);
+
                             catMutation.mutate(cats);
                           }}
                           className="text-gray-400 hover:text-red-500"
@@ -224,7 +272,7 @@ export default function MembersPage() {
                       ];
                       catMutation.mutate(cats);
                     }}
-                    className="bg-[#24422e] text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-[#3a6b47] disabled:opacity-50"
+                    className="bg-[#24422e] text-white px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-[#3a6b47] disabled:opacity-50"
                   >
                     ADD
                   </button>
@@ -253,9 +301,11 @@ export default function MembersPage() {
           <a
             href="/downloads/member-import-template.xlsx"
             download
-            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-sm font-bold px-6 py-3 rounded-xl transition-all duration-300"
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap"
           >
-            <Download className="w-4 h-4" /> DOWNLOAD TEMPLATE
+            <Download className="w-3.5 h-3.5" /> DOWNLOAD TEMPLATE
+
+
           </a>
           <input
             ref={fileInputRef}
@@ -271,19 +321,29 @@ export default function MembersPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importMutation.isPending}
-            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-sm font-bold px-6 py-3 rounded-xl disabled:opacity-50 transition-all duration-300"
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl disabled:opacity-50 transition-all duration-300 whitespace-nowrap"
           >
-            <Upload className="w-4 h-4" />
+            <Upload className="w-3.5 h-3.5" />
             {importMutation.isPending ? "IMPORTING..." : "IMPORT EXCEL"}
+          </button>
+
+
+
+          <button
+            onClick={() => setBulkModal(true)}
+            className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap"
+          >
+            <Users className="w-3.5 h-3.5" /> BULK ADD
           </button>
 
           <button
             onClick={() => setModal({ open: true, editing: null })}
-            className="flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
+            className="flex items-center gap-2 text-white text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 whitespace-nowrap"
             style={{ background: BRAND_GRADIENT }}
           >
-            <Plus className="w-4 h-4" /> ADD MEMBER
+            <Plus className="w-3.5 h-3.5" /> ADD MEMBER
           </button>
+
         </div>
       </div>
 
@@ -295,7 +355,7 @@ export default function MembersPage() {
               setPage(1);
             }}
             className={cn(
-              "flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg",
+              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
               tab === "all"
                 ? "text-white shadow-sm"
                 : "text-[#24422e]/60 hover:text-[#24422e]",
@@ -314,7 +374,7 @@ export default function MembersPage() {
                 setPage(1);
               }}
               className={cn(
-                "flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg",
+                "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
                 tab === cat
                   ? "text-white shadow-sm"
                   : "text-[#24422e]/60 hover:text-[#24422e]",
@@ -324,10 +384,10 @@ export default function MembersPage() {
               {cat}
             </button>
           ))}
-          {user?.role === "super_admin" && (
+          {(user?.role === "super_admin" || user?.role === "admin") && (
             <button
               onClick={() => setCatModal(true)}
-              className="flex items-center gap-2 px-6 py-2.5 text-xs font-black uppercase tracking-widest transition-all rounded-lg text-[#24422e]/60 hover:text-[#24422e] hover:bg-white/50 border border-transparent"
+              className="flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg text-[#24422e]/60 hover:text-[#24422e] hover:bg-white/50 border border-transparent"
             >
               <Settings className="w-3.5 h-3.5" />
               Manage

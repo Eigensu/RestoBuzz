@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Path, Body
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.database import get_db
-from app.dependencies import require_role, get_user_restaurant_ids, get_current_user
+from app.dependencies import require_role, get_user_restaurant_ids, get_current_user, require_restaurant_access, get_active_restaurant
 from app.models.user_restaurant import AssignUserRequest, UserRestaurantRole
 from app.models.restaurant import RestaurantResponse, UpdateCategoriesRequest
 from app.core.errors import NotFoundError, ValidationError
@@ -122,31 +122,32 @@ async def list_restaurant_users(
 
 @router.put("/{restaurant_id}/categories", response_model=RestaurantResponse)
 async def update_categories(
-    restaurant_id: Annotated[str, Path()],
     body: Annotated[UpdateCategoriesRequest, Body()],
-    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    _user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    """super_admin updates the member category list for a restaurant."""
+    """Updates the member category list for a restaurant. 
+    Requires admin access to the specific restaurant."""
     # Normalise: strip whitespace, lowercase, remove blanks, deduplicate preserving order
     seen: set[str] = set()
-    categories: list[str] = []
-    for cat in body.categories:
+    cleaned_categories: list[str] = []
+    
+    # Priority Fix: Use member_categories from body
+    for cat in body.member_categories:
         normalised = cat.strip().lower()
         if normalised and normalised not in seen:
             seen.add(normalised)
-            categories.append(normalised)
+            cleaned_categories.append(normalised)
 
-    if not categories:
+    if not cleaned_categories:
         raise ValidationError("At least one category is required")
 
     result = await db.restaurants.find_one_and_update(
-        {"id": restaurant_id},
-        {"$set": {"member_categories": categories}},
+        {"_id": restaurant["_id"]},
+        {"$set": {"member_categories": cleaned_categories}},
         return_document=True,
     )
-    if not result:
-        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
 
     return RestaurantResponse(
         id=result.get("id") or str(result["_id"]),
@@ -154,5 +155,5 @@ async def update_categories(
         location=result.get("location", ""),
         emoji=result.get("emoji", "🏪"),
         color=result.get("color", "gray"),
-        member_categories=result.get("member_categories", []),
+        member_categories=result.get("member_categories", ["nfc", "ecard"]),
     )

@@ -115,8 +115,8 @@ async def get_access_report(
     _current_user: Annotated[dict, Depends(require_role("super_admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    # 1. Fetch all users
-    users_cursor = db.users.find({})
+    # 1. Fetch users (Quick fix for OOM risk: limit to 100)
+    users_cursor = db.users.find({}).limit(100)
     users = [doc async for doc in users_cursor]
 
     # 2. Fetch all roles/assignments

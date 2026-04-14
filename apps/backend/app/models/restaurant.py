@@ -11,4 +11,4 @@ class RestaurantResponse(BaseModel):
 
 
 class UpdateCategoriesRequest(BaseModel):
-    categories: list[str]
+    member_categories: list[str]

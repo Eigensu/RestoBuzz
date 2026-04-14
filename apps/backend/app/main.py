@@ -45,6 +45,7 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
+
 # IMPORTANT: Starlette runs middleware in REVERSE registration order (LIFO).
 # CorrelationIdMiddleware must be registered FIRST so that CORSMiddleware
 # executes OUTERMOST — i.e. it handles preflight OPTIONS before anything else.

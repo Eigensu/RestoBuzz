@@ -13,6 +13,7 @@ from app.dependencies import (
     require_role,
     require_restaurant_access,
     validate_restaurant_access,
+    get_active_restaurant,
 )
 from app.core.utils import to_object_id
 from app.core.logging import get_logger
@@ -110,13 +111,13 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
     dependencies=[Depends(require_role("viewer"))],
 )
 async def list_campaigns(
-    validated_rid: Annotated[str, Depends(require_restaurant_access())],
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ):
     skip = (page - 1) * page_size
-    query = {"restaurant_id": validated_rid}
+    query = {"restaurant_id": restaurant["id"]}
     total = await db.campaign_jobs.count_documents(query)
     cursor = (
         db.campaign_jobs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
@@ -134,7 +135,7 @@ async def create_campaign(
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     # Validate access manually since it's in the body
-    await validate_restaurant_access(current_user, body.restaurant_id, db)
+    await get_active_restaurant(body.restaurant_id, current_user, db)
     from redis.asyncio import from_url
     from redis.exceptions import RedisError as RedisClientError
     from app.config import settings
@@ -307,7 +308,7 @@ async def send_test_message(
 
 @router.get("/analytics")
 async def get_analytics(
-    validated_rid: Annotated[str, Depends(require_restaurant_access())],
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     """
@@ -320,13 +321,13 @@ async def get_analytics(
     campaign_ids = [
         doc["_id"]
         async for doc in db.campaign_jobs.find(
-            {"restaurant_id": validated_rid}, {"_id": 1}
+            {"restaurant_id": restaurant["id"]}, {"_id": 1}
         )
     ]
 
     async def _get_rg_count() -> int:
         pipeline = [
-            {_MATCH: {"restaurant_id": validated_rid}},
+            {_MATCH: {"restaurant_id": restaurant["id"]}},
             {
                 "$project": {
                     "_id": 0,
@@ -338,7 +339,7 @@ async def get_analytics(
                 "$unionWith": {
                     "coll": "reservego_bill_data",
                     "pipeline": [
-                        {_MATCH: {"restaurant_id": validated_rid}},
+                        {_MATCH: {"restaurant_id": restaurant["id"]}},
                         {
                             "$project": {
                                 "_id": 0,
@@ -390,7 +391,7 @@ async def get_analytics(
     # ── 1. Totals ─────────────────────────────────────────────────────────────
     totals_cursor = db.campaign_jobs.aggregate(
         [
-            {_MATCH: {"restaurant_id": validated_rid}},
+            {_MATCH: {"restaurant_id": restaurant["id"]}},
             {
                 _GROUP: {
                     "_id": None,

@@ -17,6 +17,15 @@ from app.config import settings
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 
+@router.get("/unread-count")
+async def get_unread_count(
+    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[Any, Depends(get_db)] = None,
+):
+    count = await db.inbound_messages.count_documents({"is_read": False, "is_resolved": {"$ne": True}})
+    return {"count": count}
+
+
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
     page: Annotated[int, Query(ge=1)] = 1,

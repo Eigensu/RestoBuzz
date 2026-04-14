@@ -10,6 +10,7 @@ from app.dependencies import (
     require_role,
     require_restaurant_access,
     validate_restaurant_access,
+    get_active_restaurant,
 )
 from app.core.utils import to_object_id
 from app.core.errors import (
@@ -52,16 +53,14 @@ def _serialize(doc: dict) -> MemberResponse:
 
 @router.get("", response_model=MemberListResponse)
 async def list_members(
-    restaurant_id: Annotated[str, Query()],
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     member_type: Annotated[str | None, Query(alias="type")] = None,
     search: Annotated[str | None, Query()] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
-    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
-    validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
-    query: dict = {"restaurant_id": validated_rid}
+    query: dict = {"restaurant_id": restaurant["id"]}
     if member_type and member_type != "all":
         query["type"] = member_type
     if search:
@@ -81,17 +80,21 @@ async def list_members(
 @router.post("", response_model=MemberResponse, status_code=201)
 async def create_member(
     body: MemberCreate,
-    current_user: Annotated[dict, Depends(require_role("admin"))],
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    _user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[Any, Depends(get_db)],
 ):
-    await validate_restaurant_access(current_user, body.restaurant_id, db)
+    valid_categories = restaurant.get("member_categories") or ["nfc", "ecard"]
+    if body.type not in valid_categories:
+        raise ValidationError(f"Invalid member type '{body.type}'. Valid types: {', '.join(valid_categories)}")
+
     if body.type == "nfc" and not body.card_uid:
         raise ValidationError("card_uid is required for NFC members")
     if body.type == "ecard" and not body.ecard_code:
         raise ValidationError("ecard_code is required for e-card members")
 
     existing = await db.members.find_one(
-        {"restaurant_id": body.restaurant_id, "phone": body.phone}
+        {"restaurant_id": restaurant["id"], "phone": body.phone}
     )
     if existing:
         raise ConflictError(
@@ -100,7 +103,7 @@ async def create_member(
 
     now = datetime.now(timezone.utc)
     doc = {
-        "restaurant_id": body.restaurant_id,
+        "restaurant_id": restaurant["id"],
         "type": body.type,
         "name": body.name,
         "phone": body.phone,
@@ -197,9 +200,8 @@ async def record_visit(
 
 @router.post("/as-contacts", response_model=PreflightResult)
 async def members_as_contacts(
-    restaurant_id: Annotated[str, Query()],
-    current_user: Annotated[dict, Depends(require_role("admin"))],
-    validated_rid: Annotated[str, Depends(require_restaurant_access())] = None,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    _user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[Any, Depends(get_db)] = None,
     member_type: Annotated[str | None, Query(alias="type")] = None,
     limit: Annotated[int | None, Query(ge=1)] = None,
@@ -211,11 +213,11 @@ async def members_as_contacts(
 
     if member_type == "reservego":
         q1 = db.reservego_uploads.find(
-            {"restaurant_id": validated_rid},
+            {"restaurant_id": restaurant["id"]},
             {"guest_name": 1, "phone": 1}
         ).sort("_id", -1)
         q2 = db.reservego_bill_data.find(
-            {"restaurant_id": validated_rid},
+            {"restaurant_id": restaurant["id"]},
             {"guest_name": 1, "guest_number": 1}
         ).sort("_id", -1)
         
@@ -227,7 +229,7 @@ async def members_as_contacts(
                 
         cursor = combined_cursor()
     else:
-        query: dict = {"restaurant_id": validated_rid, "is_active": True}
+        query: dict = {"restaurant_id": restaurant["id"], "is_active": True}
         if type in ("nfc", "ecard"):
             query["type"] = type
         cursor = db.members.find(query, {"name": 1, "phone": 1}).sort("_id", -1)
@@ -294,31 +296,41 @@ async def members_as_contacts(
 
 @router.post("/import")
 async def import_members(
-    restaurant_id: Annotated[str, Query()],
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     file: Annotated[UploadFile, File()],
-    current_user: Annotated[dict, Depends(require_role("admin"))],
+    _user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[Any, Depends(get_db)],
     member_type: Annotated[str, Query(alias="type")] = "ecard",
 ):
-    await validate_restaurant_access(current_user, restaurant_id, db)
-
     filename = file.filename or ""
     content_type = file.content_type or ""
+    # More permissive Excel content type check
     allowed_content_types = {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/octet-stream",
+        "application/vnd.ms-excel",
     }
-    if content_type not in allowed_content_types or not filename.lower().endswith(".xlsx"):
+    if not (content_type in allowed_content_types or filename.lower().endswith(".xlsx")):
+        logger.error(f"Invalid file format: {content_type}, {filename}")
         raise InvalidFileFormatError("Only .xlsx Excel files are supported for import")
 
     contents = await file.read()
     if not contents:
         raise InvalidFileFormatError("Uploaded Excel file is empty")
 
+    # Hardening: Prevent massive files from blowing up memory (e.g. > 10MB)
+    if len(contents) > 10 * 1024 * 1024:
+        raise ValidationError("Excel file is too large (max 10MB)")
+
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(contents))
+        wb = openpyxl.load_workbook(io.BytesIO(contents), read_only=True)
     except Exception as exc:
         raise InvalidFileFormatError("Unable to read Excel file") from exc
     ws = wb.active
+
+    # Hardening: Check row count before processing
+    if ws.max_row and ws.max_row > 5001:
+         raise ValidationError("Excel file has too many rows (max 5000)")
 
     raw_headers = [str(c.value).strip().lower() if c.value else "" for c in ws[1]]
 
@@ -333,6 +345,8 @@ async def import_members(
         ["phone", "contact number", "mobile", "phone number", "contact"]
     )
     email_idx = find_col(["email", "email address"])
+    card_uid_idx = find_col(["card_uid", "card id", "uid", "card number", "card nfc id"])
+    ecard_code_idx = find_col(["ecard_code", "ecard code", "e-card code", "code"])
 
     if name_idx is None:
         raise InvalidFileFormatError("Excel must have a 'Name' column")
@@ -350,6 +364,16 @@ async def import_members(
         email = (
             str(row[email_idx]).strip()
             if email_idx is not None and row[email_idx]
+            else None
+        )
+        card_uid = (
+            str(row[card_uid_idx]).strip()
+            if card_uid_idx is not None and row[card_uid_idx]
+            else None
+        )
+        ecard_code = (
+            str(row[ecard_code_idx]).strip()
+            if ecard_code_idx is not None and row[ecard_code_idx]
             else None
         )
 
@@ -370,7 +394,7 @@ async def import_members(
 
         if phone:
             existing = await db.members.find_one(
-                {"restaurant_id": restaurant_id, "phone": phone}
+                {"restaurant_id": restaurant["id"], "phone": phone}
             )
             if existing:
                 skipped += 1
@@ -378,13 +402,13 @@ async def import_members(
 
         await db.members.insert_one(
             {
-                "restaurant_id": restaurant_id,
+                "restaurant_id": restaurant["id"],
                 "type": member_type,
                 "name": name,
                 "phone": phone,
                 "email": email,
-                "card_uid": None,
-                "ecard_code": None,
+                "card_uid": card_uid,
+                "ecard_code": ecard_code,
                 "tags": [],
                 "notes": None,
                 "visit_count": 0,
@@ -401,19 +425,17 @@ async def import_members(
 
 @router.delete("/bulk", status_code=204)
 async def bulk_delete_members(
-    restaurant_id: Annotated[str, Query()],
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    _user: Annotated[dict, Depends(require_role("admin"))],
     source: Annotated[str | None, Query()] = None,
     deleteAll: Annotated[bool, Query()] = False,
-    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     """Bulk delete members for a restaurant. 
     Can delete all members or filter by source (e.g. 'excel')."""
-    await validate_restaurant_access(current_user, restaurant_id, db)
+    logger.info(f"Bulk Delete Request - RID: {restaurant['id']}, Source: {source}, DeleteAll: {deleteAll}")
 
-    logger.info(f"Bulk Delete Request - RID: {restaurant_id}, Source: {source}, DeleteAll: {deleteAll}")
-
-    query = {"restaurant_id": restaurant_id}
+    query = {"restaurant_id": restaurant["id"]}
     
     if deleteAll:
         # No additional filters

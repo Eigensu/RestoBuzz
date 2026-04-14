@@ -224,18 +224,18 @@ export default function UnifiedTemplatesPage() {
             <>
               <button
                 onClick={() => router.push("/templates/new")}
-                className="inline-flex items-center gap-2 text-[#24422e] text-sm font-bold px-5 py-3 rounded-xl border-2 border-[#24422e] hover:bg-[#24422e] hover:text-white transition"
+                className="inline-flex items-center gap-2 text-[#24422e] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl border-2 border-[#24422e] hover:bg-[#24422e] hover:text-white transition whitespace-nowrap"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 CREATE NEW
               </button>
               <button
                 onClick={() => syncWaMutation.mutate()}
                 disabled={syncWaMutation.isPending}
-                className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50"
+                className="inline-flex items-center gap-2 text-white text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50 whitespace-nowrap"
                 style={{ background: BRAND_GRADIENT }}
               >
-                <RefreshCw className={cn("w-4 h-4", syncWaMutation.isPending && "animate-spin")} />
+                <RefreshCw className={cn("w-3.5 h-3.5", syncWaMutation.isPending && "animate-spin")} />
                 Sync from Meta
               </button>
             </>
@@ -243,18 +243,18 @@ export default function UnifiedTemplatesPage() {
             <>
               <button
                 onClick={() => openEmailEditor()}
-                className="inline-flex items-center gap-2 text-[#24422e] text-sm font-bold px-5 py-3 rounded-xl border-2 border-[#24422e] hover:bg-[#24422e] hover:text-white transition"
+                className="inline-flex items-center gap-2 text-[#24422e] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl border-2 border-[#24422e] hover:bg-[#24422e] hover:text-white transition whitespace-nowrap"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 CREATE NEW
               </button>
               <button
                 onClick={() => syncEmailMutation.mutate()}
                 disabled={syncEmailMutation.isPending}
-                className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50"
+                className="inline-flex items-center gap-2 text-white text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10 disabled:opacity-50 whitespace-nowrap"
                 style={{ background: BRAND_GRADIENT }}
               >
-                <RefreshCw className={cn("w-4 h-4", syncEmailMutation.isPending && "animate-spin")} />
+                <RefreshCw className={cn("w-3.5 h-3.5", syncEmailMutation.isPending && "animate-spin")} />
                 Sync from Resend
               </button>
             </>

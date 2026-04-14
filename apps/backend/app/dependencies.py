@@ -125,3 +125,36 @@ def require_restaurant_access():
         return await validate_restaurant_access(current_user, restaurant_id, db)
 
     return dependency
+async def get_active_restaurant(
+    restaurant_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+) -> dict:
+    """
+    Unified dependency for restaurant-scoped operations.
+    1. Validates user has access to the restaurant.
+    2. Fetches and returns the full restaurant document.
+    3. Handles 404/403 errors centrally.
+    """
+    # Validate RBAC
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
+    # Fetch Data
+    rest_oid = ObjectId(restaurant_id) if ObjectId.is_valid(restaurant_id) else None
+    
+    restaurant = await db.restaurants.find_one(
+        {"$or": [{"id": restaurant_id}, {"_id": rest_oid}]}
+    )
+
+    if not restaurant:
+        logger.error("restaurant_not_found", restaurant_id=restaurant_id)
+        raise ValidationError(f"Restaurant '{restaurant_id}' not found")
+
+    # Standardize ID field for downstream route logic
+    restaurant["id"] = str(restaurant.get("id") or restaurant["_id"])
+
+    # Bulletproof Read: Ensure member_categories is never null/missing
+    if not restaurant.get("member_categories"):
+        restaurant["member_categories"] = ["nfc", "ecard"]
+
+    return restaurant

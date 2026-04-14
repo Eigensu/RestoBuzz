@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
 import { getRestaurants } from "@/lib/restaurants";
@@ -54,6 +55,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { user, setUser, restaurant, setRestaurant, _hydrated } =
     useAuthStore();
+  const setInboxUnread = useUIStore((s) => s.setInboxUnread);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   // Track whether the user has explicitly toggled the campaigns submenu.
@@ -75,6 +77,20 @@ export default function DashboardLayout({
     queryFn: getRestaurants,
     enabled: Boolean(user) && !isResolvingSession,
   });
+
+  // Global Unread Fetcher
+  const { data: unreadData } = useQuery({
+    queryKey: ["unread-count", restaurant?.id],
+    queryFn: () => api.get("/inbox/unread-count").then((r) => r.data),
+    enabled: !!user && !!restaurant,
+    refetchInterval: 30000, // Poll every 30 seconds
+  });
+
+  useEffect(() => {
+    if (unreadData) {
+      setInboxUnread(unreadData.count);
+    }
+  }, [unreadData, setInboxUnread]);
 
   useEffect(() => {
     if (!_hydrated) return;

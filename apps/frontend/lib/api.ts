@@ -31,11 +31,18 @@ api.interceptors.request.use((config) => {
 
 // ── Response: on 401, refresh once then retry ─────────────────────────────
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    // Defensive Layer: Ensure member_categories is always an array to prevent UI crashes
+    if (res.data?.id && "member_categories" in res.data && !res.data.member_categories) {
+       res.data.member_categories = ["nfc", "ecard"];
+    }
+    return res;
+  },
   async (error) => {
     const original = error.config;
 
     if (error.response?.status !== 401 || original._retry) {
+      console.error("API Error Logged:", error.response?.status, error.response?.data || error.message);
       throw parseApiError(error);
     }
     original._retry = true;
