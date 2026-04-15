@@ -7,6 +7,10 @@ _SUPPORTED_MESSAGE_TYPES: set[str] = {
     "document",
     "location",
     "sticker",
+    "interactive",
+    "button",
+    "audio",
+    "video",
 }
 
 
