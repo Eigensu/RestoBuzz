@@ -160,7 +160,14 @@ async def _process_payload(db, payload: dict) -> None:
                         "name": loc.get("name"),
                     }
                 elif msg_type == "button":
-                    body_text = msg.get("button", {}).get("text", "")
+                    btn = msg.get("button", {})
+                    body_text = btn.get("text", "")
+                    # Template quick-reply: match on payload OR button text
+                    # (payload value depends on how the template was created in Meta)
+                    btn_payload = (btn.get("payload") or "").strip().lower()
+                    btn_text = body_text.strip().lower()
+                    if btn_payload == "get_benefits" or btn_text == "get the benefits":
+                        await _send_benefits_reply(from_phone)
                 elif msg_type == "interactive":
                     interactive = msg.get("interactive", {})
                     button_reply = interactive.get("button_reply", {})
