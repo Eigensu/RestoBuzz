@@ -27,7 +27,7 @@ import {
   Legend,
   LineChart,
   Line,
-  AreaChart,
+  ComposedChart,
   Area,
 } from "recharts";
 
@@ -110,7 +110,7 @@ function RevenueTooltip({
   label,
 }: {
   active?: boolean;
-  payload?: { value: number }[];
+  payload?: Array<{ value: number; name: string }>;
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
@@ -119,7 +119,7 @@ function RevenueTooltip({
       <p className="font-bold text-gray-700">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-[#24422e] font-semibold">
-          {fmt(p.value)}
+          {p.name === "revenue" ? fmt(p.value) : `${fmtNum(p.value)} bookings`}
         </p>
       ))}
     </div>
@@ -316,7 +316,7 @@ export default function ReservationsPage() {
       {/* Revenue + Bookings Trend */}
       <ChartCard title="Monthly Revenue & Bookings">
         <ResponsiveContainer width="100%" height={260}>
-          <AreaChart
+          <ComposedChart
             data={monthly_trend}
             margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
           >
@@ -348,16 +348,16 @@ export default function ReservationsPage() {
               stroke="#24422e"
               strokeWidth={2}
               fill="url(#revGrad)"
-              name="Revenue"
+              name="revenue"
             />
             <Bar
               yAxisId="bk"
               dataKey="bookings"
               fill="#a8d5b5"
               radius={[4, 4, 0, 0]}
-              name="Bookings"
+              name="bookings"
             />
-          </AreaChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </ChartCard>
 
@@ -373,8 +373,8 @@ export default function ReservationsPage() {
                 cx="50%"
                 cy="50%"
                 outerRadius={80}
-                label={({ status, percent }) =>
-                  `${status.split(" ")[0]} ${(percent * 100).toFixed(0)}%`
+                label={({ name, percent }) =>
+                  `${(name as string).split(" ")[0]} ${((percent ?? 0) * 100).toFixed(0)}%`
                 }
                 labelLine={false}
               >
@@ -512,8 +512,8 @@ export default function ReservationsPage() {
                 cx="50%"
                 cy="50%"
                 outerRadius={85}
-                label={({ source, percent }) =>
-                  `${source} ${(percent * 100).toFixed(0)}%`
+                label={({ name, percent }) =>
+                  `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                 }
                 labelLine={false}
               >
