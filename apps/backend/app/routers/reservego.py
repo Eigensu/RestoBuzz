@@ -406,6 +406,230 @@ def _serialize_doc(doc: dict) -> dict:
     return result
 
 
+@router.get("/analytics")
+async def get_analytics(
+    restaurant_id: Annotated[str, Query()],
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
+):
+    """Return aggregated analytics for the reservations dashboard."""
+
+    # ── Guest stats ───────────────────────────────────────────────────────────
+    total_guests = await db.reservego_uploads.count_documents(
+        {"restaurant_id": restaurant_id}
+    )
+    with_phone = await db.reservego_uploads.count_documents(
+        {"restaurant_id": restaurant_id, "phone": {"$nin": ["", None]}}
+    )
+    with_email = await db.reservego_uploads.count_documents(
+        {"restaurant_id": restaurant_id, "email": {"$nin": ["", None]}}
+    )
+
+    # ── Bill stats ────────────────────────────────────────────────────────────
+    total_bills = await db.reservego_bill_data.count_documents(
+        {"restaurant_id": restaurant_id}
+    )
+
+    rev_pipeline = [
+        {"$match": {"restaurant_id": restaurant_id, "bill_amount": {"$gt": 0}}},
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": "$bill_amount"},
+                "avg": {"$avg": "$bill_amount"},
+                "count": {"$sum": 1},
+            }
+        },
+    ]
+    rev_result = await db.reservego_bill_data.aggregate(rev_pipeline).to_list(1)
+    total_revenue = rev_result[0]["total"] if rev_result else 0
+    avg_bill = rev_result[0]["avg"] if rev_result else 0
+    bills_with_amount = rev_result[0]["count"] if rev_result else 0
+
+    # ── Monthly revenue trend ─────────────────────────────────────────────────
+    monthly_pipeline = [
+        {
+            "$match": {
+                "restaurant_id": restaurant_id,
+                "bill_amount": {"$gt": 0},
+                "booking_time": {"$ne": None},
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "year": {"$year": "$booking_time"},
+                    "month": {"$month": "$booking_time"},
+                },
+                "revenue": {"$sum": "$bill_amount"},
+                "bookings": {"$sum": 1},
+                "avg_pax": {"$avg": "$pax"},
+            }
+        },
+        {"$sort": {"_id.year": 1, "_id.month": 1}},
+    ]
+    monthly_raw = await db.reservego_bill_data.aggregate(monthly_pipeline).to_list(24)
+    month_names = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
+    monthly_trend = [
+        {
+            "month": f"{month_names[r['_id']['month'] - 1]} {r['_id']['year']}",
+            "revenue": round(r["revenue"]),
+            "bookings": r["bookings"],
+            "avg_pax": round(r["avg_pax"] or 0, 1),
+        }
+        for r in monthly_raw
+    ]
+
+    # ── Booking status breakdown ──────────────────────────────────────────────
+    status_pipeline = [
+        {
+            "$match": {
+                "restaurant_id": restaurant_id,
+                "booking_status": {"$nin": [None, ""]},
+            }
+        },
+        {"$group": {"_id": "$booking_status", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    status_raw = await db.reservego_bill_data.aggregate(status_pipeline).to_list(20)
+    booking_statuses = [{"status": r["_id"], "count": r["count"]} for r in status_raw]
+
+    # ── Booking type (walkin vs reservation) ──────────────────────────────────
+    type_pipeline = [
+        {
+            "$match": {
+                "restaurant_id": restaurant_id,
+                "booking_type": {"$nin": [None, ""]},
+            }
+        },
+        {"$group": {"_id": "$booking_type", "count": {"$sum": 1}}},
+    ]
+    type_raw = await db.reservego_bill_data.aggregate(type_pipeline).to_list(10)
+    booking_types = [{"type": r["_id"], "count": r["count"]} for r in type_raw]
+
+    # ── Source of booking ─────────────────────────────────────────────────────
+    source_pipeline = [
+        {
+            "$match": {
+                "restaurant_id": restaurant_id,
+                "source_of_booking": {"$nin": [None, ""]},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$source_of_booking",
+                "count": {"$sum": 1},
+                "revenue": {"$sum": "$bill_amount"},
+            }
+        },
+        {"$sort": {"count": -1}},
+        {"$limit": 8},
+    ]
+    source_raw = await db.reservego_bill_data.aggregate(source_pipeline).to_list(8)
+    booking_sources = [
+        {"source": r["_id"], "count": r["count"], "revenue": round(r["revenue"] or 0)}
+        for r in source_raw
+    ]
+
+    # ── Top sections by revenue ───────────────────────────────────────────────
+    section_pipeline = [
+        {
+            "$match": {
+                "restaurant_id": restaurant_id,
+                "sections": {"$nin": [None, ""]},
+                "bill_amount": {"$gt": 0},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$sections",
+                "count": {"$sum": 1},
+                "revenue": {"$sum": "$bill_amount"},
+            }
+        },
+        {"$sort": {"revenue": -1}},
+        {"$limit": 6},
+    ]
+    section_raw = await db.reservego_bill_data.aggregate(section_pipeline).to_list(6)
+    top_sections = [
+        {"section": r["_id"], "count": r["count"], "revenue": round(r["revenue"])}
+        for r in section_raw
+    ]
+
+    # ── Guest visit frequency distribution ───────────────────────────────────
+    visit_pipeline = [
+        {"$match": {"restaurant_id": restaurant_id}},
+        {
+            "$bucket": {
+                "groupBy": "$total_visits",
+                "boundaries": [0, 1, 2, 3, 5, 10, 20],
+                "default": "20+",
+                "output": {"count": {"$sum": 1}},
+            }
+        },
+    ]
+    visit_raw = await db.reservego_uploads.aggregate(visit_pipeline).to_list(10)
+    visit_labels = {
+        0: "0 visits",
+        1: "1 visit",
+        2: "2 visits",
+        3: "3-4 visits",
+        5: "5-9 visits",
+        10: "10-19 visits",
+        "20+": "20+ visits",
+    }
+    visit_dist = [
+        {"label": visit_labels.get(r["_id"], str(r["_id"])), "count": r["count"]}
+        for r in visit_raw
+    ]
+
+    # ── Guest source breakdown (from uploads) ─────────────────────────────────
+    guest_source_pipeline = [
+        {"$match": {"restaurant_id": restaurant_id, "source": {"$nin": [None, ""]}}},
+        {"$group": {"_id": "$source", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 6},
+    ]
+    guest_source_raw = await db.reservego_uploads.aggregate(
+        guest_source_pipeline
+    ).to_list(6)
+    guest_sources = [
+        {"source": r["_id"], "count": r["count"]} for r in guest_source_raw
+    ]
+
+    return {
+        "summary": {
+            "total_guests": total_guests,
+            "with_phone": with_phone,
+            "with_email": with_email,
+            "total_bills": total_bills,
+            "total_revenue": round(total_revenue),
+            "avg_bill": round(avg_bill),
+            "bills_with_amount": bills_with_amount,
+        },
+        "monthly_trend": monthly_trend,
+        "booking_statuses": booking_statuses,
+        "booking_types": booking_types,
+        "booking_sources": booking_sources,
+        "top_sections": top_sections,
+        "visit_distribution": visit_dist,
+        "guest_sources": guest_sources,
+    }
+
+
 @router.get("/guests")
 async def list_guests(
     restaurant_id: Annotated[str, Query()],

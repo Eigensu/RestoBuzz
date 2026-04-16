@@ -1,465 +1,558 @@
 "use client";
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { BRAND_GRADIENT } from "@/lib/brand";
-import type {
-  ReserveGoGuest,
-  ReserveGoBill,
-  ReserveGoListResponse,
-} from "@/types";
 import {
-  Search,
-  ChevronLeft,
-  ChevronRight,
   CalendarDays,
   Users,
   Phone,
   Mail,
-  Clock,
-  Hash,
   Banknote,
-  Download,
+  TrendingUp,
+  Receipt,
+  BarChart3,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+} from "recharts";
 
-const PAGE_SIZE = 50;
+// ── Palette ───────────────────────────────────────────────────────────────────
+const COLORS = [
+  "#24422e",
+  "#4a7c59",
+  "#7ab893",
+  "#a8d5b5",
+  "#d4edd9",
+  "#f0f7f2",
+  "#1a3022",
+  "#6aaa82",
+];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmt(date: string | null | undefined) {
-  if (!date) return "—";
-  return new Date(date).toLocaleDateString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(n: number) {
+  if (n >= 10_000_000) return `₹${(n / 10_000_000).toFixed(1)}Cr`;
+  if (n >= 100_000) return `₹${(n / 100_000).toFixed(1)}L`;
+  if (n >= 1_000) return `₹${(n / 1_000).toFixed(1)}K`;
+  return `₹${n}`;
 }
 
-function fmtDateTime(date: string | null | undefined) {
-  if (!date) return "—";
-  return new Date(date).toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function fmtNum(n: number) {
+  return n.toLocaleString("en-IN");
 }
 
-function statusColor(status: string | null) {
-  if (!status) return "bg-gray-100 text-gray-500";
-  const s = status.toLowerCase();
-  if (s.includes("seated") || s.includes("complete"))
-    return "bg-green-100 text-green-700";
-  if (s.includes("cancel") || s.includes("delet"))
-    return "bg-red-100 text-red-600";
-  if (s.includes("reserv") || s.includes("confirm"))
-    return "bg-blue-100 text-blue-700";
-  return "bg-gray-100 text-gray-600";
-}
-
-// ── Guest Table ───────────────────────────────────────────────────────────────
-
-function GuestTable({ guests }: { guests: ReserveGoGuest[] }) {
-  if (guests.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border text-center py-16">
-        <p className="text-gray-400 text-sm">No guests found.</p>
-      </div>
-    );
-  }
+// ── Stat Card ─────────────────────────────────────────────────────────────────
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  color = "#24422e",
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  sub?: string;
+  color?: string;
+}) {
   return (
-    <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-gray-50 bg-[#eff2f0]/30">
-              {[
-                "Guest",
-                "Phone",
-                "Email",
-                "Visits",
-                "Source",
-                "Last Visit",
-                "Birthday",
-                "Anniversary",
-              ].map((h) => (
-                <th
-                  key={h}
-                  className="px-5 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {guests.map((g) => (
-              <tr
-                key={g.id}
-                className="hover:bg-[#eff2f0]/20 transition-colors"
-              >
-                <td className="px-5 py-3 font-semibold text-gray-900 whitespace-nowrap">
-                  {g.guest_name}
-                </td>
-                <td className="px-5 py-3 text-gray-600 whitespace-nowrap">
-                  <span className="flex items-center gap-1.5">
-                    <Phone className="w-3 h-3 text-gray-400" />
-                    {g.phone || "—"}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-gray-600 whitespace-nowrap">
-                  <span className="flex items-center gap-1.5">
-                    <Mail className="w-3 h-3 text-gray-400" />
-                    {g.email || "—"}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-center">
-                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#eff2f0] text-[#24422e] text-xs font-bold">
-                    {g.total_visits ?? 0}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
-                  {g.source || "—"}
-                </td>
-                <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
-                  {fmt(g.last_visited_date)}
-                </td>
-                <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
-                  {fmt(g.birthday)}
-                </td>
-                <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
-                  {fmt(g.anniversary)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-start gap-4">
+      <div className="p-2.5 rounded-xl" style={{ background: `${color}15` }}>
+        <Icon className="w-5 h-5" style={{ color }} />
+      </div>
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+          {label}
+        </p>
+        <p className="text-2xl font-black text-gray-900 mt-0.5">{value}</p>
+        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
 }
 
-// ── Bill Table ────────────────────────────────────────────────────────────────
-
-function BillTable({ bills }: { bills: ReserveGoBill[] }) {
-  if (bills.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border text-center py-16">
-        <p className="text-gray-400 text-sm">No bill records found.</p>
-      </div>
-    );
-  }
+// ── Chart Card ────────────────────────────────────────────────────────────────
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-gray-50 bg-[#eff2f0]/30">
-              {[
-                "Guest",
-                "Phone",
-                "Booking Time",
-                "Pax",
-                "Tables",
-                "Status",
-                "Bill #",
-                "Bill Amount",
-              ].map((h) => (
-                <th
-                  key={h}
-                  className="px-5 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {bills.map((b) => (
-              <tr
-                key={b.id}
-                className="hover:bg-[#eff2f0]/20 transition-colors"
-              >
-                <td className="px-5 py-3 font-semibold text-gray-900 whitespace-nowrap">
-                  {b.guest_name}
-                </td>
-                <td className="px-5 py-3 text-gray-600 whitespace-nowrap">
-                  <span className="flex items-center gap-1.5">
-                    <Phone className="w-3 h-3 text-gray-400" />
-                    {b.guest_number || "—"}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3 h-3 text-gray-400" />
-                    {fmtDateTime(b.booking_time)}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-center">
-                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#eff2f0] text-[#24422e] text-xs font-bold">
-                    {b.pax ?? "—"}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
-                  {b.tables || "—"}
-                </td>
-                <td className="px-5 py-3 whitespace-nowrap">
-                  <span
-                    className={cn(
-                      "px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide",
-                      statusColor(b.booking_status),
-                    )}
-                  >
-                    {b.booking_status || "—"}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-gray-500 whitespace-nowrap">
-                  <span className="flex items-center gap-1.5">
-                    <Hash className="w-3 h-3 text-gray-400" />
-                    {b.bill_number || "—"}
-                  </span>
-                </td>
-                <td className="px-5 py-3 font-semibold text-gray-900 whitespace-nowrap">
-                  <span className="flex items-center gap-1.5">
-                    <Banknote className="w-3 h-3 text-gray-400" />
-                    {b.bill_amount != null
-                      ? b.bill_amount.toLocaleString()
-                      : "—"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h3 className="text-sm font-black text-gray-700 uppercase tracking-widest mb-4">
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+// ── Custom Tooltip ────────────────────────────────────────────────────────────
+function RevenueTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { value: number }[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3 py-2 text-sm">
+      <p className="font-bold text-gray-700">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="text-[#24422e] font-semibold">
+          {fmt(p.value)}
+        </p>
+      ))}
     </div>
   );
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-
-const BILL_TAB = "__bills__";
-
 export default function ReservationsPage() {
   const { restaurant } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
 
-  // Fetch available guest sheets
-  const { data: sheetsData } = useQuery({
-    queryKey: ["reservego-sheets", restaurant?.id],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["reservego-analytics", restaurant?.id],
     queryFn: () =>
-      api
-        .get(`/reservego/guests/sheets?restaurant_id=${restaurant!.id}`)
-        .then((r) => r.data as { sheets: string[] }),
+      api.get(`/reservego/analytics?restaurant_id=${restaurant!.id}`).then(
+        (r) =>
+          r.data as {
+            summary: {
+              total_guests: number;
+              with_phone: number;
+              with_email: number;
+              total_bills: number;
+              total_revenue: number;
+              avg_bill: number;
+              bills_with_amount: number;
+            };
+            monthly_trend: {
+              month: string;
+              revenue: number;
+              bookings: number;
+              avg_pax: number;
+            }[];
+            booking_statuses: { status: string; count: number }[];
+            booking_types: { type: string; count: number }[];
+            booking_sources: {
+              source: string;
+              count: number;
+              revenue: number;
+            }[];
+            top_sections: { section: string; count: number; revenue: number }[];
+            visit_distribution: { label: string; count: number }[];
+            guest_sources: { source: string; count: number }[];
+          },
+      ),
     enabled: !!restaurant,
   });
 
-  const sheets = sheetsData?.sheets ?? [];
-  const currentTab = activeTab ?? (sheets.length > 0 ? sheets[0] : BILL_TAB);
-  const isBillTab = currentTab === BILL_TAB;
-
-  // Guest query
-  const guestQuery = useQuery<ReserveGoListResponse<ReserveGoGuest>>({
-    queryKey: ["reservego-guests", restaurant?.id, currentTab, search, page],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        restaurant_id: restaurant!.id,
-        sheet: currentTab,
-        page: String(page),
-        page_size: String(PAGE_SIZE),
-      });
-      if (search) params.set("search", search);
-      return api.get(`/reservego/guests?${params}`).then((r) => r.data);
-    },
-    enabled: !!restaurant && !isBillTab,
-  });
-
-  // Bill query
-  const billQuery = useQuery<ReserveGoListResponse<ReserveGoBill>>({
-    queryKey: ["reservego-bills", restaurant?.id, search, page],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        restaurant_id: restaurant!.id,
-        page: String(page),
-        page_size: String(PAGE_SIZE),
-      });
-      if (search) params.set("search", search);
-      return api.get(`/reservego/bills?${params}`).then((r) => r.data);
-    },
-    enabled: !!restaurant && isBillTab,
-  });
-
-  const activeQuery = isBillTab ? billQuery : guestQuery;
-  const total = activeQuery.data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const to = Math.min(page * PAGE_SIZE, total);
-
-  function switchTab(tab: string) {
-    setActiveTab(tab);
-    setPage(1);
-    setSearch("");
-  }
-
-  const [downloading, setDownloading] = useState(false);
-
-  async function handleDownload() {
-    if (!restaurant) return;
-    setDownloading(true);
-    try {
-      const params = new URLSearchParams({ restaurant_id: restaurant.id });
-      if (search) params.set("search", search);
-      const endpoint = isBillTab
-        ? `/reservego/bills/export?${params}`
-        : `/reservego/guests/export?${params}&sheet=${encodeURIComponent(currentTab)}`;
-
-      const res = await api.get(endpoint, { responseType: "blob" });
-      const url = URL.createObjectURL(res.data as Blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const slug = isBillTab
-        ? "bills"
-        : currentTab.toLowerCase().replace(/\s+/g, "_");
-      a.download = `reservego_${slug}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setDownloading(false);
-    }
-  }
-
   if (!restaurant) return null;
 
-  const allTabs = [...sheets, BILL_TAB];
+  if (isLoading) {
+    return (
+      <div className="max-w-[1600px] mx-auto p-4 md:p-8">
+        <div className="flex items-center gap-3 mb-8">
+          <div className="p-2 bg-[#eff2f0] rounded-lg">
+            <CalendarDays className="w-6 h-6 text-[#24422e]" />
+          </div>
+          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+            Reservations
+          </h1>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          {[...Array(8)].map((_, i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl border border-gray-100 h-24 animate-pulse"
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl border border-gray-100 h-64 animate-pulse"
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="max-w-[1600px] mx-auto p-4 md:p-8 text-center py-20">
+        <p className="text-red-500 font-medium">Failed to load analytics</p>
+      </div>
+    );
+  }
+
+  const {
+    summary,
+    monthly_trend,
+    booking_statuses,
+    booking_types,
+    booking_sources,
+    top_sections,
+    visit_distribution,
+    guest_sources,
+  } = data;
+  const phoneRate =
+    summary.total_guests > 0
+      ? Math.round((summary.with_phone / summary.total_guests) * 100)
+      : 0;
+  const completionRate =
+    summary.total_bills > 0
+      ? Math.round(
+          ((booking_statuses.find(
+            (s) =>
+              s.status.toLowerCase().includes("finish") ||
+              s.status.toLowerCase().includes("check"),
+          )?.count ?? 0) /
+            summary.total_bills) *
+            100,
+        )
+      : 0;
 
   return (
-    <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
+    <div className="space-y-6 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-[#eff2f0] rounded-lg">
+          <CalendarDays className="w-6 h-6 text-[#24422e]" />
+        </div>
         <div>
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-[#eff2f0] rounded-lg">
-              <CalendarDays className="w-6 h-6 text-[#24422e]" />
-            </div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-              Reservations
-            </h1>
-          </div>
-          <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
-            Guest profiles and bill data imported from ReserveGo
+          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+            Reservations
+          </h1>
+          <p className="text-sm text-gray-500 font-medium">
+            Analytics from ReserveGo data
           </p>
         </div>
-        <button
-          onClick={handleDownload}
-          disabled={downloading || activeQuery.isLoading || total === 0}
-          className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl disabled:opacity-50 transition-all duration-300 whitespace-nowrap"
-        >
-          <Download className="w-3.5 h-3.5" />
-          {downloading ? "Exporting..." : "Export Excel"}
-        </button>
       </div>
 
-      {/* Tabs + Search */}
-      <div className="flex flex-col xl:flex-row gap-4">
-        <div className="flex p-1 bg-[#eff2f0] rounded-xl flex-wrap gap-0.5">
-          {allTabs.map((tab) => {
-            const label = tab === BILL_TAB ? "Bill Amount" : tab;
-            const Icon = tab === BILL_TAB ? Banknote : Users;
-            const active = currentTab === tab;
-            return (
-              <button
-                key={tab}
-                onClick={() => switchTab(tab)}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg whitespace-nowrap",
-                  active
-                    ? "text-white shadow-sm"
-                    : "text-[#24422e]/60 hover:text-[#24422e]",
-                )}
-                style={active ? { background: BRAND_GRADIENT } : undefined}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            aria-label="Search reservations"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            placeholder={
-              isBillTab
-                ? "Search guest, phone, bill #..."
-                : "Search name, phone, email..."
-            }
-            className="w-full border-gray-100 border bg-white rounded-xl pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 focus:border-[#24422e]/30 shadow-sm"
-          />
-        </div>
-      </div>
-
-      {/* Table */}
-      {activeQuery.isLoading ? (
-        <div className="bg-white rounded-xl border p-12 text-center text-sm text-gray-400">
-          Loading...
-        </div>
-      ) : activeQuery.isError ? (
-        <div className="bg-white rounded-xl border p-12 text-center text-sm">
-          <p className="text-red-500 font-medium mb-3">Failed to load data</p>
-          <button
-            onClick={() => activeQuery.refetch()}
-            className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
-          >
-            Retry
-          </button>
-        </div>
-      ) : isBillTab ? (
-        <BillTable bills={(billQuery.data?.items ?? []) as ReserveGoBill[]} />
-      ) : (
-        <GuestTable
-          guests={(guestQuery.data?.items ?? []) as ReserveGoGuest[]}
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          icon={Users}
+          label="Total Guests"
+          value={fmtNum(summary.total_guests)}
+          sub="across all sheets"
         />
-      )}
+        <StatCard
+          icon={Banknote}
+          label="Total Revenue"
+          value={fmt(summary.total_revenue)}
+          sub={`${fmtNum(summary.bills_with_amount)} bills`}
+          color="#1a6b3a"
+        />
+        <StatCard
+          icon={Receipt}
+          label="Avg Bill Value"
+          value={fmt(summary.avg_bill)}
+          sub="per booking"
+          color="#2d5a8e"
+        />
+        <StatCard
+          icon={CalendarDays}
+          label="Total Bookings"
+          value={fmtNum(summary.total_bills)}
+          sub={`${completionRate}% completed`}
+          color="#7c3aed"
+        />
+        <StatCard
+          icon={Phone}
+          label="With Phone"
+          value={`${phoneRate}%`}
+          sub={`${fmtNum(summary.with_phone)} guests`}
+          color="#d97706"
+        />
+        <StatCard
+          icon={Mail}
+          label="With Email"
+          value={`${Math.round((summary.with_email / summary.total_guests) * 100)}%`}
+          sub={`${fmtNum(summary.with_email)} guests`}
+          color="#0891b2"
+        />
+        <StatCard
+          icon={TrendingUp}
+          label="Avg Pax / Booking"
+          value={(
+            monthly_trend.reduce((s, m) => s + m.avg_pax, 0) /
+            (monthly_trend.length || 1)
+          ).toFixed(1)}
+          sub="guests per table"
+          color="#059669"
+        />
+        <StatCard
+          icon={BarChart3}
+          label="Booking Sources"
+          value={String(booking_sources.length)}
+          sub="platforms tracked"
+          color="#dc2626"
+        />
+      </div>
 
-      {/* Pagination */}
-      {!activeQuery.isLoading && !activeQuery.isError && total > 0 && (
-        <div className="flex items-center justify-between bg-white rounded-xl border px-4 py-3">
-          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-            Showing {from}–{to} of {total}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              aria-label="Previous page"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+      {/* Revenue + Bookings Trend */}
+      <ChartCard title="Monthly Revenue & Bookings">
+        <ResponsiveContainer width="100%" height={260}>
+          <AreaChart
+            data={monthly_trend}
+            margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#24422e" stopOpacity={0.15} />
+                <stop offset="95%" stopColor="#24422e" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} />
+            <YAxis
+              yAxisId="rev"
+              tickFormatter={(v) => fmt(v)}
+              tick={{ fontSize: 11, fill: "#9ca3af" }}
+              width={60}
+            />
+            <YAxis
+              yAxisId="bk"
+              orientation="right"
+              tick={{ fontSize: 11, fill: "#9ca3af" }}
+              width={40}
+            />
+            <Tooltip content={<RevenueTooltip />} />
+            <Area
+              yAxisId="rev"
+              type="monotone"
+              dataKey="revenue"
+              stroke="#24422e"
+              strokeWidth={2}
+              fill="url(#revGrad)"
+              name="Revenue"
+            />
+            <Bar
+              yAxisId="bk"
+              dataKey="bookings"
+              fill="#a8d5b5"
+              radius={[4, 4, 0, 0]}
+              name="Bookings"
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      {/* Row 2: Booking Status + Booking Type */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ChartCard title="Booking Status">
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie
+                data={booking_statuses}
+                dataKey="count"
+                nameKey="status"
+                cx="50%"
+                cy="50%"
+                outerRadius={80}
+                label={({ status, percent }) =>
+                  `${status.split(" ")[0]} ${(percent * 100).toFixed(0)}%`
+                }
+                labelLine={false}
+              >
+                {booking_statuses.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Legend
+                formatter={(v) => (
+                  <span className="text-xs text-gray-600">{v}</span>
+                )}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Walk-in vs Reservation">
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie
+                data={booking_types}
+                dataKey="count"
+                nameKey="type"
+                cx="50%"
+                cy="50%"
+                innerRadius={55}
+                outerRadius={85}
+                paddingAngle={3}
+              >
+                {booking_types.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Legend
+                formatter={(v) => (
+                  <span className="text-xs text-gray-600">{v}</span>
+                )}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      {/* Row 3: Booking Sources + Top Sections */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ChartCard title="Bookings by Source">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart
+              data={booking_sources}
+              layout="vertical"
+              margin={{ left: 8, right: 16 }}
             >
-              <ChevronLeft className="w-4 h-4" /> Prev
-            </button>
-            <span className="text-sm text-gray-600 min-w-20 text-center">
-              Page {page} / {totalPages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#f0f0f0"
+                horizontal={false}
+              />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} />
+              <YAxis
+                type="category"
+                dataKey="source"
+                tick={{ fontSize: 11, fill: "#6b7280" }}
+                width={80}
+              />
+              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Bar dataKey="count" radius={[0, 4, 4, 0]} fill="#24422e" />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Revenue by Section">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart
+              data={top_sections}
+              layout="vertical"
+              margin={{ left: 8, right: 16 }}
             >
-              Next <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#f0f0f0"
+                horizontal={false}
+              />
+              <XAxis
+                type="number"
+                tickFormatter={(v) => fmt(v)}
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+              />
+              <YAxis
+                type="category"
+                dataKey="section"
+                tick={{ fontSize: 11, fill: "#6b7280" }}
+                width={90}
+              />
+              <Tooltip formatter={(v: number) => fmt(v)} />
+              <Bar dataKey="revenue" radius={[0, 4, 4, 0]} fill="#4a7c59" />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      {/* Row 4: Visit Frequency + Guest Source */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ChartCard title="Guest Visit Frequency">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart
+              data={visit_distribution}
+              margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9ca3af" }} />
+              <YAxis
+                tickFormatter={(v) => fmtNum(v)}
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                width={55}
+              />
+              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                {visit_distribution.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Guest Acquisition Source">
+          <ResponsiveContainer width="100%" height={220}>
+            <PieChart>
+              <Pie
+                data={guest_sources}
+                dataKey="count"
+                nameKey="source"
+                cx="50%"
+                cy="50%"
+                outerRadius={85}
+                label={({ source, percent }) =>
+                  `${source} ${(percent * 100).toFixed(0)}%`
+                }
+                labelLine={false}
+              >
+                {guest_sources.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v: number) => fmtNum(v)} />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      {/* Avg Pax trend */}
+      <ChartCard title="Average Party Size per Month">
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart
+            data={monthly_trend}
+            margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} />
+            <YAxis
+              domain={[0, 8]}
+              tick={{ fontSize: 11, fill: "#9ca3af" }}
+              width={30}
+            />
+            <Tooltip formatter={(v: number) => `${v} guests`} />
+            <Line
+              type="monotone"
+              dataKey="avg_pax"
+              stroke="#24422e"
+              strokeWidth={2.5}
+              dot={{ fill: "#24422e", r: 4 }}
+              name="Avg Pax"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </ChartCard>
     </div>
   );
 }
