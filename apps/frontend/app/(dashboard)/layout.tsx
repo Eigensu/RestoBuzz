@@ -41,6 +41,7 @@ const NAV = [
     ],
   },
   { href: "/members", label: "Members", icon: UserCheck },
+  { href: "/reservations", label: "Reservations", icon: Store },
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/contacts", label: "Suppression", icon: Users },

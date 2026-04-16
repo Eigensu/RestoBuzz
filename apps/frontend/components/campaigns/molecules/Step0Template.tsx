@@ -92,7 +92,7 @@ export function Step0Template({
                 onClick={() => {
                   setSelectedTemplate(t);
                   setVariables({});
-                  setMediaUrl("");
+                  setMediaUrl(t.media_url ?? "");
                 }}
                 className={cn(
                   "text-left border rounded-lg px-4 py-3 transition",
@@ -141,12 +141,20 @@ export function Step0Template({
 
         {selectedTemplate && requiresMedia && (
           <div className="space-y-1.5">
-            <label
-              htmlFor="media-upload-input"
-              className="text-xs text-gray-500 block"
-            >
-              Media Image (optional)
-            </label>
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="media-upload-input"
+                className="text-xs text-gray-500 block"
+              >
+                Media Image
+              </label>
+              {selectedTemplate.media_url &&
+                mediaUrl === selectedTemplate.media_url && (
+                  <span className="text-[10px] text-[#24422e] font-medium bg-[#24422e]/10 px-2 py-0.5 rounded-full">
+                    From template
+                  </span>
+                )}
+            </div>
             {mediaUrl ? (
               <div className="relative w-full rounded-lg overflow-hidden border">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -208,12 +216,9 @@ export function Step0Template({
             )}
             <input
               value={mediaUrl}
-              readOnly
-              className={cn(
-                INPUT_CLS,
-                "bg-gray-50 text-gray-500 cursor-not-allowed",
-              )}
-              placeholder="Uploaded URL will appear here"
+              onChange={(e) => setMediaUrl(e.target.value)}
+              className={cn(INPUT_CLS, "bg-gray-50")}
+              placeholder="Or paste an image URL"
             />
           </div>
         )}

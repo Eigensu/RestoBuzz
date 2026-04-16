@@ -23,7 +23,6 @@ function getQuickReplies(lastMsg: InboundMessage | undefined): string[] {
   const body = (lastMsg.body ?? "").toLowerCase();
   if (/benefit|insurance|policy|hr|onboard/.test(body))
     return [
-      "*Here's your benefits document:* https://drive.google.com/file/d/1j8bpKoDq-9T_dUT8J-fsq55rwET89e50/view?usp=drive_link",
       "Feel free to reach out if you have any questions!",
       "Let me know once you've had a chance to review it.",
     ];

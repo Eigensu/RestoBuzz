@@ -198,6 +198,17 @@ async def create_new_template(
 
     # Persist locally so it shows up immediately without a sync
     now = datetime.now(timezone.utc)
+
+    # Preserve the original media_url from the header component before normalization strips it
+    original_media_url = None
+    for comp in body.components:
+        if (comp.type or "").upper() == "HEADER" and (
+            comp.format or ""
+        ).upper() == "IMAGE":
+            if isinstance(comp.example, dict):
+                original_media_url = comp.example.get("media_url") or None
+            break
+
     doc = {
         "name": body.name,
         "category": body.category,
@@ -207,6 +218,9 @@ async def create_new_template(
         "meta_id": str(meta_id),
         "synced_at": now,
     }
+    if original_media_url:
+        doc["media_url"] = original_media_url
+
     await db.templates.update_one(
         {"name": body.name, "language": doc["language"]},
         {"$set": doc},

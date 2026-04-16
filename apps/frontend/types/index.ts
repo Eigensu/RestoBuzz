@@ -100,6 +100,7 @@ export interface Template {
   status: string;
   category: string;
   language: string;
+  media_url?: string;
   components: Array<{
     type: string;
     text?: string;
@@ -202,4 +203,59 @@ export interface EmailTemplate {
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+// ── ReserveGo Types ──────────────────────────────────────────────────────────
+
+export interface ReserveGoGuest {
+  id: string;
+  guest_name: string;
+  phone: string;
+  email: string | null;
+  total_visits: number;
+  source: string | null;
+  mode: string | null;
+  last_visited_date: string | null;
+  birthday: string | null;
+  anniversary: string | null;
+  sheet: string;
+  restaurant_id: string;
+  uploaded_at: string;
+  filename: string;
+}
+
+export interface ReserveGoBill {
+  id: string;
+  sno: number | null;
+  outlet_name: string | null;
+  booking_time: string | null;
+  seated_time: string | null;
+  reserved_time: string | null;
+  booking_type: string | null;
+  guest_name: string;
+  guest_number: string | null;
+  guest_email: string | null;
+  pax: number | null;
+  reserved_by: string | null;
+  sections: string | null;
+  tables: string | null;
+  visit_count: number | null;
+  booking_status: string | null;
+  bill_amount: number | null;
+  bill_number: string | null;
+  booking_amount: number | null;
+  source_of_booking: string | null;
+  tags: string | null;
+  guest_comments: string | null;
+  outlet_comments: string | null;
+  restaurant_id: string;
+  uploaded_at: string;
+  filename: string;
+}
+
+export interface ReserveGoListResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
 }

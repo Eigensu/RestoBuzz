@@ -25,6 +25,7 @@ from app.config import settings
 from app.core.errors import InvalidCredentialsError, InvalidFileFormatError, AppError
 from app.core.security import _create_token, decode_token
 from app.database import get_db
+from app.dependencies import require_role
 
 router = APIRouter(prefix="/reservego", tags=["reservego"])
 _bearer = HTTPBearer()
@@ -392,6 +393,267 @@ async def list_restaurants(
         Restaurant(id=str(doc.get("id") or doc["_id"]), name=doc["name"])
         async for doc in cursor
     ]
+
+
+@router.get("/guests")
+async def list_guests(
+    restaurant_id: Annotated[str, Query()],
+    sheet: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
+):
+    """List guest profiles from reservego_uploads, optionally filtered by sheet."""
+    query: dict = {"restaurant_id": restaurant_id}
+    if sheet:
+        query["sheet"] = {"$regex": sheet, "$options": "i"}
+    if search:
+        query["$or"] = [
+            {"guest_name": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+        ]
+    skip = (page - 1) * page_size
+    total = await db.reservego_uploads.count_documents(query)
+    cursor = (
+        db.reservego_uploads.find(query)
+        .sort("uploaded_at", -1)
+        .skip(skip)
+        .limit(page_size)
+    )
+    items = []
+    async for doc in cursor:
+        doc["id"] = str(doc["_id"])
+        doc.pop("_id", None)
+        items.append(doc)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/guests/sheets")
+async def list_guest_sheets(
+    restaurant_id: Annotated[str, Query()],
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
+):
+    """Return distinct sheet names present in reservego_uploads for a restaurant."""
+    sheets = await db.reservego_uploads.distinct(
+        "sheet", {"restaurant_id": restaurant_id}
+    )
+    return {"sheets": sheets}
+
+
+@router.get("/bills")
+async def list_bills(
+    restaurant_id: Annotated[str, Query()],
+    search: Annotated[str | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
+):
+    """List bill records from reservego_bill_data."""
+    query: dict = {"restaurant_id": restaurant_id}
+    if search:
+        query["$or"] = [
+            {"guest_name": {"$regex": search, "$options": "i"}},
+            {"guest_number": {"$regex": search, "$options": "i"}},
+            {"bill_number": {"$regex": search, "$options": "i"}},
+        ]
+    skip = (page - 1) * page_size
+    total = await db.reservego_bill_data.count_documents(query)
+    cursor = (
+        db.reservego_bill_data.find(query)
+        .sort("booking_time", -1)
+        .skip(skip)
+        .limit(page_size)
+    )
+    items = []
+    async for doc in cursor:
+        doc["id"] = str(doc["_id"])
+        doc.pop("_id", None)
+        items.append(doc)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+def _fmt_dt(val) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, datetime):
+        return val.strftime("%Y-%m-%d %H:%M")
+    return str(val)
+
+
+def _build_guests_wb(docs: list) -> bytes:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Guests"
+    headers = [
+        "Guest Name",
+        "Phone",
+        "Email",
+        "Total Visits",
+        "Source",
+        "Mode",
+        "Last Visited Date",
+        "Birthday",
+        "Anniversary",
+        "Sheet",
+        "Uploaded At",
+        "Filename",
+    ]
+    ws.append(headers)
+    for doc in docs:
+        ws.append(
+            [
+                doc.get("guest_name", ""),
+                doc.get("phone", ""),
+                doc.get("email", ""),
+                doc.get("total_visits", 0),
+                doc.get("source", ""),
+                doc.get("mode", ""),
+                _fmt_dt(doc.get("last_visited_date")),
+                _fmt_dt(doc.get("birthday")),
+                _fmt_dt(doc.get("anniversary")),
+                doc.get("sheet", ""),
+                _fmt_dt(doc.get("uploaded_at")),
+                doc.get("filename", ""),
+            ]
+        )
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _build_bills_wb(docs: list) -> bytes:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Bills"
+    headers = [
+        "Guest Name",
+        "Guest Number",
+        "Guest Email",
+        "Outlet",
+        "Booking Time",
+        "Seated Time",
+        "Reserved Time",
+        "Booking Type",
+        "Pax",
+        "Reserved By",
+        "Section(s)",
+        "Table(s)",
+        "Visit Count",
+        "Booking Status",
+        "Bill Amount",
+        "Bill Number",
+        "Booking Amount",
+        "Source of Booking",
+        "Tags",
+        "Guest Comments",
+        "Outlet Comments",
+        "Uploaded At",
+        "Filename",
+    ]
+    ws.append(headers)
+    for doc in docs:
+        ws.append(
+            [
+                doc.get("guest_name", ""),
+                doc.get("guest_number", ""),
+                doc.get("guest_email", ""),
+                doc.get("outlet_name", ""),
+                _fmt_dt(doc.get("booking_time")),
+                _fmt_dt(doc.get("seated_time")),
+                _fmt_dt(doc.get("reserved_time")),
+                doc.get("booking_type", ""),
+                doc.get("pax"),
+                doc.get("reserved_by", ""),
+                doc.get("sections", ""),
+                doc.get("tables", ""),
+                doc.get("visit_count"),
+                doc.get("booking_status", ""),
+                doc.get("bill_amount"),
+                doc.get("bill_number", ""),
+                doc.get("booking_amount"),
+                doc.get("source_of_booking", ""),
+                doc.get("tags", ""),
+                doc.get("guest_comments", ""),
+                doc.get("outlet_comments", ""),
+                _fmt_dt(doc.get("uploaded_at")),
+                doc.get("filename", ""),
+            ]
+        )
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/guests/export")
+async def export_guests(
+    restaurant_id: Annotated[str, Query()],
+    sheet: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query()] = None,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
+):
+    """Export all matching guest profiles as an xlsx file."""
+    from fastapi.responses import Response
+
+    query: dict = {"restaurant_id": restaurant_id}
+    if sheet:
+        query["sheet"] = {"$regex": sheet, "$options": "i"}
+    if search:
+        query["$or"] = [
+            {"guest_name": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+        ]
+    docs = [
+        doc async for doc in db.reservego_uploads.find(query).sort("uploaded_at", -1)
+    ]
+
+    loop = asyncio.get_running_loop()
+    xlsx_bytes = await loop.run_in_executor(_executor, _build_guests_wb, docs)
+
+    slug = (sheet or "guests").lower().replace(" ", "_")
+    filename = f"reservego_{slug}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/bills/export")
+async def export_bills(
+    restaurant_id: Annotated[str, Query()],
+    search: Annotated[str | None, Query()] = None,
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
+):
+    """Export all matching bill records as an xlsx file."""
+    from fastapi.responses import Response
+
+    query: dict = {"restaurant_id": restaurant_id}
+    if search:
+        query["$or"] = [
+            {"guest_name": {"$regex": search, "$options": "i"}},
+            {"guest_number": {"$regex": search, "$options": "i"}},
+            {"bill_number": {"$regex": search, "$options": "i"}},
+        ]
+    docs = [
+        doc async for doc in db.reservego_bill_data.find(query).sort("booking_time", -1)
+    ]
+
+    loop = asyncio.get_running_loop()
+    xlsx_bytes = await loop.run_in_executor(_executor, _build_bills_wb, docs)
+
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="reservego_bills.xlsx"'},
+    )
 
 
 @router.post("/upload")

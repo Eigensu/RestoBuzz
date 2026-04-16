@@ -361,6 +361,11 @@ export default function NewTemplatePage() {
                           const { data } = await api.post(
                             "/media/upload",
                             form,
+                            {
+                              headers: {
+                                "Content-Type": "multipart/form-data",
+                              },
+                            },
                           );
                           setHeaderImageUrl(data.url);
                         } catch (err) {
