@@ -395,6 +395,17 @@ async def list_restaurants(
     ]
 
 
+def _serialize_doc(doc: dict) -> dict:
+    """Convert ObjectId and datetime fields to JSON-safe types."""
+    result = {}
+    for k, v in doc.items():
+        if isinstance(v, datetime):
+            result[k] = v.isoformat()
+        else:
+            result[k] = v
+    return result
+
+
 @router.get("/guests")
 async def list_guests(
     restaurant_id: Annotated[str, Query()],
@@ -427,7 +438,7 @@ async def list_guests(
     async for doc in cursor:
         doc["id"] = str(doc["_id"])
         doc.pop("_id", None)
-        items.append(doc)
+        items.append(_serialize_doc(doc))
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -473,7 +484,7 @@ async def list_bills(
     async for doc in cursor:
         doc["id"] = str(doc["_id"])
         doc.pop("_id", None)
-        items.append(doc)
+        items.append(_serialize_doc(doc))
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
