@@ -127,8 +127,33 @@ class LoginResponse(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
+# Aliases map canonical header names → alternative names that may appear in the Excel
+_GUEST_HEADER_ALIASES: dict[str, list[str]] = {
+    "phone number": ["guest number"],
+    "email id": ["guest email"],
+    "total visits": ["visits"],
+    "source": ["registration source"],
+    "mode": ["registration mode"],
+    "last visited date": ["last visit"],
+}
+
+
 def _make_idx(raw_headers: list, headers: list) -> dict:
-    return {h: (raw_headers.index(h) if h in raw_headers else None) for h in headers}
+    """Build a column-index map, falling back to known aliases when the canonical
+    header is absent from the sheet."""
+    idx: dict[str, int | None] = {}
+    for h in headers:
+        if h in raw_headers:
+            idx[h] = raw_headers.index(h)
+        else:
+            # Try each alias in order
+            resolved = None
+            for alias in _GUEST_HEADER_ALIASES.get(h, []):
+                if alias in raw_headers:
+                    resolved = raw_headers.index(alias)
+                    break
+            idx[h] = resolved
+    return idx
 
 
 def _cell(row: tuple, idx: dict, h: str):
