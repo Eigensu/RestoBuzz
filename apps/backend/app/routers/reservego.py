@@ -430,7 +430,7 @@ async def list_guests(
     total = await db.reservego_uploads.count_documents(query)
     cursor = (
         db.reservego_uploads.find(query)
-        .sort("uploaded_at", -1)
+        .sort([("total_visits", -1), ("uploaded_at", -1)])
         .skip(skip)
         .limit(page_size)
     )
@@ -621,7 +621,10 @@ async def export_guests(
             {"email": {"$regex": search, "$options": "i"}},
         ]
     docs = [
-        doc async for doc in db.reservego_uploads.find(query).sort("uploaded_at", -1)
+        doc
+        async for doc in db.reservego_uploads.find(query).sort(
+            [("total_visits", -1), ("uploaded_at", -1)]
+        )
     ]
 
     loop = asyncio.get_running_loop()

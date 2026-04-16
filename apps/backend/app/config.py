@@ -24,9 +24,10 @@ class Settings(BaseSettings):
         default="mongodb://localhost:27017/dishpatch",
         validation_alias=AliasChoices("MONGODB_URL_PROD", "MONGODB_URL"),
     )
-    mongodb_db_name: str = (
-        "restobuzz"  # leave blank to derive from URL path, or set a default
-    )
+    mongodb_db_name: str = Field(
+        default="",
+        validation_alias=AliasChoices("MONGODB_DB_NAME"),
+    )  # leave blank to derive from URL path
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
