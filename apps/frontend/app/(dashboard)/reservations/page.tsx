@@ -382,7 +382,7 @@ export default function ReservationsPage() {
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
               <Legend
                 formatter={(v) => (
                   <span className="text-xs text-gray-600">{v}</span>
@@ -409,7 +409,7 @@ export default function ReservationsPage() {
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
               <Legend
                 formatter={(v) => (
                   <span className="text-xs text-gray-600">{v}</span>
@@ -441,7 +441,7 @@ export default function ReservationsPage() {
                 tick={{ fontSize: 11, fill: "#6b7280" }}
                 width={80}
               />
-              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
               <Bar dataKey="count" radius={[0, 4, 4, 0]} fill="#24422e" />
             </BarChart>
           </ResponsiveContainer>
@@ -470,7 +470,7 @@ export default function ReservationsPage() {
                 tick={{ fontSize: 11, fill: "#6b7280" }}
                 width={90}
               />
-              <Tooltip formatter={(v: number) => fmt(v)} />
+              <Tooltip formatter={(v) => typeof v === "number" ? fmt(v) : String(v ?? "")} />
               <Bar dataKey="revenue" radius={[0, 4, 4, 0]} fill="#4a7c59" />
             </BarChart>
           </ResponsiveContainer>
@@ -492,7 +492,7 @@ export default function ReservationsPage() {
                 tick={{ fontSize: 11, fill: "#9ca3af" }}
                 width={55}
               />
-              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
               <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                 {visit_distribution.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -521,7 +521,7 @@ export default function ReservationsPage() {
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v: number) => fmtNum(v)} />
+              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -541,7 +541,7 @@ export default function ReservationsPage() {
               tick={{ fontSize: 11, fill: "#9ca3af" }}
               width={30}
             />
-            <Tooltip formatter={(v: number) => `${v} guests`} />
+            <Tooltip formatter={(v) => typeof v === "number" ? `${v} guests` : String(v ?? "")} />
             <Line
               type="monotone"
               dataKey="avg_pax"
