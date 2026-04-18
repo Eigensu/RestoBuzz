@@ -306,6 +306,7 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
 
   const { summary, monthly_growth, category_split, top_visitors } = data;
 
+  const dormantHighlight = summary.dormant_rate > 30 ? "red" : (summary.dormant_rate > 15 ? "amber" : undefined);
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
@@ -332,7 +333,7 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
           label="Dormant"
           value={summary.dormant_members.toLocaleString()}
           sub={`${summary.dormant_rate}% of active`}
-          highlight={summary.dormant_rate > 30 ? "red" : summary.dormant_rate > 15 ? "amber" : undefined}
+          highlight={dormantHighlight}
         />
       </div>
 
@@ -456,7 +457,7 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
                     <td className="py-3 pr-4 font-medium text-gray-900">{v.name}</td>
                     <td className="py-3 pr-4 text-gray-500 font-mono text-xs">{v.phone}</td>
                     <td className="py-3 pr-4">
-                      <span className="text-[10px] font-black uppercase tracking-widest bg-[#eff2f0] text-[#24422e] px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] font-black uppercase bg-[#eff2f0] text-[#24422e] px-2 py-0.5 rounded-full">
                         {v.type}
                       </span>
                     </td>
@@ -494,9 +495,22 @@ function LogsTab({
   readonly onStatus: (v: string) => void;
   readonly onLoadMore: () => void;
 }) {
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="h-10 w-64 bg-gray-100 rounded-xl animate-pulse" />
+          <div className="h-10 w-32 bg-gray-100 rounded-xl animate-pulse" />
+        </div>
+        <TabSkeleton />
+      </div>
+    );
+  }
+
+  const items = data?.items ?? [];
+
   return (
-    <div className="space-y-4">
-      {/* Log-specific filters */}
+    <div className="space-y-6">
       <div className="flex flex-wrap gap-3 items-end">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -529,12 +543,10 @@ function LogsTab({
         </div>
       </div>
 
-      {loading ? (
-        <TabSkeleton />
-      ) : data?.items?.length === 0 ? (
+      {items.length === 0 ? (
         <EmptyState icon={Inbox} message="No delivery logs found for this filter." />
       ) : (
-        <SectionCard title={`Delivery Logs`}>
+        <SectionCard title="Delivery Logs">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -552,7 +564,7 @@ function LogsTab({
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((row: any) => (
+                {items.map((row: any) => (
                   <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
                     <td className="py-3 pr-4">
                       <span className="text-[10px] font-black uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-full">
@@ -691,8 +703,8 @@ function TabSkeleton() {
   return (
     <div className="space-y-4 animate-pulse">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[...new Array(4)].map((_, i) => (
-          <div key={i} className="h-28 bg-gray-100 rounded-2xl" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={`skel-${i}`} className="h-28 bg-gray-100 rounded-2xl" />
         ))}
       </div>
       <div className="h-64 bg-gray-100 rounded-2xl" />
@@ -728,7 +740,6 @@ export default function ReportsPage() {
   const [channel, setChannel] = useState<string>("all");
   const [logStatus, setLogStatus] = useState("");
   const [logSearch, setLogSearch] = useState("");
-  const [logCursor, setLogCursor] = useState<string | null>(null);
   const [allLogItems, setAllLogItems] = useState<any[]>([]);
 
   // Typed shape for logs API response
@@ -819,7 +830,6 @@ export default function ReportsPage() {
         })}`,
       );
       setAllLogItems((prev) => [...prev, ...(res.data.items ?? [])]);
-      setLogCursor(res.data.next_cursor);
     } catch {
       toast.error("Failed to load more logs");
     }

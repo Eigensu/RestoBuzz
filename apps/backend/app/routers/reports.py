@@ -674,7 +674,6 @@ async def _build_inbox_data(
     to_dt: datetime,
     db: AsyncIOMotorDatabase,
 ) -> dict:
-    rid = restaurant["id"]
 
     # Now that we have restaurant_id directly on messages, the query is much faster
     # and includes potential members (anonymous senders).

@@ -46,6 +46,8 @@ _MONGO_FIRST = "$first"
 _MONGO_LOOKUP = "$lookup"
 _MONGO_REGEX = "$regex"
 _MONGO_OPTIONS = "$options"
+_MONGO_GT = "$gt"
+_MONGO_NE = "$ne"
 
 _COL_PHONE_NUMBER = "phone number"
 _COL_EMAIL_ID = "email id"
@@ -268,7 +270,7 @@ def _parse_guest_row(row, idx, sheet_name, filename, now, restaurant_id) -> dict
     if not guest_name or guest_name.lower() == "none":
         return None
 
-    raw_phone = _cell(row, idx, "phone number")
+    raw_phone = _cell(row, idx, _COL_PHONE_NUMBER)
     phone = ""
     if raw_phone is not None:
         phone = (
@@ -278,12 +280,12 @@ def _parse_guest_row(row, idx, sheet_name, filename, now, restaurant_id) -> dict
         )
         phone = phone.replace(" ", "").replace("+", "").replace("-", "")
 
-    email_val = _cell(row, idx, "email id")
+    email_val = _cell(row, idx, _COL_EMAIL_ID)
     email = str(email_val).strip() if email_val else None
     if email and email.lower() == "none":
         email = None
 
-    total_visits_val = _cell(row, idx, "total visits")
+    total_visits_val = _cell(row, idx, _COL_TOTAL_VISITS)
     total_visits = int(total_visits_val) if total_visits_val is not None else 0
 
     return {
@@ -293,7 +295,7 @@ def _parse_guest_row(row, idx, sheet_name, filename, now, restaurant_id) -> dict
         "total_visits": total_visits,
         "source": str(_cell(row, idx, "source") or "").strip() or None,
         "mode": str(_cell(row, idx, "mode") or "").strip() or None,
-        "last_visited_date": _parse_date(_cell(row, idx, "last visited date")),
+        "last_visited_date": _parse_date(_cell(row, idx, _COL_LAST_VISITED)),
         "birthday": _parse_date(_cell(row, idx, "birthday")),
         "anniversary": _parse_date(_cell(row, idx, "anniversary")),
         "sheet": sheet_name,
@@ -316,8 +318,8 @@ def _parse_bill_row(row, idx, filename, now, restaurant_id) -> dict | None:
         "reserved_time": _parse_date(_cell(row, idx, "reserved time")),
         "booking_type": _str_val(row, idx, "booking type"),
         "guest_name": guest_name,
-        "guest_number": _str_val(row, idx, "guest number"),
-        "guest_email": _str_val(row, idx, "guest email"),
+        "guest_number": _str_val(row, idx, _COL_GUEST_NUMBER),
+        "guest_email": _str_val(row, idx, _COL_GUEST_EMAIL),
         "pax": _num_val(row, idx, "pax"),
         "reserved_by": _str_val(row, idx, "reserved by"),
         "sections": _str_val(row, idx, "section(s)"),
@@ -480,12 +482,12 @@ async def get_analytics(
     )
 
     rev_pipeline = [
-        {_MONGO_MATCH: {"restaurant_id": restaurant_id, "bill_amount": {"$gt": 0}}},
+        {_MONGO_MATCH: {"restaurant_id": restaurant_id, "bill_amount": {_MONGO_GT: 0}}},
         {
             _MONGO_GROUP: {
                 "_id": None,
-                "total": {_MONGO_SUM: "$bill_amount"},
-                "avg": {_MONGO_AVG: "$bill_amount"},
+                "total": {_MONGO_SUM: _FLD_BILL_AMOUNT},
+                "avg": {_MONGO_AVG: _FLD_BILL_AMOUNT},
                 "count": {_MONGO_SUM: 1},
             }
         },
@@ -500,8 +502,8 @@ async def get_analytics(
         {
             _MONGO_MATCH: {
                 "restaurant_id": restaurant_id,
-                "bill_amount": {"$gt": 0},
-                "booking_time": {"$ne": None},
+                "bill_amount": {_MONGO_GT: 0},
+                "booking_time": {_MONGO_NE: None},
             }
         },
         {
@@ -510,7 +512,7 @@ async def get_analytics(
                     "year": {_MONGO_YEAR: "$booking_time"},
                     "month": {_MONGO_MONTH: "$booking_time"},
                 },
-                "revenue": {_MONGO_SUM: "$bill_amount"},
+                "revenue": {_MONGO_SUM: _FLD_BILL_AMOUNT},
                 "bookings": {_MONGO_SUM: 1},
                 "avg_pax": {_MONGO_AVG: "$pax"},
             }
@@ -584,7 +586,7 @@ async def get_analytics(
             _MONGO_GROUP: {
                 "_id": "$source_of_booking",
                 "count": {_MONGO_SUM: 1},
-                "revenue": {_MONGO_SUM: "$bill_amount"},
+                "revenue": {_MONGO_SUM: _FLD_BILL_AMOUNT},
             }
         },
         {_MONGO_SORT: {"count": -1}},
@@ -602,14 +604,14 @@ async def get_analytics(
             _MONGO_MATCH: {
                 "restaurant_id": restaurant_id,
                 "sections": {"$nin": [None, ""]},
-                "bill_amount": {"$gt": 0},
+                "bill_amount": {_MONGO_GT: 0},
             }
         },
         {
             _MONGO_GROUP: {
                 "_id": "$sections",
+                "revenue": {_MONGO_SUM: _FLD_BILL_AMOUNT},
                 "count": {_MONGO_SUM: 1},
-                "revenue": {_MONGO_SUM: "$bill_amount"},
             }
         },
         {_MONGO_SORT: {"revenue": -1}},
@@ -697,13 +699,13 @@ async def list_guests(
 
     query: dict = {"restaurant_id": restaurant_id}
     if sheet:
-        query["sheet"] = {"$regex": re.escape(sheet), "$options": "i"}
+        query["sheet"] = {_MONGO_REGEX: re.escape(sheet), _MONGO_OPTIONS: "i"}
     if search:
         safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": safe_search, "$options": "i"}},
-            {"phone": {"$regex": safe_search, "$options": "i"}},
-            {"email": {"$regex": safe_search, "$options": "i"}},
+            {"guest_name": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"phone": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"email": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
         ]
     skip = (page - 1) * page_size
     total = await db.reservego_uploads.count_documents(query)
@@ -752,9 +754,9 @@ async def list_bills(
     if search:
         safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": safe_search, "$options": "i"}},
-            {"guest_number": {"$regex": safe_search, "$options": "i"}},
-            {"bill_number": {"$regex": safe_search, "$options": "i"}},
+            {"guest_name": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"guest_number": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"bill_number": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
         ]
     skip = (page - 1) * page_size
     total = await db.reservego_bill_data.count_documents(query)
@@ -900,13 +902,13 @@ async def export_guests(
 
     query: dict = {"restaurant_id": restaurant_id}
     if sheet:
-        query["sheet"] = {"$regex": re.escape(sheet), "$options": "i"}
+        query["sheet"] = {_MONGO_REGEX: re.escape(sheet), _MONGO_OPTIONS: "i"}
     if search:
         safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": safe_search, "$options": "i"}},
-            {"phone": {"$regex": safe_search, "$options": "i"}},
-            {"email": {"$regex": safe_search, "$options": "i"}},
+            {"guest_name": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"phone": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"email": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
         ]
 
     # Optimization: Hard limit for export to avoid OOM
@@ -947,9 +949,9 @@ async def export_bills(
     if search:
         safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": safe_search, "$options": "i"}},
-            {"guest_number": {"$regex": safe_search, "$options": "i"}},
-            {"bill_number": {"$regex": safe_search, "$options": "i"}},
+            {"guest_name": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"guest_number": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
+            {"bill_number": {_MONGO_REGEX: safe_search, _MONGO_OPTIONS: "i"}},
         ]
 
     # Optimization: Hard limit for export to avoid OOM

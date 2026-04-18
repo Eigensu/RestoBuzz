@@ -123,6 +123,7 @@ async def list_restaurant_users(
 
 @router.put("/{restaurant_id}/categories", response_model=RestaurantResponse)
 async def update_categories(
+    restaurant_id: Annotated[str, Path()],
     body: Annotated[UpdateCategoriesRequest, Body()],
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _user: Annotated[dict, Depends(require_role("admin"))],

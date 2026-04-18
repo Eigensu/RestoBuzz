@@ -182,21 +182,21 @@ export default function ReservationsPage() {
           </h1>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"].map((sk) => (
             <div
-              key={`stat-skel-${i}`}
+              key={sk}
               className="bg-white rounded-2xl border border-gray-100 h-24 animate-pulse"
             />
           ))}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={`chart-skel-${i}`}
-              className="bg-white rounded-2xl border border-gray-100 h-64 animate-pulse"
-            />
-          ))}
-        </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {["vs1", "vs2", "vs3", "vs4"].map((vk) => (
+              <div
+                key={vk}
+                className="bg-white rounded-2xl border border-gray-100 h-24 animate-pulse"
+              />
+            ))}
+          </div>
       </div>
     );
   }
