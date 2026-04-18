@@ -44,6 +44,7 @@ const COLORS = [
 
 const LegendLabel = (v: string) => <span className="text-xs text-gray-600">{v}</span>;
 const ChartTooltipFormatter = (v: any) => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v ?? ""));
+const GuestTooltipFormatter = (v: any) => (typeof v === "number" ? `${v.toLocaleString("en-IN")} guests` : String(v ?? ""));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number) {
@@ -190,7 +191,7 @@ export default function ReservationsPage() {
           ))}
         </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {["vs1", "vs2", "vs3", "vs4"].map((vk) => (
+            {["v1", "v2", "v3", "v4"].map((vk) => (
               <div
                 key={vk}
                 className="bg-white rounded-2xl border border-gray-100 h-24 animate-pulse"
@@ -384,12 +385,8 @@ export default function ReservationsPage() {
                   <Cell key={s.status} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
-              <Legend
-                formatter={(v) => (
-                  <span className="text-xs text-gray-600">{v}</span>
-                )}
-              />
+              <Tooltip formatter={ChartTooltipFormatter} />
+              <Legend formatter={LegendLabel} />
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -411,12 +408,8 @@ export default function ReservationsPage() {
                   <Cell key={t.type} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
-              <Legend
-                formatter={(v) => (
-                  <span className="text-xs text-gray-600">{v}</span>
-                )}
-              />
+              <Tooltip formatter={ChartTooltipFormatter} />
+              <Legend formatter={LegendLabel} />
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -519,11 +512,11 @@ export default function ReservationsPage() {
                 }
                 labelLine={false}
               >
-                {guest_sources.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                {guest_sources.map((s, i) => (
+                  <Cell key={s.source} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
+              <Tooltip formatter={ChartTooltipFormatter} />
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -543,7 +536,7 @@ export default function ReservationsPage() {
               tick={{ fontSize: 11, fill: "#9ca3af" }}
               width={30}
             />
-            <Tooltip formatter={(v) => typeof v === "number" ? `${v} guests` : String(v ?? "")} />
+            <Tooltip formatter={GuestTooltipFormatter} />
             <Line
               type="monotone"
               dataKey="avg_pax"

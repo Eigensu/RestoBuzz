@@ -306,7 +306,10 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
 
   const { summary, monthly_growth, category_split, top_visitors } = data;
 
-  const dormantHighlight = summary.dormant_rate > 30 ? "red" : (summary.dormant_rate > 15 ? "amber" : undefined);
+  let dormantHighlight: "red" | "amber" | undefined = undefined;
+  if (summary.dormant_rate > 30) dormantHighlight = "red";
+  else if (summary.dormant_rate > 15) dormantHighlight = "amber";
+
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
@@ -703,8 +706,8 @@ function TabSkeleton() {
   return (
     <div className="space-y-4 animate-pulse">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={`skel-${i}`} className="h-28 bg-gray-100 rounded-2xl" />
+        {["rsk1", "rsk2", "rsk3", "rsk4"].map((rk) => (
+          <div key={rk} className="h-28 bg-gray-100 rounded-2xl" />
         ))}
       </div>
       <div className="h-64 bg-gray-100 rounded-2xl" />
