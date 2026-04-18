@@ -86,7 +86,7 @@ def _resolve_dates(
 
 def _date_hash(from_dt: datetime, to_dt: datetime) -> str:
     key = f"{from_dt.date()}:{to_dt.date()}"
-    return hashlib.md5(key.encode()).hexdigest()[:8]  # noqa: S324 (non-crypto use)
+    return hashlib.sha256(key.encode()).hexdigest()[:8]
 
 
 # ── Redis cache helpers ────────────────────────────────────────────────────────
