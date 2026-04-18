@@ -46,6 +46,7 @@ async def list_restaurants(
             emoji=doc.get("emoji", "🏪"),
             color=doc.get("color", "gray"),
             member_categories=doc.get("member_categories") or doc.get("categories") or ["nfc", "ecard"],
+            wa_phone_ids=doc.get("wa_phone_ids", []),
         )
         async for doc in cursor
     ]
@@ -163,4 +164,5 @@ async def update_categories(
         emoji=result.get("emoji", "🏪"),
         color=result.get("color", "gray"),
         member_categories=result.get("member_categories", ["nfc", "ecard"]),
+        wa_phone_ids=result.get("wa_phone_ids", []),
     )

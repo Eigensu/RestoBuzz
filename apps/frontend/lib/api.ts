@@ -16,13 +16,30 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// ── Request: attach current access token ─────────────────────────────────
+// ── Request: attach current access token and restaurant ID ────────────────
 api.interceptors.request.use((config) => {
   if (isBrowser) {
+    // 1. Authorization
     const token = volatileAccessToken ?? localStorage.getItem("access_token");
     if (token) {
       volatileAccessToken = token;
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // 2. Multitenancy (X-Restaurant-ID)
+    // We try to get this from the persisted Zustand store directly from localStorage
+    // to avoid circular dependency with useAuthStore if it's not yet needed elsewhere.
+    try {
+      const authData = localStorage.getItem("wa-auth");
+      if (authData) {
+        const parsed = JSON.parse(authData);
+        const rid = parsed.state?.restaurant?.id;
+        if (rid) {
+          config.headers["X-Restaurant-ID"] = rid;
+        }
+      }
+    } catch {
+      // ignore parse errors
     }
   }
   config.headers["ngrok-skip-browser-warning"] = "1";

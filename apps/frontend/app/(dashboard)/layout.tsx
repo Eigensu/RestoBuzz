@@ -25,6 +25,7 @@ import {
   Check,
   UserCheck,
   Store,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +46,7 @@ const NAV = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/contacts", label: "Suppression", icon: Users },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
 ];
 
 export default function DashboardLayout({

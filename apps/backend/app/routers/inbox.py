@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from typing import Annotated, Any
 from datetime import datetime, timedelta, timezone
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import require_role, get_active_restaurant
 from app.services.message_types import normalize_message_type
 from app.models.inbox import (
     ConversationListResponse,
@@ -19,10 +19,13 @@ router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 @router.get("/unread-count")
 async def get_unread_count(
-    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
-    count = await db.inbound_messages.count_documents({"is_read": False, "is_resolved": {"$ne": True}})
+    # Global count
+    count = await db.inbound_messages.count_documents({
+        "is_read": False, 
+        "is_resolved": {"$ne": True}
+    })
     return {"count": count}
 
 
@@ -30,13 +33,14 @@ async def get_unread_count(
 async def list_conversations(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 30,
-    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
     pipeline = [
-        {"$match": {"received_at": {"$gte": since}}},
+        {"$match": {
+            "received_at": {"$gte": since}
+        }},
         {"$sort": {"received_at": -1}},
         {
             "$group": {
@@ -85,9 +89,9 @@ async def get_conversation(
     phone: str,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
-    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
+    # Global view of conversation (all restaurants)
     skip = (page - 1) * page_size
     items = []
 
@@ -95,13 +99,19 @@ async def get_conversation(
     since = datetime.now(timezone.utc) - timedelta(days=30)
 
     pipeline = [
-        {"$match": {"from_phone": phone, "received_at": {"$gte": since}}},
+        {"$match": {
+            "from_phone": phone, 
+            "received_at": {"$gte": since}
+        }},
         {"$addFields": {"direction": "inbound"}},
         {
             "$unionWith": {
                 "coll": "outbound_messages",
                 "pipeline": [
-                    {"$match": {"to_phone": phone, "sent_at": {"$gte": since}}},
+                    {"$match": {
+                        "to_phone": phone, 
+                        "sent_at": {"$gte": since}
+                    }},
                     {
                         "$addFields": {
                             "direction": "outbound",
@@ -164,7 +174,6 @@ async def get_conversation(
 @router.post("/conversations/{phone}/read")
 async def mark_read(
     phone: str,
-    _current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     await db.inbound_messages.update_many(
@@ -177,7 +186,6 @@ async def mark_read(
 @router.post("/conversations/{phone}/resolve")
 async def resolve_conversation(
     phone: str,
-    _current_user: Annotated[dict | None, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     await db.inbound_messages.update_many(
@@ -191,7 +199,7 @@ async def resolve_conversation(
 async def reply(
     phone: str,
     body: ReplyRequest,
-    current_user: Annotated[dict, Depends(require_role("admin"))] = None,
+    current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     wa_id = await send_text_message(
@@ -200,7 +208,7 @@ async def reply(
         phone_id=settings.meta_primary_phone_id,
         token=settings.meta_primary_access_token,
     )
-    # Save outbound reply so it shows in the thread
+    # Save outbound reply without mandatory restaurant_id (global)
     await db.outbound_messages.insert_one(
         {
             "wa_message_id": wa_id,

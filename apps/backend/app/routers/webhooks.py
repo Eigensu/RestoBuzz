@@ -126,6 +126,19 @@ async def _process_payload(db, payload: dict) -> None:
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
+            metadata = value.get("metadata", {})
+            # This is the Meta Phone Number ID that received the message
+            recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
+
+            # 1. Resolve restaurant_id from recipient_id
+            restaurant_id = None
+            if recipient_id:
+                # Store resolved RID in a local cache for this batch if needed, 
+                # but a simple DB fetch is safe.
+                rest_doc = await db.restaurants.find_one({"wa_phone_ids": recipient_id})
+                if rest_doc:
+                    restaurant_id = rest_doc.get("id") or str(rest_doc["_id"])
+
             messages = value.get("messages", [])
             contacts = {
                 c["wa_id"]: c.get("profile", {}).get("name")
@@ -192,6 +205,10 @@ async def _process_payload(db, payload: dict) -> None:
                     "is_read": False,
                     "received_at": datetime.now(timezone.utc),
                     "raw_payload": msg,
+                    "restaurant_id": restaurant_id,  # Mandatory for tenant-scoping
+                    "wa_phone_id": recipient_id,
+                    # If restaurant_id is None, it effectively quarantines the message 
+                    # from all tenant-scoped APIs.
                 }
 
                 result = await db.inbound_messages.update_one(

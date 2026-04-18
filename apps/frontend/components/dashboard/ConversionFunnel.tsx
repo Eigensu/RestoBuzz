@@ -16,7 +16,7 @@ export function ConversionFunnel({
         subtitle="Conversion funnel analysis with drop-off impact"
       />
       <div className="h-[300px] w-full min-w-0 mt-4">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <FunnelChart>
             <Tooltip
               formatter={(value, _name, props) => [
