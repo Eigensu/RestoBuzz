@@ -1,0 +1,55 @@
+[
+  {
+    "_id": "69c931c0f2e97b0bcb05b342",
+    "id": "r1",
+    "color": "bg-orange-500",
+    "emoji": "\ud83c\udf54",
+    "location": "Mahalaxmi",
+    "name": "Soraia"
+  },
+  {
+    "_id": "69c931c0f2e97b0bcb05b343",
+    "id": "r2",
+    "color": "bg-pink-500",
+    "emoji": "\ud83c\udf63",
+    "location": "Mahalaxmi",
+    "name": "Fielia"
+  },
+  {
+    "_id": "69c931c1f2e97b0bcb05b344",
+    "id": "r3",
+    "color": "bg-red-500",
+    "emoji": "\ud83c\udf55",
+    "location": "Bandra",
+    "name": "Gigi"
+  },
+  {
+    "_id": "69c931c1f2e97b0bcb05b345",
+    "id": "r4",
+    "color": "bg-yellow-500",
+    "emoji": "\ud83c\udf5b",
+    "location": "Bandra",
+    "name": "Scarlett House Bandra"
+  },
+  {
+    "_id": "69c931c1f2e97b0bcb05b346",
+    "id": "r5",
+    "color": "bg-green-500",
+    "emoji": "\ud83e\udd57",
+    "location": "Juhu",
+    "name": "Scarlett House Juhu"
+  },
+  {
+    "_id": "69c931c1f2e97b0bcb05b347",
+    "id": "r6",
+    "color": "bg-blue-500",
+    "emoji": "\ud83e\udd9e",
+    "location": "Khar",
+    "name": "Sweeney",
+    "member_categories": [
+      "nfc",
+      "ecard",
+      "testing"
+    ]
+  }
+]

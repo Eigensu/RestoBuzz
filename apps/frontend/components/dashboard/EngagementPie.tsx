@@ -29,7 +29,7 @@ export function EngagementPie({
         subtitle="Proportions of Sent, Delivered, and Replied"
       />
       <div className="h-[300px] w-full min-w-0 mt-4">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <PieChart>
             <Pie
               data={data}

@@ -3,7 +3,18 @@ from typing import Literal
 from datetime import datetime
 
 
-MessageType = Literal["text", "image", "document", "location", "sticker", "unknown"]
+MessageType = Literal[
+    "text",
+    "image",
+    "document",
+    "location",
+    "sticker",
+    "interactive",
+    "button",
+    "audio",
+    "video",
+    "unknown",
+]
 Direction = Literal["inbound", "outbound"]
 
 

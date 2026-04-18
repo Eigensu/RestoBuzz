@@ -4,13 +4,13 @@ function getQuickReplies(lastMsg: InboundMessage | undefined): string[] {
   if (lastMsg?.direction !== "inbound") return [];
   if (lastMsg.message_type === "location")
     return [
-      "I can see you! Head to the main entrance 🚪",
+      "I can see you! Head to the main entrance ",
       "We're just 2 minutes from your location!",
       "Our team is on the way to guide you.",
     ];
   if (lastMsg.message_type === "image")
     return [
-      "Thank you for sharing! Looks amazing 😍",
+      "Thank you for sharing! Looks amazing",
       "We'd love to repost this — may we?",
       "So glad you caught that moment with us!",
     ];
@@ -21,6 +21,11 @@ function getQuickReplies(lastMsg: InboundMessage | undefined): string[] {
       "We'll get back to you within 24 hours.",
     ];
   const body = (lastMsg.body ?? "").toLowerCase();
+  if (/benefit|insurance|policy|hr|onboard/.test(body))
+    return [
+      "Feel free to reach out if you have any questions!",
+      "Let me know once you've had a chance to review it.",
+    ];
   if (/table|reserv|book|seat/.test(body))
     return [
       "Yes, table confirmed! ✅",
@@ -30,7 +35,7 @@ function getQuickReplies(lastMsg: InboundMessage | undefined): string[] {
     ];
   if (/menu|food|dish|eat|veg|allergi/.test(body))
     return [
-      "Here's our menu 📄",
+      "Here's our menu",
       "We have great vegetarian options!",
       "Our chef's special tonight is the tasting menu.",
       "Any dietary requirements I should note?",
@@ -61,7 +66,7 @@ function getQuickReplies(lastMsg: InboundMessage | undefined): string[] {
     ];
   return [
     "Sure, let me check that for you!",
-    "Thanks for reaching out 🙏",
+    "Thanks for reaching out",
     "We'll get back to you shortly.",
     "Happy to help!",
   ];

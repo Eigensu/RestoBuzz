@@ -8,6 +8,7 @@ from app.database import get_db
 from app.core.logging import get_logger
 from app.core.errors import WebhookSignatureError
 from app.services.message_types import normalize_message_type
+from app.services.meta_api import send_text_message, MetaAPIError
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -96,10 +97,63 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
 STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
 
+async def _send_benefits_reply(db, to: str, restaurant_id: str = None, phone_id: str = None) -> None:
+    """Send the benefits link as a text reply and persist it to outbound_messages."""
+    link = settings.benefits_link
+    if not link:
+        logger.warning("benefits_link_not_configured", to=to)
+        return
+
+    # Use provided phone_id (the recipient_id/bot id) or fallback to primary
+    phone_id = phone_id or settings.meta_primary_phone_id
+    token = settings.meta_primary_access_token
+    if not phone_id or not token:
+        logger.error("meta_primary_credentials_missing", to=to)
+        return
+
+    try:
+        body = f"Here's your link: {link}"
+        wa_id = await send_text_message(
+            to=to,
+            body=body,
+            phone_id=phone_id,
+            token=token,
+        )
+        # Persist to database so it shows up in the chat thread
+        outbound_doc = {
+            "wa_message_id": wa_id,
+            "to_phone": to,
+            "body": body,
+            "status": "sent",
+            "sent_at": datetime.now(timezone.utc),
+            "restaurant_id": restaurant_id,
+            "wa_phone_id": phone_id,
+            "sender_name": "System (Auto-Response)",
+            "channel": "whatsapp"
+        }
+        await db.outbound_messages.insert_one(outbound_doc)
+        logger.info("benefits_reply_sent", to=to, wa_id=wa_id)
+    except Exception as e:
+        logger.error("benefits_reply_failed", to=to, error=str(e))
+
+
 async def _process_payload(db, payload: dict) -> None:
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
+            metadata = value.get("metadata", {})
+            # This is the Meta Phone Number ID that received the message
+            recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
+
+            # 1. Resolve restaurant_id from recipient_id
+            restaurant_id = None
+            if recipient_id:
+                # Store resolved RID in a local cache for this batch if needed, 
+                # but a simple DB fetch is safe.
+                rest_doc = await db.restaurants.find_one({"wa_phone_ids": recipient_id})
+                if rest_doc:
+                    restaurant_id = rest_doc.get("id") or str(rest_doc["_id"])
+
             messages = value.get("messages", [])
             contacts = {
                 c["wa_id"]: c.get("profile", {}).get("name")
@@ -126,19 +180,14 @@ async def _process_payload(db, payload: dict) -> None:
                     media_url = media_obj.get("url") or media_obj.get("link")
                     media_mime = media_obj.get("mime_type")
                     body_text = media_obj.get("caption") or media_obj.get("filename")
-                elif msg_type == "location":
-                    loc = msg.get("location", {})
-                    location = {
-                        "lat": loc.get("latitude"),
-                        "lng": loc.get("longitude"),
-                        "name": loc.get("name"),
-                    }
                 elif msg_type == "button":
-                    body_text = msg.get("button", {}).get("text", "")
+                    btn = msg.get("button", {})
+                    body_text = btn.get("text", "")
                 elif msg_type == "interactive":
                     interactive = msg.get("interactive", {})
+                    button_reply = interactive.get("button_reply", {})
                     body_text = (
-                        interactive.get("button_reply", {}).get("title")
+                        button_reply.get("title")
                         or interactive.get("list_reply", {}).get("title")
                         or ""
                     )
@@ -155,6 +204,10 @@ async def _process_payload(db, payload: dict) -> None:
                     "is_read": False,
                     "received_at": datetime.now(timezone.utc),
                     "raw_payload": msg,
+                    "restaurant_id": restaurant_id,  # Mandatory for tenant-scoping
+                    "wa_phone_id": recipient_id,
+                    # If restaurant_id is None, it effectively quarantines the message 
+                    # from all tenant-scoped APIs.
                 }
 
                 result = await db.inbound_messages.update_one(
@@ -170,6 +223,19 @@ async def _process_payload(db, payload: dict) -> None:
                         type=msg_type,
                         wa_id=wa_id,
                     )
+
+                    # Trigger automated benefits response if button id matches
+                    # (Checked after idempotency to prevent duplicate replies)
+                    if msg_type == "interactive":
+                        interactive = msg.get("interactive", {})
+                        if interactive.get("button_reply", {}).get("id") == "get_benefits":
+                            await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
+                    elif msg_type == "button":
+                        btn = msg.get("button", {})
+                        btn_payload = (btn.get("payload") or "").strip().lower()
+                        btn_text = (btn.get("text") or "").strip().lower()
+                        if btn_payload == "get_benefits" or btn_text == "get the benefits":
+                            await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
 
                     if body_text and body_text.strip().lower() in STOP_KEYWORDS:
                         await db.suppression_list.update_one(
@@ -193,15 +259,31 @@ async def _process_payload(db, payload: dict) -> None:
                 if not wa_id or not wa_status:
                     continue
 
-                if wa_status not in {"queued", "sending", "sent", "delivered", "read", "failed", "cancelled"}:
-                    logger.warning("webhook_invalid_status", wa_id=wa_id, status=wa_status)
+                if wa_status not in {
+                    "queued",
+                    "sending",
+                    "sent",
+                    "delivered",
+                    "read",
+                    "failed",
+                    "cancelled",
+                }:
+                    logger.warning(
+                        "webhook_invalid_status", wa_id=wa_id, status=wa_status
+                    )
                     continue
 
                 # Update outbound_messages (inbox replies) in real time;
                 # campaign-related status handling (message_logs, status_history,
                 # counters, etc.) is delegated to the Celery worker.
                 result = await db.outbound_messages.update_one(
-                    {"wa_message_id": wa_id}, {"$set": {"status": wa_status, "updated_at": datetime.now(timezone.utc)}}
+                    {"wa_message_id": wa_id},
+                    {
+                        "$set": {
+                            "status": wa_status,
+                            "updated_at": datetime.now(timezone.utc),
+                        }
+                    },
                 )
                 if result.modified_count > 0:
                     logger.info(
@@ -287,11 +369,15 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
     if not email_id or new_status is None:
         return {"status": "ok"}
 
-    await _process_resend_status_update(db, email_id, new_status, event_type, svix_id, data)
+    await _process_resend_status_update(
+        db, email_id, new_status, event_type, svix_id, data
+    )
     return {"status": "ok"}
 
 
-async def _process_resend_status_update(db, email_id, new_status, event_type, svix_id, data):
+async def _process_resend_status_update(
+    db, email_id, new_status, event_type, svix_id, data
+):
     now = datetime.now(timezone.utc)
     status_order = ["queued", "sending", "sent", "delivered", "opened", "clicked"]
     terminal_statuses = {"bounced", "failed", "complained", "suppressed"}

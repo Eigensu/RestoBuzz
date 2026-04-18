@@ -8,6 +8,7 @@ class RestaurantResponse(BaseModel):
     emoji: str
     color: str  # tailwind bg color class
     member_categories: list[str] = ["nfc", "ecard"]
+    wa_phone_ids: list[str] = []
 
 
 class UpdateCategoriesRequest(BaseModel):

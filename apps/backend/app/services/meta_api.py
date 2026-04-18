@@ -320,6 +320,55 @@ async def edit_template(template_id: str, token: str, components: list) -> dict:
         raise MetaAPIError("network_error", str(e)) from e
 
 
+async def send_interactive_quick_reply(
+    to: str,
+    body_text: str,
+    buttons: list[dict],
+    phone_id: str,
+    token: str,
+    header_text: str | None = None,
+    footer_text: str | None = None,
+) -> str:
+    """Send an interactive message with quick-reply buttons.
+
+    Each button in `buttons` must be: {"id": "...", "title": "..."}
+    Returns the wa_message_id on success.
+    """
+    interactive: dict = {
+        "type": "button",
+        "body": {"text": body_text},
+        "action": {
+            "buttons": [
+                {"type": "reply", "reply": {"id": btn["id"], "title": btn["title"]}}
+                for btn in buttons
+            ]
+        },
+    }
+    if header_text:
+        interactive["header"] = {"type": "text", "text": header_text}
+    if footer_text:
+        interactive["footer"] = {"text": footer_text}
+
+    url = f"{META_BASE}/{phone_id}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "interactive",
+        "interactive": interactive,
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        data = resp.json()
+        if resp.status_code == 200:
+            wa_id = data["messages"][0]["id"]
+            logger.info("meta_interactive_sent", to=to, wa_id=wa_id)
+            return wa_id
+        error = data.get("error", {})
+        raise MetaAPIError(str(error.get("code", "unknown")), error.get("message", ""))
+
+
 async def send_text_message(to: str, body: str, phone_id: str, token: str) -> str:
     url = f"{META_BASE}/{phone_id}/messages"
     payload = {

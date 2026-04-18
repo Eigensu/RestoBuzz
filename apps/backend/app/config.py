@@ -24,7 +24,10 @@ class Settings(BaseSettings):
         default="mongodb://localhost:27017/dishpatch",
         validation_alias=AliasChoices("MONGODB_URL_PROD", "MONGODB_URL"),
     )
-    mongodb_db_name: str = "restobuzz"  # leave blank to derive from URL path, or set a default
+    mongodb_db_name: str = Field(
+        default="",
+        validation_alias=AliasChoices("MONGODB_DB_NAME"),
+    )  # leave blank to derive from URL path
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -52,8 +55,12 @@ class Settings(BaseSettings):
     cloudinary_api_secret: str = ""
 
     # Resend (Email)
-    resend_api_key: str = Field(default="", validation_alias=AliasChoices("RESEND_API_KEY"))
-    resend_webhook_secret: str = Field(default="", validation_alias=AliasChoices("RESEND_WEBHOOK_SECRET"))
+    resend_api_key: str = Field(
+        default="", validation_alias=AliasChoices("RESEND_API_KEY")
+    )
+    resend_webhook_secret: str = Field(
+        default="", validation_alias=AliasChoices("RESEND_WEBHOOK_SECRET")
+    )
     resend_from_email: str = Field(
         default="RestoBuzz <noreply@restobuzz.com>",
         validation_alias=AliasChoices("RESEND_FROM_EMAIL"),
@@ -72,6 +79,12 @@ class Settings(BaseSettings):
     admin_email: str = "admin@example.com"
     admin_password: str = ""
     reset_password: bool = False
+
+    # WhatsApp quick-reply auto-response
+    # The link sent automatically when a user taps the "Get the benefits" button
+    benefits_link: str = Field(
+        default="", validation_alias=AliasChoices("BENEFITS_LINK")
+    )
 
     # ReserveGo upload portal credentials
     reservego_user: str = ""

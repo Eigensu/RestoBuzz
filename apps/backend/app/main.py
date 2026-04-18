@@ -23,6 +23,7 @@ from app.routers import (
     email_templates,
     email_campaigns,
     reservego,
+    reports,
 )
 from app.sse.campaign_stream import router as sse_router
 
@@ -102,3 +103,4 @@ app.include_router(restaurants.router, prefix="/api")
 app.include_router(email_templates.router, prefix="/api")
 app.include_router(email_campaigns.router, prefix="/api")
 app.include_router(reservego.router, prefix="/api")
+app.include_router(reports.router, prefix="/api")

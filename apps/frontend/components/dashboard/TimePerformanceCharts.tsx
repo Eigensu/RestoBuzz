@@ -44,7 +44,7 @@ export function TimePerformanceCharts({
             subtitle="Root causes for unsuccessful deliveries"
           />
           <div className="h-[280px] w-full mt-4 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <BarChart
                 layout="vertical"
                 data={failureBreakdown}
@@ -144,7 +144,7 @@ export function TimePerformanceCharts({
               subtitle="Interaction density and read rate distribution"
             />
             <div className="h-[280px] w-full mt-4 min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <BarChart
                   data={hourlyPerformance}
                   margin={{ top: 20, right: 30, left: 20, bottom: 30 }}
@@ -281,7 +281,7 @@ export function TimePerformanceCharts({
               subtitle="How fast users interact with messages"
             />
             <div className="h-[280px] w-full mt-4 min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <BarChart
                   data={ttrDistribution}
                   margin={{ top: 20, right: 30, left: 10, bottom: 40 }}
@@ -385,7 +385,7 @@ export function TimePerformanceCharts({
             subtitle="Chronological performance tracking (Last 14 Days)"
           />
           <div className="h-[320px] w-full mt-4 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <LineChart data={timeSeriesData}>
                 <CartesianGrid
                   strokeDasharray="3 3"
