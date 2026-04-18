@@ -32,11 +32,33 @@ router = APIRouter(prefix="/reservego", tags=["reservego"])
 _bearer = HTTPBearer()
 _executor = ThreadPoolExecutor(max_workers=2)
 
-# ── String constants (avoids Sonar duplicate-literal warnings) ────────────────
+# ── Shared Constants (SonarCloud Hardening) ───────────────────────────────────
+_MONGO_GROUP = "$group"
+_MONGO_LIMIT = "$limit"
+_MONGO_MATCH = "$match"
+_MONGO_SORT = "$sort"
+_MONGO_SUM = "$sum"
+_MONGO_AVG = "$avg"
+_MONGO_YEAR = "$year"
+_MONGO_MONTH = "$month"
+_MONGO_BUCKET = "$bucket"
+_MONGO_FIRST = "$first"
+_MONGO_LOOKUP = "$lookup"
+_MONGO_REGEX = "$regex"
+_MONGO_OPTIONS = "$options"
+
+_COL_PHONE_NUMBER = "phone number"
+_COL_EMAIL_ID = "email id"
+_COL_TOTAL_VISITS = "total visits"
 _COL_GUEST_NAME = "guest name"
 _COL_BILL_AMOUNT = "bill amount"
 _COL_BILL_NUMBER = "bill number"
 _COL_BOOKING_TIME = "booking time"
+_COL_GUEST_NUMBER = "guest number"
+_COL_GUEST_EMAIL = "guest email"
+_COL_LAST_VISITED = "last visited date"
+
+_FLD_BILL_AMOUNT = "$bill_amount"
 
 
 class _PortalNotConfiguredError(AppError):
@@ -51,24 +73,10 @@ GUEST_PROFILE_HEADERS = [
     _COL_TOTAL_VISITS,
     "source",
     "mode",
-    "last visited date",
+    _COL_LAST_VISITED,
     "birthday",
     "anniversary",
 ]
-
-# ── SonarCloud Hardening ──────────────────────────────────────────────────────
-_MONGO_GROUP = "$group"
-_MONGO_LIMIT = "$limit"
-_MONGO_MATCH = "$match"
-_MONGO_SORT = "$sort"
-_MONGO_SUM = "$sum"
-_MONGO_AVG = "$avg"
-_MONGO_YEAR = "$year"
-_MONGO_MONTH = "$month"
-_MONGO_BUCKET = "$bucket"
-_COL_PHONE_NUMBER = "phone number"
-_COL_EMAIL_ID = "email id"
-_COL_TOTAL_VISITS = "total visits"
 
 BILL_HEADERS = [
     "sno",
@@ -78,8 +86,8 @@ BILL_HEADERS = [
     "reserved time",
     "booking type",
     _COL_GUEST_NAME,
-    "guest number",
-    "guest email",
+    _COL_GUEST_NUMBER,
+    _COL_GUEST_EMAIL,
     "pax",
     "reserved by",
     "section(s)",

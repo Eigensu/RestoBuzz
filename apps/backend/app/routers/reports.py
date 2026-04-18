@@ -41,6 +41,21 @@ _SUMMARY_CACHE_TTL = 300  # 5 minutes
 _MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+# ── SonarCloud Hardening ──────────────────────────────────────────────────────
+_MONGO_GROUP = "$group"
+_MONGO_MATCH = "$match"
+_MONGO_SORT = "$sort"
+_MONGO_FIRST = "$first"
+_MONGO_SUM = "$sum"
+_MONGO_COUNT = "$count"
+_MONGO_LIMIT = "$limit"
+_MONGO_LT = "$lt"
+_MONGO_GTE = "$gte"
+_MONGO_LTE = "$lte"
+_MONGO_IN = "$in"
+_MONGO_REGEX = "$regex"
+_MONGO_OPTIONS = "$options"
+
 
 # ── Date helpers ───────────────────────────────────────────────────────────────
 
@@ -370,12 +385,12 @@ async def member_summary(
 
     # Monthly growth trend
     growth_raw = await db.members.aggregate([
-        {"$match": {"restaurant_id": {"$in": rids}, "joined_at": {"$gte": from_dt, "$lte": to_dt}}},
-        {"$group": {
+        {_MONGO_MATCH: {"restaurant_id": {_MONGO_IN: rids}, "joined_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt}}},
+        {_MONGO_GROUP: {
             "_id": {"year": {"$year": "$joined_at"}, "month": {"$month": "$joined_at"}},
-            "count": {"$sum": 1},
+            "count": {_MONGO_SUM: 1},
         }},
-        {"$sort": {"_id.year": 1, "_id.month": 1}},
+        {_MONGO_SORT: {"_id.year": 1, "_id.month": 1}},
     ]).to_list(24)
     monthly_growth = [
         {
@@ -388,9 +403,9 @@ async def member_summary(
     # Category split - scoped to restaurant but NOT the current date filter
     # (Shows the composition of the ENTIRE member base)
     cat_raw = await db.members.aggregate([
-        {"$match": {"restaurant_id": {"$in": rids}, "is_active": True}},
-        {"$group": {"_id": "$type", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
+        {_MONGO_MATCH: {"restaurant_id": {_MONGO_IN: rids}, "is_active": True}},
+        {_MONGO_GROUP: {"_id": "$type", "count": {_MONGO_SUM: 1}}},
+        {_MONGO_SORT: {"count": -1}},
     ]).to_list(20)
     category_split = [{"category": r["_id"] or "unknown", "count": r["count"]} for r in cat_raw]
 
@@ -483,6 +498,68 @@ async def member_export(
     return _export_response(rows, headers, filename, format)
 
 
+async def _get_wa_logs(db, rids, from_dt, to_dt, status, search, after_id, page_size):
+    wa_q: dict = {
+        "job_id": {_MONGO_IN: rids},
+        "created_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
+    }
+    if status:
+        wa_q["status"] = status
+    if search:
+        wa_q["to_phone"] = {_MONGO_REGEX: search, _MONGO_OPTIONS: "i"}
+    if after_id:
+        try:
+            wa_q["_id"] = {_MONGO_LT: ObjectId(after_id)}
+        except Exception:
+            pass
+
+    logs = []
+    async for doc in db.message_logs.find(wa_q).sort("_id", -1).limit(page_size):
+        logs.append({
+            "id": str(doc["_id"]),
+            "channel": "whatsapp",
+            "recipient": doc.get("to_phone", ""),
+            "recipient_name": doc.get("name", ""),
+            "campaign_id": str(doc.get("job_id", "")),
+            "status": doc.get("status", ""),
+            "error_reason": doc.get("error_message", ""),
+            "retry_count": doc.get("retry_count", 0),
+            "created_at": doc["created_at"].isoformat(),
+        })
+    return logs
+
+
+async def _get_email_logs(db, rids, from_dt, to_dt, status, search, after_id, page_size):
+    email_q: dict = {
+        "campaign_id": {_MONGO_IN: rids},
+        "created_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
+    }
+    if status:
+        email_q["status"] = status
+    if search:
+        email_q["recipient_email"] = {_MONGO_REGEX: search, _MONGO_OPTIONS: "i"}
+    if after_id:
+        try:
+            email_q["_id"] = {_MONGO_LT: ObjectId(after_id)}
+        except Exception:
+            pass
+
+    logs = []
+    async for doc in db.email_logs.find(email_q).sort("_id", -1).limit(page_size):
+        logs.append({
+            "id": str(doc["_id"]),
+            "channel": "email",
+            "recipient": doc.get("recipient_email", ""),
+            "recipient_name": doc.get("recipient_name", ""),
+            "campaign_id": str(doc.get("campaign_id", "")),
+            "status": doc.get("status", ""),
+            "error_reason": doc.get("error_reason", ""),
+            "retry_count": doc.get("retry_count", 0),
+            "created_at": doc["created_at"].isoformat(),
+        })
+    return logs
+
+
 # ── Delivery Logs ──────────────────────────────────────────────────────────────
 
 @router.get("/logs")
@@ -499,83 +576,19 @@ async def delivery_logs(
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
 ):
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
-    rid = restaurant["id"]
-    rid_oid = str(restaurant.get("_id"))
-    rids = list({rid, rid_oid} - {None})
-
-    # Gather tenant-scoped job IDs
-    wa_job_ids = (
-        [doc["_id"] async for doc in db.campaign_jobs.find({"restaurant_id": {"$in": rids}}, {"_id": 1})]
-        if channel in (None, "whatsapp") else []
-    )
-    email_job_ids = (
-        [doc["_id"] async for doc in db.email_campaign_jobs.find({"restaurant_id": {"$in": rids}}, {"_id": 1})]
-        if channel in (None, "email") else []
-    )
+    rids = list({restaurant["id"], str(restaurant.get("_id"))} - {None})
 
     results: list[dict] = []
 
-    # ------------------------------------------------------------------
-    # WhatsApp logs
-    # ------------------------------------------------------------------
-    if wa_job_ids:
-        wa_q: dict = {
-            "job_id": {"$in": wa_job_ids},
-            "created_at": {"$gte": from_dt, "$lte": to_dt},
-        }
-        if status:
-            wa_q["status"] = status
-        if search:
-            wa_q["to_phone"] = {"$regex": search, "$options": "i"}
-        if after_id:
-            try:
-                wa_q["_id"] = {"$lt": ObjectId(after_id)}
-            except Exception:
-                pass
+    if channel in (None, "whatsapp"):
+        wa_job_ids = [doc["_id"] async for doc in db.campaign_jobs.find({"restaurant_id": {_MONGO_IN: rids}}, {"_id": 1})]
+        if wa_job_ids:
+            results.extend(await _get_wa_logs(db, wa_job_ids, from_dt, to_dt, status, search, after_id, page_size))
 
-        async for doc in db.message_logs.find(wa_q).sort("_id", -1).limit(page_size):
-            results.append({
-                "id": str(doc["_id"]),
-                "channel": "whatsapp",
-                "recipient": doc.get("to_phone", ""),
-                "recipient_name": doc.get("name", ""),
-                "campaign_id": str(doc.get("job_id", "")),
-                "status": doc.get("status", ""),
-                "error_reason": doc.get("error_message", ""),
-                "retry_count": doc.get("retry_count", 0),
-                "created_at": doc["created_at"].isoformat(),
-            })
-
-    # ------------------------------------------------------------------
-    # Email logs
-    # ------------------------------------------------------------------
-    if email_job_ids:
-        email_q: dict = {
-            "campaign_id": {"$in": email_job_ids},
-            "created_at": {"$gte": from_dt, "$lte": to_dt},
-        }
-        if status:
-            email_q["status"] = status
-        if search:
-            email_q["recipient_email"] = {"$regex": search, "$options": "i"}
-        if after_id:
-            try:
-                email_q["_id"] = {"$lt": ObjectId(after_id)}
-            except Exception:
-                pass
-
-        async for doc in db.email_logs.find(email_q).sort("_id", -1).limit(page_size):
-            results.append({
-                "id": str(doc["_id"]),
-                "channel": "email",
-                "recipient": doc.get("recipient_email", ""),
-                "recipient_name": doc.get("recipient_name", ""),
-                "campaign_id": str(doc.get("campaign_id", "")),
-                "status": doc.get("status", ""),
-                "error_reason": doc.get("error_reason", ""),
-                "retry_count": doc.get("retry_count", 0),
-                "created_at": doc["created_at"].isoformat(),
-            })
+    if channel in (None, "email"):
+        email_job_ids = [doc["_id"] async for doc in db.email_campaign_jobs.find({"restaurant_id": {_MONGO_IN: rids}}, {"_id": 1})]
+        if email_job_ids:
+            results.extend(await _get_email_logs(db, email_job_ids, from_dt, to_dt, status, search, after_id, page_size))
 
     # Merge-sort and slice
     results.sort(key=lambda x: x["created_at"], reverse=True)
@@ -598,9 +611,7 @@ async def export_logs(
 ):
     _MAX_EXPORT_ROWS = 5000
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
-    rid = restaurant["id"]
-    rid_oid = str(restaurant.get("_id"))
-    rids = list(set([rid, rid_oid]) - {None})
+    rids = list({restaurant["id"], str(restaurant.get("_id"))} - {None})
 
     headers = ["Timestamp", "Channel", "Recipient", "Name",
                "Campaign ID", "Status", "Error Reason", "Retry Count"]
@@ -609,8 +620,8 @@ async def export_logs(
     wa_job_ids = [doc["_id"] async for doc in db.campaign_jobs.find({"restaurant_id": {"$in": rids}}, {"_id": 1})]
     if channel in (None, "whatsapp") and wa_job_ids:
         wa_q: dict = {
-            "job_id": {"$in": wa_job_ids},
-            "created_at": {"$gte": from_dt, "$lte": to_dt},
+            "job_id": {_MONGO_IN: wa_job_ids},
+            "created_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
         }
         if status:
             wa_q["status"] = status
@@ -629,8 +640,8 @@ async def export_logs(
     email_job_ids = [doc["_id"] async for doc in db.email_campaign_jobs.find({"restaurant_id": {"$in": rids}}, {"_id": 1})]
     if channel in (None, "email") and email_job_ids:
         email_q: dict = {
-            "campaign_id": {"$in": email_job_ids},
-            "created_at": {"$gte": from_dt, "$lte": to_dt},
+            "campaign_id": {_MONGO_IN: email_job_ids},
+            "created_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
         }
         if status:
             email_q["status"] = status
@@ -649,7 +660,7 @@ async def export_logs(
     rows.sort(key=lambda x: x[0], reverse=True)
 
     filename = f"delivery_logs_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(db, current_user, rid, "logs", format, {
+    await _audit_export(db, current_user, restaurant["id"], "logs", format, {
         "from": str(from_dt.date()), "to": str(to_dt.date()),
         "channel": channel, "status": status,
     })
@@ -669,10 +680,10 @@ async def _build_inbox_data(
     # and includes potential members (anonymous senders).
     # The report is now GLOBAL (irrespective of rid) but includes restaurant attribution
     pipeline = [
-        {"$match": {
-            "received_at": {"$gte": from_dt, "$lte": to_dt}
+        {_MONGO_MATCH: {
+            "received_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt}
         }},
-        {"$sort": {"received_at": -1}},
+        {_MONGO_SORT: {"received_at": -1}},
         {
             "$lookup": {
                 "from": "members",
@@ -707,17 +718,17 @@ async def _build_inbox_data(
             }
         },
         {
-            "$group": {
+            _MONGO_GROUP: {
                 "_id": "$from_phone",
-                "name": {"$first": "$displayName"},
-                "restaurant_id": {"$first": "$restaurant_id"},
-                "restaurant_name": {"$first": "$restaurantName"},
-                "message_count": {"$sum": 1},
-                "last_message": {"$first": "$body"},
+                "name": {_MONGO_FIRST: "$displayName"},
+                "restaurant_id": {_MONGO_FIRST: "$restaurant_id"},
+                "restaurant_name": {_MONGO_FIRST: "$restaurantName"},
+                "message_count": {_MONGO_SUM: 1},
+                "last_message": {_MONGO_FIRST: "$body"},
                 "last_received_at": {"$max": "$received_at"},
             }
         },
-        {"$sort": {"message_count": -1}},
+        {_MONGO_SORT: {"message_count": -1}},
     ]
 
     engaged_customers = await db.inbound_messages.aggregate(pipeline).to_list(1000)

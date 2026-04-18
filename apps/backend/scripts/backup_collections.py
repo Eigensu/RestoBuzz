@@ -34,9 +34,12 @@ async def backup():
             return obj
 
         filepath = os.path.join(backup_dir, f"{coll_name}_{timestamp}.json")
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(docs, f, default=serialize, indent=2)
         
+        def _write():
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(docs, f, default=serialize, indent=2)
+
+        await asyncio.to_thread(_write)
         print(f"  Saved {len(docs)} documents to {filepath}")
 
     client.close()

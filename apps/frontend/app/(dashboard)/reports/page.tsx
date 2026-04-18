@@ -508,10 +508,11 @@ function LogsTab({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label htmlFor="log-status" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
             Status
           </label>
           <select
+            id="log-status"
             value={status}
             onChange={(e) => onStatus(e.target.value)}
             className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 bg-white min-w-[140px]"
@@ -903,10 +904,11 @@ export default function ReportsPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end bg-white border border-gray-100 rounded-2xl shadow-sm p-4">
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label htmlFor="from-date" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
             From
           </label>
           <input
+            id="from-date"
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
@@ -914,10 +916,11 @@ export default function ReportsPage() {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label htmlFor="to-date" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
             To
           </label>
           <input
+            id="to-date"
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
@@ -925,10 +928,11 @@ export default function ReportsPage() {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label htmlFor="channel-select" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
             Channel
           </label>
           <select
+            id="channel-select"
             value={channel}
             onChange={(e) => setChannel(e.target.value)}
             className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 bg-white min-w-[140px]"

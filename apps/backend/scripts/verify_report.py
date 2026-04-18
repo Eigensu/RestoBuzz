@@ -56,7 +56,7 @@ async def verify():
     total_messages = sum(r["message_count"] for r in results)
     unique_senders = len(results)
     
-    print(f"Report Validation Results:")
+    print("Report Validation Results:")
     print(f"  Total Messages (Global): {total_messages}")
     print(f"  Unique Senders: {unique_senders}")
     

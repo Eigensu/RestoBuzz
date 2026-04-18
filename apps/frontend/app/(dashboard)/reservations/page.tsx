@@ -42,6 +42,9 @@ const COLORS = [
   "#6aaa82",
 ];
 
+const LegendLabel = (v: string) => <span className="text-xs text-gray-600">{v}</span>;
+const ChartTooltipFormatter = (v: any) => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v ?? ""));
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number) {
   if (n >= 10_000_000) return `₹${(n / 10_000_000).toFixed(1)}Cr`;
@@ -179,17 +182,17 @@ export default function ReservationsPage() {
           </h1>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          {[...new Array(8)].map((_, i) => (
+          {Array.from({ length: 8 }).map((_, i) => (
             <div
-              key={i}
+              key={`stat-skel-${i}`}
               className="bg-white rounded-2xl border border-gray-100 h-24 animate-pulse"
             />
           ))}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[...Array(4)].map((_, i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <div
-              key={i}
+              key={`chart-skel-${i}`}
               className="bg-white rounded-2xl border border-gray-100 h-64 animate-pulse"
             />
           ))}
@@ -491,10 +494,10 @@ export default function ReservationsPage() {
                 tick={{ fontSize: 11, fill: "#9ca3af" }}
                 width={55}
               />
-              <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
+              <Tooltip formatter={ChartTooltipFormatter} />
               <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                 {visit_distribution.map((v, i) => (
-                  <Cell key={v.label} fill={COLORS[i % COLORS.length]} />
+                  <Cell key={`visit-${v.label}`} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Bar>
             </BarChart>
