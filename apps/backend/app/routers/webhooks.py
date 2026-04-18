@@ -9,6 +9,7 @@ from app.core.logging import get_logger
 from app.core.errors import WebhookSignatureError
 from app.services.message_types import normalize_message_type
 from app.services.meta_api import send_text_message, MetaAPIError
+from app.services.alert_service import check_unread_threshold_alert
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -250,6 +251,16 @@ async def _process_payload(db, payload: dict) -> None:
                             upsert=True,
                         )
                         logger.info("auto_suppressed", phone=from_phone)
+
+                    # Trigger unread alert check
+                    if restaurant_id:
+                        # We don't await to avoid blocking the webhook response flow
+                        # but in this async environment it's fine unless it's slow.
+                        # Using BackgroundTasks would be better but requires passing it down.
+                        try:
+                            await check_unread_threshold_alert(db, restaurant_id)
+                        except Exception as e:
+                            logger.error("unread_alert_failed", restaurant_id=restaurant_id, error=str(e))
 
             # Handle status updates (delivered, read, failed)
             statuses = value.get("statuses", [])

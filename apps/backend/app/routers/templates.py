@@ -15,6 +15,7 @@ from app.services.meta_api import (
 )
 from app.core.errors import NotFoundError, ValidationError
 from app.config import settings
+from app.services.alert_service import handle_template_approval_alert
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -284,11 +285,29 @@ async def sync_templates(
         if lang:
             key["language"] = lang
         keys.append(key)
+        # Detect transition to APPROVED to trigger email alert
+        old_doc = await db.templates.find_one(key)
+        was_approved = old_doc and old_doc.get("status") == "APPROVED"
+        already_alerted = old_doc and old_doc.get("alert_sent")
+        is_approved = t.get("status") == "APPROVED"
+
+        update_fields = {**t, "synced_at": datetime.now(timezone.utc)}
+        if not was_approved and is_approved:
+            update_fields["alert_sent"] = True
+
         await db.templates.update_one(
             key,
-            {"$set": {**t, "synced_at": datetime.now(timezone.utc)}},
+            {"$set": update_fields},
             upsert=True,
         )
+
+        if not was_approved and is_approved and not already_alerted:
+            # Note: We trigger this after DB update to ensure state is consistent
+            try:
+                await handle_template_approval_alert(db, t["name"], t.get("language", "en_US"), t.get("category", "MARKETING"))
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"template_alert_failed name={t['name']} lang={t.get('language')} error={e}")
 
     # Remove templates that no longer exist in Meta for this workspace.
     if keys:
