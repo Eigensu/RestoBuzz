@@ -10,6 +10,7 @@ bulk_write so the entire sheet is one round-trip instead of N awaits.
 
 import io
 import asyncio
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from typing import Annotated
@@ -25,7 +26,7 @@ from app.config import settings
 from app.core.errors import InvalidCredentialsError, InvalidFileFormatError, AppError
 from app.core.security import _create_token, decode_token
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import require_role, validate_restaurant_access
 
 router = APIRouter(prefix="/reservego", tags=["reservego"])
 _bearer = HTTPBearer()
@@ -45,15 +46,29 @@ class _PortalNotConfiguredError(AppError):
 
 GUEST_PROFILE_HEADERS = [
     _COL_GUEST_NAME,
-    "phone number",
-    "email id",
-    "total visits",
+    _COL_PHONE_NUMBER,
+    _COL_EMAIL_ID,
+    _COL_TOTAL_VISITS,
     "source",
     "mode",
     "last visited date",
     "birthday",
     "anniversary",
 ]
+
+# ── SonarCloud Hardening ──────────────────────────────────────────────────────
+_MONGO_GROUP = "$group"
+_MONGO_LIMIT = "$limit"
+_MONGO_MATCH = "$match"
+_MONGO_SORT = "$sort"
+_MONGO_SUM = "$sum"
+_MONGO_AVG = "$avg"
+_MONGO_YEAR = "$year"
+_MONGO_MONTH = "$month"
+_MONGO_BUCKET = "$bucket"
+_COL_PHONE_NUMBER = "phone number"
+_COL_EMAIL_ID = "email id"
+_COL_TOTAL_VISITS = "total visits"
 
 BILL_HEADERS = [
     "sno",
@@ -437,7 +452,8 @@ async def get_analytics(
     current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
 ):
-    """Return aggregated analytics for the reservations dashboard."""
+    # Security: Validate restaurant access
+    await validate_restaurant_access(current_user, restaurant_id, db)
 
     # ── Guest stats ───────────────────────────────────────────────────────────
     total_guests = await db.reservego_uploads.count_documents(
@@ -456,13 +472,13 @@ async def get_analytics(
     )
 
     rev_pipeline = [
-        {"$match": {"restaurant_id": restaurant_id, "bill_amount": {"$gt": 0}}},
+        {_MONGO_MATCH: {"restaurant_id": restaurant_id, "bill_amount": {"$gt": 0}}},
         {
-            "$group": {
+            _MONGO_GROUP: {
                 "_id": None,
-                "total": {"$sum": "$bill_amount"},
-                "avg": {"$avg": "$bill_amount"},
-                "count": {"$sum": 1},
+                "total": {_MONGO_SUM: "$bill_amount"},
+                "avg": {_MONGO_AVG: "$bill_amount"},
+                "count": {_MONGO_SUM: 1},
             }
         },
     ]
@@ -474,26 +490,29 @@ async def get_analytics(
     # ── Monthly revenue trend ─────────────────────────────────────────────────
     monthly_pipeline = [
         {
-            "$match": {
+            _MONGO_MATCH: {
                 "restaurant_id": restaurant_id,
                 "bill_amount": {"$gt": 0},
                 "booking_time": {"$ne": None},
             }
         },
         {
-            "$group": {
+            _MONGO_GROUP: {
                 "_id": {
-                    "year": {"$year": "$booking_time"},
-                    "month": {"$month": "$booking_time"},
+                    "year": {_MONGO_YEAR: "$booking_time"},
+                    "month": {_MONGO_MONTH: "$booking_time"},
                 },
-                "revenue": {"$sum": "$bill_amount"},
-                "bookings": {"$sum": 1},
-                "avg_pax": {"$avg": "$pax"},
+                "revenue": {_MONGO_SUM: "$bill_amount"},
+                "bookings": {_MONGO_SUM: 1},
+                "avg_pax": {_MONGO_AVG: "$pax"},
             }
         },
-        {"$sort": {"_id.year": 1, "_id.month": 1}},
+        {_MONGO_SORT: {"_id.year": -1, "_id.month": -1}},
     ]
     monthly_raw = await db.reservego_bill_data.aggregate(monthly_pipeline).to_list(24)
+    # Reverse so the chart shows oldest to newest (up to last 24 months)
+    monthly_raw.reverse()
+
     month_names = [
         "Jan",
         "Feb",
@@ -521,13 +540,13 @@ async def get_analytics(
     # ── Booking status breakdown ──────────────────────────────────────────────
     status_pipeline = [
         {
-            "$match": {
+            _MONGO_MATCH: {
                 "restaurant_id": restaurant_id,
                 "booking_status": {"$nin": [None, ""]},
             }
         },
-        {"$group": {"_id": "$booking_status", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
+        {_MONGO_GROUP: {"_id": "$booking_status", "count": {_MONGO_SUM: 1}}},
+        {_MONGO_SORT: {"count": -1}},
     ]
     status_raw = await db.reservego_bill_data.aggregate(status_pipeline).to_list(20)
     booking_statuses = [{"status": r["_id"], "count": r["count"]} for r in status_raw]
@@ -535,12 +554,12 @@ async def get_analytics(
     # ── Booking type (walkin vs reservation) ──────────────────────────────────
     type_pipeline = [
         {
-            "$match": {
+            _MONGO_MATCH: {
                 "restaurant_id": restaurant_id,
                 "booking_type": {"$nin": [None, ""]},
             }
         },
-        {"$group": {"_id": "$booking_type", "count": {"$sum": 1}}},
+        {_MONGO_GROUP: {"_id": "$booking_type", "count": {_MONGO_SUM: 1}}},
     ]
     type_raw = await db.reservego_bill_data.aggregate(type_pipeline).to_list(10)
     booking_types = [{"type": r["_id"], "count": r["count"]} for r in type_raw]
@@ -548,20 +567,20 @@ async def get_analytics(
     # ── Source of booking ─────────────────────────────────────────────────────
     source_pipeline = [
         {
-            "$match": {
+            _MONGO_MATCH: {
                 "restaurant_id": restaurant_id,
                 "source_of_booking": {"$nin": [None, ""]},
             }
         },
         {
-            "$group": {
+            _MONGO_GROUP: {
                 "_id": "$source_of_booking",
-                "count": {"$sum": 1},
-                "revenue": {"$sum": "$bill_amount"},
+                "count": {_MONGO_SUM: 1},
+                "revenue": {_MONGO_SUM: "$bill_amount"},
             }
         },
-        {"$sort": {"count": -1}},
-        {"$limit": 8},
+        {_MONGO_SORT: {"count": -1}},
+        {_MONGO_LIMIT: 8},
     ]
     source_raw = await db.reservego_bill_data.aggregate(source_pipeline).to_list(8)
     booking_sources = [
@@ -572,21 +591,21 @@ async def get_analytics(
     # ── Top sections by revenue ───────────────────────────────────────────────
     section_pipeline = [
         {
-            "$match": {
+            _MONGO_MATCH: {
                 "restaurant_id": restaurant_id,
                 "sections": {"$nin": [None, ""]},
                 "bill_amount": {"$gt": 0},
             }
         },
         {
-            "$group": {
+            _MONGO_GROUP: {
                 "_id": "$sections",
-                "count": {"$sum": 1},
-                "revenue": {"$sum": "$bill_amount"},
+                "count": {_MONGO_SUM: 1},
+                "revenue": {_MONGO_SUM: "$bill_amount"},
             }
         },
-        {"$sort": {"revenue": -1}},
-        {"$limit": 6},
+        {_MONGO_SORT: {"revenue": -1}},
+        {_MONGO_LIMIT: 6},
     ]
     section_raw = await db.reservego_bill_data.aggregate(section_pipeline).to_list(6)
     top_sections = [
@@ -596,13 +615,13 @@ async def get_analytics(
 
     # ── Guest visit frequency distribution ───────────────────────────────────
     visit_pipeline = [
-        {"$match": {"restaurant_id": restaurant_id}},
+        {_MONGO_MATCH: {"restaurant_id": restaurant_id}},
         {
-            "$bucket": {
+            _MONGO_BUCKET: {
                 "groupBy": "$total_visits",
                 "boundaries": [0, 1, 2, 3, 5, 10, 20],
                 "default": "20+",
-                "output": {"count": {"$sum": 1}},
+                "output": {"count": {_MONGO_SUM: 1}},
             }
         },
     ]
@@ -623,10 +642,10 @@ async def get_analytics(
 
     # ── Guest source breakdown (from uploads) ─────────────────────────────────
     guest_source_pipeline = [
-        {"$match": {"restaurant_id": restaurant_id, "source": {"$nin": [None, ""]}}},
-        {"$group": {"_id": "$source", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 6},
+        {_MONGO_MATCH: {"restaurant_id": restaurant_id, "source": {"$nin": [None, ""]}}},
+        {_MONGO_GROUP: {"_id": "$source", "count": {_MONGO_SUM: 1}}},
+        {_MONGO_SORT: {"count": -1}},
+        {_MONGO_LIMIT: 6},
     ]
     guest_source_raw = await db.reservego_uploads.aggregate(
         guest_source_pipeline
@@ -665,15 +684,18 @@ async def list_guests(
     current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
 ):
-    """List guest profiles from reservego_uploads, optionally filtered by sheet."""
+    # Security: Validate restaurant access
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
     query: dict = {"restaurant_id": restaurant_id}
     if sheet:
-        query["sheet"] = {"$regex": sheet, "$options": "i"}
+        query["sheet"] = {"$regex": re.escape(sheet), "$options": "i"}
     if search:
+        safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
+            {"guest_name": {"$regex": safe_search, "$options": "i"}},
+            {"phone": {"$regex": safe_search, "$options": "i"}},
+            {"email": {"$regex": safe_search, "$options": "i"}},
         ]
     skip = (page - 1) * page_size
     total = await db.reservego_uploads.count_documents(query)
@@ -697,7 +719,9 @@ async def list_guest_sheets(
     current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
 ):
-    """Return distinct sheet names present in reservego_uploads for a restaurant."""
+    # Security: Validate restaurant access
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
     sheets = await db.reservego_uploads.distinct(
         "sheet", {"restaurant_id": restaurant_id}
     )
@@ -713,13 +737,16 @@ async def list_bills(
     current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)] = None,
 ):
-    """List bill records from reservego_bill_data."""
+    # Security: Validate restaurant access
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
     query: dict = {"restaurant_id": restaurant_id}
     if search:
+        safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": search, "$options": "i"}},
-            {"guest_number": {"$regex": search, "$options": "i"}},
-            {"bill_number": {"$regex": search, "$options": "i"}},
+            {"guest_name": {"$regex": safe_search, "$options": "i"}},
+            {"guest_number": {"$regex": safe_search, "$options": "i"}},
+            {"bill_number": {"$regex": safe_search, "$options": "i"}},
         ]
     skip = (page - 1) * page_size
     total = await db.reservego_bill_data.count_documents(query)
@@ -860,21 +887,28 @@ async def export_guests(
     """Export all matching guest profiles as an xlsx file."""
     from fastapi.responses import Response
 
+    # Security: Validate restaurant access
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
     query: dict = {"restaurant_id": restaurant_id}
     if sheet:
-        query["sheet"] = {"$regex": sheet, "$options": "i"}
+        query["sheet"] = {"$regex": re.escape(sheet), "$options": "i"}
     if search:
+        safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
+            {"guest_name": {"$regex": safe_search, "$options": "i"}},
+            {"phone": {"$regex": safe_search, "$options": "i"}},
+            {"email": {"$regex": safe_search, "$options": "i"}},
         ]
-    docs = [
-        doc
-        async for doc in db.reservego_uploads.find(query).sort(
-            [("total_visits", -1), ("uploaded_at", -1)]
-        )
-    ]
+
+    # Optimization: Hard limit for export to avoid OOM
+    MAX_ROWS = 50000
+    cursor = (
+        db.reservego_uploads.find(query)
+        .sort([("total_visits", -1), ("uploaded_at", -1)])
+        .limit(MAX_ROWS)
+    )
+    docs = [doc async for doc in cursor]
 
     loop = asyncio.get_running_loop()
     xlsx_bytes = await loop.run_in_executor(_executor, _build_guests_wb, docs)
@@ -898,15 +932,25 @@ async def export_bills(
     """Export all matching bill records as an xlsx file."""
     from fastapi.responses import Response
 
+    # Security: Validate restaurant access
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
     query: dict = {"restaurant_id": restaurant_id}
     if search:
+        safe_search = re.escape(search)
         query["$or"] = [
-            {"guest_name": {"$regex": search, "$options": "i"}},
-            {"guest_number": {"$regex": search, "$options": "i"}},
-            {"bill_number": {"$regex": search, "$options": "i"}},
+            {"guest_name": {"$regex": safe_search, "$options": "i"}},
+            {"guest_number": {"$regex": safe_search, "$options": "i"}},
+            {"bill_number": {"$regex": safe_search, "$options": "i"}},
         ]
+
+    # Optimization: Hard limit for export to avoid OOM
+    MAX_ROWS = 50000
     docs = [
-        doc async for doc in db.reservego_bill_data.find(query).sort("booking_time", -1)
+        doc
+        async for doc in db.reservego_bill_data.find(query)
+        .sort("booking_time", -1)
+        .limit(MAX_ROWS)
     ]
 
     loop = asyncio.get_running_loop()
@@ -925,9 +969,13 @@ async def reservego_upload(
     _auth: Annotated[None, Depends(_require_token)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     restaurant_id: Annotated[str, Query()],
+    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     data_from: Annotated[str | None, Query()] = None,
     data_until: Annotated[str | None, Query()] = None,
 ):
+    # Security: Validate restaurant access
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
     filename = file.filename or ""
     if not filename.lower().endswith(".xlsx"):
         raise InvalidFileFormatError("Only .xlsx Excel files are supported")

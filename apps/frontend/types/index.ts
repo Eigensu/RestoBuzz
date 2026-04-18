@@ -222,6 +222,8 @@ export interface ReserveGoGuest {
   restaurant_id: string;
   uploaded_at: string;
   filename: string;
+  data_from?: string | null;
+  data_until?: string | null;
 }
 
 export interface ReserveGoBill {
@@ -248,9 +250,17 @@ export interface ReserveGoBill {
   tags: string | null;
   guest_comments: string | null;
   outlet_comments: string | null;
+  deletion_type: string | null;
+  deleted_reason: string | null;
+  preferences: string | null;
+  booking_amount_tranx_id: string | null;
+  booking_amount_payment_status: string | null;
+  booking_amount_payment_date: string | null;
   restaurant_id: string;
   uploaded_at: string;
   filename: string;
+  data_from?: string | null;
+  data_until?: string | null;
 }
 
 export interface ReserveGoListResponse<T> {

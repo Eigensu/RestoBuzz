@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
@@ -65,12 +65,12 @@ function StatCard({
   icon: Icon,
   className,
 }: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  highlight?: "green" | "red" | "amber";
-  icon?: React.ElementType;
-  className?: string;
+  readonly label: string;
+  readonly value: string | number;
+  readonly sub?: string;
+  readonly highlight?: "green" | "red" | "amber";
+  readonly icon?: React.ElementType;
+  readonly className?: string;
 }) {
   const colorMap = {
     green: "text-emerald-600",
@@ -106,8 +106,8 @@ function SectionCard({
   title,
   children,
 }: {
-  title: string;
-  children: React.ReactNode;
+  readonly title: string;
+  readonly children: React.ReactNode;
 }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -119,7 +119,7 @@ function SectionCard({
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { readonly status: string }) {
   const map: Record<string, string> = {
     delivered: "bg-emerald-50 text-emerald-700",
     sent: "bg-blue-50 text-blue-700",
@@ -149,7 +149,7 @@ const PIE_COLORS = ["#24422e", "#3a6b47", "#6aab82", "#a8d5b5", "#c8e8d0", "#d4e
 
 // ── Campaign Tab ──────────────────────────────────────────────────────────────
 
-function CampaignTab({ data, loading }: { data: any; loading: boolean }) {
+function CampaignTab({ data, loading }: { readonly data: any; readonly loading: boolean }) {
   if (loading) return <TabSkeleton />;
   if (!data) return <EmptyState icon={TrendingUp} message="No campaign data for this period." />;
 
@@ -300,7 +300,7 @@ function CampaignTab({ data, loading }: { data: any; loading: boolean }) {
 
 // ── Member Tab ────────────────────────────────────────────────────────────────
 
-function MemberTab({ data, loading }: { data: any; loading: boolean }) {
+function MemberTab({ data, loading }: { readonly data: any; readonly loading: boolean }) {
   if (loading) return <TabSkeleton />;
   if (!data) return <EmptyState icon={Users} message="No member data available." />;
 
@@ -402,8 +402,8 @@ function MemberTab({ data, loading }: { data: any; loading: boolean }) {
                     innerRadius={35}
                     paddingAngle={3}
                   >
-                    {category_split.map((_: any, i: number) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    {category_split.map((c: any, i: number) => (
+                      <Cell key={c.category} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip
@@ -451,7 +451,7 @@ function MemberTab({ data, loading }: { data: any; loading: boolean }) {
               </thead>
               <tbody>
                 {top_visitors.map((v: any, i: number) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
+                  <tr key={v.phone} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
                     <td className="py-3 pr-4 text-gray-400 font-black text-xs">{i + 1}</td>
                     <td className="py-3 pr-4 font-medium text-gray-900">{v.name}</td>
                     <td className="py-3 pr-4 text-gray-500 font-mono text-xs">{v.phone}</td>
@@ -486,13 +486,13 @@ function LogsTab({
   onStatus,
   onLoadMore,
 }: {
-  data: any;
-  loading: boolean;
-  search: string;
-  onSearch: (v: string) => void;
-  status: string;
-  onStatus: (v: string) => void;
-  onLoadMore: () => void;
+  readonly data: any;
+  readonly loading: boolean;
+  readonly search: string;
+  readonly onSearch: (v: string) => void;
+  readonly status: string;
+  readonly onStatus: (v: string) => void;
+  readonly onLoadMore: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -530,7 +530,7 @@ function LogsTab({
 
       {loading ? (
         <TabSkeleton />
-      ) : !data?.items?.length ? (
+      ) : data?.items?.length === 0 ? (
         <EmptyState icon={Inbox} message="No delivery logs found for this filter." />
       ) : (
         <SectionCard title={`Delivery Logs`}>
@@ -599,7 +599,7 @@ function LogsTab({
 
 // ── Inbox Tab ─────────────────────────────────────────────────────────────────
 
-function InboxTab({ data, loading }: { data: any; loading: boolean }) {
+function InboxTab({ data, loading }: { readonly data: any; readonly loading: boolean }) {
   if (loading) return <TabSkeleton />;
   if (!data) return <EmptyState icon={MessageSquare} message="No inbox data available." />;
 
@@ -654,8 +654,8 @@ function InboxTab({ data, loading }: { data: any; loading: boolean }) {
               </tr>
             </thead>
             <tbody>
-              {engaged_customers.slice(0, 15).map((c: any, i: number) => (
-                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
+              {engaged_customers.slice(0, 15).map((c: any) => (
+                <tr key={c.phone} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
                   <td className="py-3 pr-4 font-medium text-gray-900">{c.name}</td>
                   <td className="py-3 pr-4 text-gray-500 font-mono text-xs">{c.phone}</td>
                   <td className="py-3 pr-4 text-gray-600 italic text-xs max-w-[200px] truncate">
@@ -690,7 +690,7 @@ function TabSkeleton() {
   return (
     <div className="space-y-4 animate-pulse">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[...Array(4)].map((_, i) => (
+        {[...new Array(4)].map((_, i) => (
           <div key={i} className="h-28 bg-gray-100 rounded-2xl" />
         ))}
       </div>
@@ -704,8 +704,8 @@ function EmptyState({
   icon: Icon,
   message,
 }: {
-  icon: React.ElementType;
-  message: string;
+  readonly icon: React.ElementType;
+  readonly message: string;
 }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-16 flex flex-col items-center gap-4 text-center">

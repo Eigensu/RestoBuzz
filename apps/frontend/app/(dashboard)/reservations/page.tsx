@@ -2,7 +2,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
-import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   CalendarDays,
   Users,
@@ -63,11 +62,11 @@ function StatCard({
   sub,
   color = "#24422e",
 }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  sub?: string;
-  color?: string;
+  readonly icon: React.ElementType;
+  readonly label: string;
+  readonly value: string;
+  readonly sub?: string;
+  readonly color?: string;
 }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-start gap-4">
@@ -90,8 +89,8 @@ function ChartCard({
   title,
   children,
 }: {
-  title: string;
-  children: React.ReactNode;
+  readonly title: string;
+  readonly children: React.ReactNode;
 }) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -109,16 +108,16 @@ function RevenueTooltip({
   payload,
   label,
 }: {
-  active?: boolean;
-  payload?: Array<{ value: number; name: string }>;
-  label?: string;
+  readonly active?: boolean;
+  readonly payload?: ReadonlyArray<{ value: number; name: string }>;
+  readonly label?: string;
 }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3 py-2 text-sm">
       <p className="font-bold text-gray-700">{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} className="text-[#24422e] font-semibold">
+      {payload.map((p) => (
+        <p key={p.name} className="text-[#24422e] font-semibold">
           {p.name === "revenue" ? fmt(p.value) : `${fmtNum(p.value)} bookings`}
         </p>
       ))}
@@ -180,7 +179,7 @@ export default function ReservationsPage() {
           </h1>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          {[...Array(8)].map((_, i) => (
+          {[...new Array(8)].map((_, i) => (
             <div
               key={i}
               className="bg-white rounded-2xl border border-gray-100 h-24 animate-pulse"
@@ -290,7 +289,7 @@ export default function ReservationsPage() {
         <StatCard
           icon={Mail}
           label="With Email"
-          value={`${Math.round((summary.with_email / summary.total_guests) * 100)}%`}
+          value={summary.total_guests > 0 ? `${Math.round((summary.with_email / summary.total_guests) * 100)}%` : "0%"}
           sub={`${fmtNum(summary.with_email)} guests`}
           color="#0891b2"
         />
@@ -378,8 +377,8 @@ export default function ReservationsPage() {
                 }
                 labelLine={false}
               >
-                {booking_statuses.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                {booking_statuses.map((s, i) => (
+                  <Cell key={s.status} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
@@ -405,8 +404,8 @@ export default function ReservationsPage() {
                 outerRadius={85}
                 paddingAngle={3}
               >
-                {booking_types.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                {booking_types.map((t, i) => (
+                  <Cell key={t.type} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
               <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
@@ -494,8 +493,8 @@ export default function ReservationsPage() {
               />
               <Tooltip formatter={(v) => typeof v === "number" ? fmtNum(v) : String(v ?? "")} />
               <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                {visit_distribution.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                {visit_distribution.map((v, i) => (
+                  <Cell key={v.label} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Bar>
             </BarChart>

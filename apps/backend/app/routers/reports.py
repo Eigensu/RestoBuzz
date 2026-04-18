@@ -76,7 +76,7 @@ def _date_hash(from_dt: datetime, to_dt: datetime) -> str:
 
 # ── Redis cache helpers ────────────────────────────────────────────────────────
 
-async def _get_redis():
+def _get_redis():
     try:
         from redis.asyncio import from_url
         from app.config import settings
@@ -86,7 +86,7 @@ async def _get_redis():
 
 
 async def _cache_get(key: str) -> dict | None:
-    redis = await _get_redis()
+    redis = _get_redis()
     if not redis:
         return None
     try:
@@ -102,7 +102,7 @@ async def _cache_get(key: str) -> dict | None:
 
 
 async def _cache_set(key: str, value: dict, ttl: int = _SUMMARY_CACHE_TTL) -> None:
-    redis = await _get_redis()
+    redis = _get_redis()
     if not redis:
         return
     try:
@@ -203,7 +203,7 @@ async def _build_campaign_data(
     rid_oid = str(rest_doc["_id"]) if rest_doc else None
     
     # Supported IDs for matching
-    rids = list(set([rid_slug, rid_oid]) - {None})
+    rids = list({rid_slug, rid_oid} - {None})
 
     wa_campaigns = []
     if channel in (None, "whatsapp"):
@@ -357,7 +357,7 @@ async def member_summary(
     # We find all possible identifiers for the restaurant (Slug and OID)
     rid = restaurant["id"]
     rid_oid = str(restaurant.get("_id"))
-    rids = list(set([rid, rid_oid]) - {None})
+    rids = list({rid, rid_oid} - {None})
 
     cache_key = f"reports:members:{rid}:{_date_hash(from_dt, to_dt)}"
     cached = await _cache_get(cache_key)
@@ -451,7 +451,7 @@ async def member_export(
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
     rid_oid = str(restaurant.get("_id"))
-    rids = list(set([rid, rid_oid]) - {None})
+    rids = list({rid, rid_oid} - {None})
 
     query: dict = {"restaurant_id": {"$in": rids}, "joined_at": {"$gte": from_dt, "$lte": to_dt}}
     if category:
@@ -501,7 +501,7 @@ async def delivery_logs(
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
     rid_oid = str(restaurant.get("_id"))
-    rids = list(set([rid, rid_oid]) - {None})
+    rids = list({rid, rid_oid} - {None})
 
     # Gather tenant-scoped job IDs
     wa_job_ids = (

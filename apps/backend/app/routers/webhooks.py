@@ -97,28 +97,43 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
 STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
 
-async def _send_benefits_reply(to: str) -> None:
-    """Send the benefits link as a text reply when the quick-reply button is tapped."""
+async def _send_benefits_reply(db, to: str, restaurant_id: str = None, phone_id: str = None) -> None:
+    """Send the benefits link as a text reply and persist it to outbound_messages."""
     link = settings.benefits_link
     if not link:
         logger.warning("benefits_link_not_configured", to=to)
         return
 
-    phone_id = settings.meta_primary_phone_id
+    # Use provided phone_id (the recipient_id/bot id) or fallback to primary
+    phone_id = phone_id or settings.meta_primary_phone_id
     token = settings.meta_primary_access_token
     if not phone_id or not token:
         logger.error("meta_primary_credentials_missing", to=to)
         return
 
     try:
+        body = f"Here's your link: {link}"
         wa_id = await send_text_message(
             to=to,
-            body=f"Here's your link: {link}",
+            body=body,
             phone_id=phone_id,
             token=token,
         )
+        # Persist to database so it shows up in the chat thread
+        outbound_doc = {
+            "wa_message_id": wa_id,
+            "to_phone": to,
+            "body": body,
+            "status": "sent",
+            "sent_at": datetime.now(timezone.utc),
+            "restaurant_id": restaurant_id,
+            "wa_phone_id": phone_id,
+            "sender_name": "System (Auto-Response)",
+            "channel": "whatsapp"
+        }
+        await db.outbound_messages.insert_one(outbound_doc)
         logger.info("benefits_reply_sent", to=to, wa_id=wa_id)
-    except MetaAPIError as e:
+    except Exception as e:
         logger.error("benefits_reply_failed", to=to, error=str(e))
 
 
@@ -165,22 +180,9 @@ async def _process_payload(db, payload: dict) -> None:
                     media_url = media_obj.get("url") or media_obj.get("link")
                     media_mime = media_obj.get("mime_type")
                     body_text = media_obj.get("caption") or media_obj.get("filename")
-                elif msg_type == "location":
-                    loc = msg.get("location", {})
-                    location = {
-                        "lat": loc.get("latitude"),
-                        "lng": loc.get("longitude"),
-                        "name": loc.get("name"),
-                    }
                 elif msg_type == "button":
                     btn = msg.get("button", {})
                     body_text = btn.get("text", "")
-                    # Template quick-reply: match on payload OR button text
-                    # (payload value depends on how the template was created in Meta)
-                    btn_payload = (btn.get("payload") or "").strip().lower()
-                    btn_text = body_text.strip().lower()
-                    if btn_payload == "get_benefits" or btn_text == "get the benefits":
-                        await _send_benefits_reply(from_phone)
                 elif msg_type == "interactive":
                     interactive = msg.get("interactive", {})
                     button_reply = interactive.get("button_reply", {})
@@ -189,9 +191,6 @@ async def _process_payload(db, payload: dict) -> None:
                         or interactive.get("list_reply", {}).get("title")
                         or ""
                     )
-                    # Auto-reply when the "Get the benefits" button is tapped
-                    if button_reply.get("id") == "get_benefits":
-                        await _send_benefits_reply(from_phone)
 
                 doc = {
                     "wa_message_id": wa_id,
@@ -224,6 +223,19 @@ async def _process_payload(db, payload: dict) -> None:
                         type=msg_type,
                         wa_id=wa_id,
                     )
+
+                    # Trigger automated benefits response if button id matches
+                    # (Checked after idempotency to prevent duplicate replies)
+                    if msg_type == "interactive":
+                        interactive = msg.get("interactive", {})
+                        if interactive.get("button_reply", {}).get("id") == "get_benefits":
+                            await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
+                    elif msg_type == "button":
+                        btn = msg.get("button", {})
+                        btn_payload = (btn.get("payload") or "").strip().lower()
+                        btn_text = (btn.get("text") or "").strip().lower()
+                        if btn_payload == "get_benefits" or btn_text == "get the benefits":
+                            await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
 
                     if body_text and body_text.strip().lower() in STOP_KEYWORDS:
                         await db.suppression_list.update_one(
