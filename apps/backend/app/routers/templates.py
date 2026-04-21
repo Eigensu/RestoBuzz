@@ -13,6 +13,7 @@ from app.services.meta_api import (
     MetaAPIError,
     create_media_handle_from_url,
 )
+from app.workers.alert_tasks import send_template_approval_alert_task
 from app.core.errors import NotFoundError, ValidationError
 from app.config import settings
 from app.core.logging import get_logger
@@ -279,46 +280,11 @@ async def sync_templates(
     except Exception as e:
         # If fetch fails, we return the error and do NOT prune.
         return {"error": str(e)}
+
     keys: list[dict[str, str]] = []
     for t in templates:
-        lang = t.get("language")
-        key: dict[str, str] = {"name": t["name"]}
-        if lang:
-            key["language"] = lang
+        key = await _sync_single_template(db, t)
         keys.append(key)
-        # Detect transition to APPROVED to trigger email alert
-        old_doc = await db.templates.find_one(key)
-        was_approved = old_doc and old_doc.get("status") == "APPROVED"
-        already_alerted = old_doc and old_doc.get("alert_sent")
-        is_approved = t.get("status") == "APPROVED"
-
-        update_fields = {**t, "synced_at": datetime.now(timezone.utc)}
-        if not was_approved and is_approved:
-            update_fields["alert_sent"] = True
-
-        await db.templates.update_one(
-            key,
-            {"$set": update_fields},
-            upsert=True,
-        )
-
-        if not was_approved and is_approved and not already_alerted:
-            # Enqueue background job so the endpoint returns immediately and
-            # email fan-out (with retries) is handled by a Celery worker.
-            try:
-                from app.workers.alert_tasks import send_template_approval_alert_task
-
-                send_template_approval_alert_task.delay(
-                    t["name"],
-                    t.get("language", "en_US"),
-                    t.get("category", "MARKETING"),
-                )
-            except Exception:
-                logger.exception(
-                    "template_alert_failed",
-                    name=t["name"],
-                    lang=t.get("language"),
-                )
 
     # Remove templates that no longer exist in Meta for this workspace.
     if keys:
@@ -327,3 +293,43 @@ async def sync_templates(
         await db.templates.delete_many({})
 
     return {"synced": len(templates), "pruned": True}
+
+
+async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict) -> dict[str, str]:
+    """Upsert one template and fire an approval alert if it just became APPROVED."""
+    lang = t.get("language")
+    key: dict[str, str] = {"name": t["name"]}
+    if lang:
+        key["language"] = lang
+
+    old_doc = await db.templates.find_one(key)
+    was_approved = bool(old_doc and old_doc.get("status") == "APPROVED")
+    already_alerted = bool(old_doc and old_doc.get("alert_sent"))
+    is_approved = t.get("status") == "APPROVED"
+
+    update_fields = {**t, "synced_at": datetime.now(timezone.utc)}
+    if not was_approved and is_approved:
+        update_fields["alert_sent"] = True
+
+    await db.templates.update_one(key, {"$set": update_fields}, upsert=True)
+
+    if not was_approved and is_approved and not already_alerted:
+        _enqueue_approval_alert(t)
+
+    return key
+
+
+def _enqueue_approval_alert(t: dict) -> None:
+    """Fire-and-forget Celery task for template approval email."""
+    try:
+        send_template_approval_alert_task.delay(
+            t["name"],
+            t.get("language", "en_US"),
+            t.get("category", "MARKETING"),
+        )
+    except Exception:
+        logger.exception(
+            "template_alert_failed",
+            name=t["name"],
+            lang=t.get("language"),
+        )
