@@ -1,5 +1,5 @@
 """
-Reports Router — Phase 1
+Reports Router
 
 Campaign Performance, Member Growth, Delivery Logs.
 
@@ -28,7 +28,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.errors import ValidationError
 from app.core.logging import get_logger
 from app.database import get_db
-from app.dependencies import get_active_restaurant, get_current_user, require_role
+from app.dependencies import get_active_restaurant, require_role
+from app.config import settings
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 logger = get_logger(__name__)
@@ -38,8 +39,20 @@ _DEFAULT_MAX_DAYS = 90
 _SUPER_ADMIN_MAX_DAYS = 365
 _SUMMARY_CACHE_TTL = 300  # 5 minutes
 
-_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+_MONTH_NAMES = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+]
 
 # ── SonarCloud Hardening ──────────────────────────────────────────────────────
 _MONGO_GROUP = "$group"
@@ -58,6 +71,7 @@ _MONGO_OPTIONS = "$options"
 
 
 # ── Date helpers ───────────────────────────────────────────────────────────────
+
 
 def _resolve_dates(
     from_date: date | None,
@@ -79,7 +93,9 @@ def _resolve_dates(
             f"Use a narrower range or contact support for extended access."
         )
 
-    from_dt = datetime.combine(from_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+    from_dt = datetime.combine(from_date, datetime.min.time()).replace(
+        tzinfo=timezone.utc
+    )
     to_dt = datetime.combine(to_date, datetime.max.time()).replace(tzinfo=timezone.utc)
     return from_dt, to_dt
 
@@ -91,10 +107,12 @@ def _date_hash(from_dt: datetime, to_dt: datetime) -> str:
 
 # ── Redis cache helpers ────────────────────────────────────────────────────────
 
+
 def _get_redis():
     try:
         from redis.asyncio import from_url
         from app.config import settings
+
         return from_url(settings.redis_url, decode_responses=True)
     except Exception:
         return None
@@ -133,6 +151,7 @@ async def _cache_set(key: str, value: dict, ttl: int = _SUMMARY_CACHE_TTL) -> No
 
 # ── Audit logging ──────────────────────────────────────────────────────────────
 
+
 async def _audit_export(
     db: AsyncIOMotorDatabase,
     user: dict,
@@ -142,20 +161,23 @@ async def _audit_export(
     filters: dict,
 ) -> None:
     try:
-        await db.audit_logs.insert_one({
-            "user_id": str(user["_id"]),
-            "user_email": user.get("email", ""),
-            "resource_type": "report_export",
-            "action": f"export_{report_type}",
-            "restaurant_id": restaurant_id,
-            "metadata": {"format": export_format, "filters": filters},
-            "timestamp": datetime.now(timezone.utc),
-        })
+        await db.audit_logs.insert_one(
+            {
+                "user_id": str(user["_id"]),
+                "user_email": user.get("email", ""),
+                "resource_type": "report_export",
+                "action": f"export_{report_type}",
+                "restaurant_id": restaurant_id,
+                "metadata": {"format": export_format, "filters": filters},
+                "timestamp": datetime.now(timezone.utc),
+            }
+        )
     except Exception as e:
         logger.warning("audit_log_failed", error=str(e))
 
 
 # ── Export response helpers ────────────────────────────────────────────────────
+
 
 def _xlsx_response(rows: list, headers: list[str], filename: str) -> StreamingResponse:
     wb = openpyxl.Workbook(write_only=True)
@@ -186,13 +208,16 @@ def _csv_response(rows: list, headers: list[str], filename: str) -> StreamingRes
     )
 
 
-def _export_response(rows: list, headers: list[str], filename: str, fmt: str) -> StreamingResponse:
+def _export_response(
+    rows: list, headers: list[str], filename: str, fmt: str
+) -> StreamingResponse:
     if fmt == "csv":
         return _csv_response(rows, headers, filename)
     return _xlsx_response(rows, headers, filename)
 
 
 # ── Campaign Reports ───────────────────────────────────────────────────────────
+
 
 def _compute_rates(sent: int, delivered: int, read_opened: int, failed: int) -> dict:
     total = sent + failed
@@ -212,18 +237,32 @@ async def _build_campaign_data(
 ) -> dict:
     rid_slug = restaurant_id
     # We find the restaurant to get its potential ObjectId _id
-    rest_doc = await db.restaurants.find_one({
-        "$or": [{"id": restaurant_id}, {"_id": (ObjectId(restaurant_id) if ObjectId.is_valid(restaurant_id) else None)}]
-    })
+    rest_doc = await db.restaurants.find_one(
+        {
+            "$or": [
+                {"id": restaurant_id},
+                {
+                    "_id": (
+                        ObjectId(restaurant_id)
+                        if ObjectId.is_valid(restaurant_id)
+                        else None
+                    )
+                },
+            ]
+        }
+    )
     rid_oid = str(rest_doc["_id"]) if rest_doc else None
-    
+
     # Supported IDs for matching
     rids = list({rid_slug, rid_oid} - {None})
 
     wa_campaigns = []
     if channel in (None, "whatsapp"):
         async for doc in db.campaign_jobs.find(
-            {"restaurant_id": {"$in": rids}, "created_at": {"$gte": from_dt, "$lte": to_dt}},
+            {
+                "restaurant_id": {"$in": rids},
+                "created_at": {"$gte": from_dt, "$lte": to_dt},
+            },
             sort=[("created_at", -1)],
         ):
             sent = doc.get("sent_count", 0)
@@ -231,22 +270,29 @@ async def _build_campaign_data(
             read = doc.get("read_count", 0)
             failed = doc.get("failed_count", 0)
             rates = _compute_rates(sent, delivered, read, failed)
-            wa_campaigns.append({
-                "id": str(doc["_id"]),
-                "channel": "whatsapp",
-                "name": doc.get("name", "Unnamed"),
-                "status": doc.get("status", "unknown"),
-                "created_at": doc["created_at"].isoformat(),
-                "audience": sent + failed,
-                "sent": sent, "delivered": delivered,
-                "read_or_opened": read, "failed": failed,
-                **rates,
-            })
+            wa_campaigns.append(
+                {
+                    "id": str(doc["_id"]),
+                    "channel": "whatsapp",
+                    "name": doc.get("name", "Unnamed"),
+                    "status": doc.get("status", "unknown"),
+                    "created_at": doc["created_at"].isoformat(),
+                    "audience": sent + failed,
+                    "sent": sent,
+                    "delivered": delivered,
+                    "read_or_opened": read,
+                    "failed": failed,
+                    **rates,
+                }
+            )
 
     email_campaigns = []
     if channel in (None, "email"):
         async for doc in db.email_campaign_jobs.find(
-            {"restaurant_id": {"$in": rids}, "created_at": {"$gte": from_dt, "$lte": to_dt}},
+            {
+                "restaurant_id": {"$in": rids},
+                "created_at": {"$gte": from_dt, "$lte": to_dt},
+            },
             sort=[("created_at", -1)],
         ):
             sent = doc.get("sent_count", 0)
@@ -254,17 +300,21 @@ async def _build_campaign_data(
             opened = doc.get("opened_count", 0)
             failed = doc.get("failed_count", 0) + doc.get("bounced_count", 0)
             rates = _compute_rates(sent, delivered, opened, failed)
-            email_campaigns.append({
-                "id": str(doc["_id"]),
-                "channel": "email",
-                "name": doc.get("name", "Unnamed"),
-                "status": doc.get("status", "unknown"),
-                "created_at": doc["created_at"].isoformat(),
-                "audience": doc.get("total_count", 0),
-                "sent": sent, "delivered": delivered,
-                "read_or_opened": opened, "failed": failed,
-                **rates,
-            })
+            email_campaigns.append(
+                {
+                    "id": str(doc["_id"]),
+                    "channel": "email",
+                    "name": doc.get("name", "Unnamed"),
+                    "status": doc.get("status", "unknown"),
+                    "created_at": doc["created_at"].isoformat(),
+                    "audience": doc.get("total_count", 0),
+                    "sent": sent,
+                    "delivered": delivered,
+                    "read_or_opened": opened,
+                    "failed": failed,
+                    **rates,
+                }
+            )
 
     all_campaigns = wa_campaigns + email_campaigns
     all_campaigns.sort(key=lambda x: x["created_at"], reverse=True)
@@ -315,7 +365,9 @@ async def campaign_summary(
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
 
-    cache_key = f"reports:campaigns:{rid}:{_date_hash(from_dt, to_dt)}:{channel or 'all'}"
+    cache_key = (
+        f"reports:campaigns:{rid}:{_date_hash(from_dt, to_dt)}:{channel or 'all'}"
+    )
     cached = await _cache_get(cache_key)
     if cached:
         return cached
@@ -341,23 +393,56 @@ async def campaign_export(
     data = await _build_campaign_data(rid, from_dt, to_dt, channel, db)
     campaigns = data["campaigns"]
 
-    headers = ["Channel", "Campaign Name", "Date", "Status", "Audience",
-               "Sent", "Delivered", "Delivery %", "Read/Opened", "Read %",
-               "Failed", "Failure %"]
-    rows = [[
-        c["channel"].upper(), c["name"], c["created_at"][:10], c["status"],
-        c["audience"], c["sent"], c["delivered"], f"{c['delivery_rate']}%",
-        c["read_or_opened"], f"{c['read_rate']}%", c["failed"], f"{c['failure_rate']}%",
-    ] for c in campaigns]
+    headers = [
+        "Channel",
+        "Campaign Name",
+        "Date",
+        "Status",
+        "Audience",
+        "Sent",
+        "Delivered",
+        "Delivery %",
+        "Read/Opened",
+        "Read %",
+        "Failed",
+        "Failure %",
+    ]
+    rows = [
+        [
+            c["channel"].upper(),
+            c["name"],
+            c["created_at"][:10],
+            c["status"],
+            c["audience"],
+            c["sent"],
+            c["delivered"],
+            f"{c['delivery_rate']}%",
+            c["read_or_opened"],
+            f"{c['read_rate']}%",
+            c["failed"],
+            f"{c['failure_rate']}%",
+        ]
+        for c in campaigns
+    ]
 
     filename = f"campaign_report_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(db, current_user, rid, "campaigns", format, {
-        "from": str(from_dt.date()), "to": str(to_dt.date()), "channel": channel,
-    })
+    await _audit_export(
+        db,
+        current_user,
+        rid,
+        "campaigns",
+        format,
+        {
+            "from": str(from_dt.date()),
+            "to": str(to_dt.date()),
+            "channel": channel,
+        },
+    )
     return _export_response(rows, headers, filename, format)
 
 
 # ── Member Reports ─────────────────────────────────────────────────────────────
+
 
 @router.get("/members/summary")
 async def member_summary(
@@ -368,7 +453,7 @@ async def member_summary(
     to_date: Annotated[date | None, Query()] = None,
 ):
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
-    
+
     # We find all possible identifiers for the restaurant (Slug and OID)
     rid = restaurant["id"]
     rid_oid = str(restaurant.get("_id"))
@@ -384,14 +469,26 @@ async def member_summary(
     month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
 
     # Monthly growth trend
-    growth_raw = await db.members.aggregate([
-        {_MONGO_MATCH: {"restaurant_id": {_MONGO_IN: rids}, "joined_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt}}},
-        {_MONGO_GROUP: {
-            "_id": {"year": {"$year": "$joined_at"}, "month": {"$month": "$joined_at"}},
-            "count": {_MONGO_SUM: 1},
-        }},
-        {_MONGO_SORT: {"_id.year": 1, "_id.month": 1}},
-    ]).to_list(24)
+    growth_raw = await db.members.aggregate(
+        [
+            {
+                _MONGO_MATCH: {
+                    "restaurant_id": {_MONGO_IN: rids},
+                    "joined_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
+                }
+            },
+            {
+                _MONGO_GROUP: {
+                    "_id": {
+                        "year": {"$year": "$joined_at"},
+                        "month": {"$month": "$joined_at"},
+                    },
+                    "count": {_MONGO_SUM: 1},
+                }
+            },
+            {_MONGO_SORT: {"_id.year": 1, "_id.month": 1}},
+        ]
+    ).to_list(24)
     monthly_growth = [
         {
             "month": f"{_MONTH_NAMES[r['_id']['month'] - 1]} {r['_id']['year']}",
@@ -402,39 +499,62 @@ async def member_summary(
 
     # Category split - scoped to restaurant but NOT the current date filter
     # (Shows the composition of the ENTIRE member base)
-    cat_raw = await db.members.aggregate([
-        {_MONGO_MATCH: {"restaurant_id": {_MONGO_IN: rids}, "is_active": True}},
-        {_MONGO_GROUP: {"_id": "$type", "count": {_MONGO_SUM: 1}}},
-        {_MONGO_SORT: {"count": -1}},
-    ]).to_list(20)
-    category_split = [{"category": r["_id"] or "unknown", "count": r["count"]} for r in cat_raw]
+    cat_raw = await db.members.aggregate(
+        [
+            {_MONGO_MATCH: {"restaurant_id": {_MONGO_IN: rids}, "is_active": True}},
+            {_MONGO_GROUP: {"_id": "$type", "count": {_MONGO_SUM: 1}}},
+            {_MONGO_SORT: {"count": -1}},
+        ]
+    ).to_list(20)
+    category_split = [
+        {"category": r["_id"] or "unknown", "count": r["count"]} for r in cat_raw
+    ]
 
     # --- Scalar counts (parallelised via gather) ---
     import asyncio
+
     total_all_t = db.members.count_documents({"restaurant_id": {"$in": rids}})
-    total_active_t = db.members.count_documents({"restaurant_id": {"$in": rids}, "is_active": True})
-    new_month_t = db.members.count_documents({"restaurant_id": {"$in": rids}, "joined_at": {"$gte": month_start}})
-    dormant_t = db.members.count_documents({
-        "restaurant_id": {"$in": rids}, "is_active": True,
-        "$or": [{"last_visit": {"$lt": dormant_cutoff}}, {"last_visit": None}],
-    })
+    total_active_t = db.members.count_documents(
+        {"restaurant_id": {"$in": rids}, "is_active": True}
+    )
+    new_month_t = db.members.count_documents(
+        {"restaurant_id": {"$in": rids}, "joined_at": {"$gte": month_start}}
+    )
+    dormant_t = db.members.count_documents(
+        {
+            "restaurant_id": {"$in": rids},
+            "is_active": True,
+            "$or": [{"last_visit": {"$lt": dormant_cutoff}}, {"last_visit": None}],
+        }
+    )
     total_all, total_active, new_this_month, dormant = await asyncio.gather(
-        total_all_t, total_active_t, new_month_t, dormant_t,
+        total_all_t,
+        total_active_t,
+        new_month_t,
+        dormant_t,
     )
 
     # Top visitors - scoped to restaurant but NOT the current date filter
     top_visitors = []
-    async for doc in db.members.find(
-        {"restaurant_id": {"$in": rids}, "is_active": True},
-        {"name": 1, "phone": 1, "type": 1, "visit_count": 1, "last_visit": 1},
-    ).sort("visit_count", -1).limit(10):
-        top_visitors.append({
-            "name": doc.get("name", ""),
-            "phone": doc.get("phone", ""),
-            "type": doc.get("type", ""),
-            "visit_count": doc.get("visit_count", 0),
-            "last_visit": doc["last_visit"].isoformat() if doc.get("last_visit") else None,
-        })
+    async for doc in (
+        db.members.find(
+            {"restaurant_id": {"$in": rids}, "is_active": True},
+            {"name": 1, "phone": 1, "type": 1, "visit_count": 1, "last_visit": 1},
+        )
+        .sort("visit_count", -1)
+        .limit(10)
+    ):
+        top_visitors.append(
+            {
+                "name": doc.get("name", ""),
+                "phone": doc.get("phone", ""),
+                "type": doc.get("type", ""),
+                "visit_count": doc.get("visit_count", 0),
+                "last_visit": (
+                    doc["last_visit"].isoformat() if doc.get("last_visit") else None
+                ),
+            }
+        )
 
     result = {
         "summary": {
@@ -442,7 +562,9 @@ async def member_summary(
             "active_members": total_active,
             "new_this_month": new_this_month,
             "dormant_members": dormant,
-            "dormant_rate": round(dormant / total_active * 100, 1) if total_active else 0,
+            "dormant_rate": (
+                round(dormant / total_active * 100, 1) if total_active else 0
+            ),
         },
         "monthly_growth": monthly_growth,
         "category_split": category_split,
@@ -468,33 +590,59 @@ async def member_export(
     rid_oid = str(restaurant.get("_id"))
     rids = list({rid, rid_oid} - {None})
 
-    query: dict = {"restaurant_id": {"$in": rids}, "joined_at": {"$gte": from_dt, "$lte": to_dt}}
+    query: dict = {
+        "restaurant_id": {"$in": rids},
+        "joined_at": {"$gte": from_dt, "$lte": to_dt},
+    }
     if category:
         query["type"] = category
 
-    headers = ["Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
-               "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes"]
+    headers = [
+        "Name",
+        "Phone",
+        "Email",
+        "Type",
+        "Joined Date",
+        "Visit Count",
+        "Last Visit",
+        "Is Active",
+        "Card UID",
+        "eCard Code",
+        "Tags",
+        "Notes",
+    ]
     rows = []
     async for doc in db.members.find(query).sort("joined_at", -1):
-        rows.append([
-            doc.get("name", ""),
-            doc.get("phone", ""),
-            doc.get("email", "") or "",
-            doc.get("type", ""),
-            doc["joined_at"].strftime("%Y-%m-%d") if doc.get("joined_at") else "",
-            doc.get("visit_count", 0),
-            doc["last_visit"].strftime("%Y-%m-%d") if doc.get("last_visit") else "",
-            "Yes" if doc.get("is_active") else "No",
-            doc.get("card_uid", "") or "",
-            doc.get("ecard_code", "") or "",
-            ", ".join(doc.get("tags", [])),
-            doc.get("notes", "") or "",
-        ])
+        rows.append(
+            [
+                doc.get("name", ""),
+                doc.get("phone", ""),
+                doc.get("email", "") or "",
+                doc.get("type", ""),
+                doc["joined_at"].strftime("%Y-%m-%d") if doc.get("joined_at") else "",
+                doc.get("visit_count", 0),
+                doc["last_visit"].strftime("%Y-%m-%d") if doc.get("last_visit") else "",
+                "Yes" if doc.get("is_active") else "No",
+                doc.get("card_uid", "") or "",
+                doc.get("ecard_code", "") or "",
+                ", ".join(doc.get("tags", [])),
+                doc.get("notes", "") or "",
+            ]
+        )
 
     filename = f"member_report_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(db, current_user, rid, "members", format, {
-        "from": str(from_dt.date()), "to": str(to_dt.date()), "category": category,
-    })
+    await _audit_export(
+        db,
+        current_user,
+        rid,
+        "members",
+        format,
+        {
+            "from": str(from_dt.date()),
+            "to": str(to_dt.date()),
+            "category": category,
+        },
+    )
     return _export_response(rows, headers, filename, format)
 
 
@@ -515,21 +663,25 @@ async def _get_wa_logs(db, rids, from_dt, to_dt, status, search, after_id, page_
 
     logs = []
     async for doc in db.message_logs.find(wa_q).sort("_id", -1).limit(page_size):
-        logs.append({
-            "id": str(doc["_id"]),
-            "channel": "whatsapp",
-            "recipient": doc.get("to_phone", ""),
-            "recipient_name": doc.get("name", ""),
-            "campaign_id": str(doc.get("job_id", "")),
-            "status": doc.get("status", ""),
-            "error_reason": doc.get("error_message", ""),
-            "retry_count": doc.get("retry_count", 0),
-            "created_at": doc["created_at"].isoformat(),
-        })
+        logs.append(
+            {
+                "id": str(doc["_id"]),
+                "channel": "whatsapp",
+                "recipient": doc.get("to_phone", ""),
+                "recipient_name": doc.get("name", ""),
+                "campaign_id": str(doc.get("job_id", "")),
+                "status": doc.get("status", ""),
+                "error_reason": doc.get("error_message", ""),
+                "retry_count": doc.get("retry_count", 0),
+                "created_at": doc["created_at"].isoformat(),
+            }
+        )
     return logs
 
 
-async def _get_email_logs(db, rids, from_dt, to_dt, status, search, after_id, page_size):
+async def _get_email_logs(
+    db, rids, from_dt, to_dt, status, search, after_id, page_size
+):
     email_q: dict = {
         "campaign_id": {_MONGO_IN: rids},
         "created_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
@@ -546,21 +698,24 @@ async def _get_email_logs(db, rids, from_dt, to_dt, status, search, after_id, pa
 
     logs = []
     async for doc in db.email_logs.find(email_q).sort("_id", -1).limit(page_size):
-        logs.append({
-            "id": str(doc["_id"]),
-            "channel": "email",
-            "recipient": doc.get("recipient_email", ""),
-            "recipient_name": doc.get("recipient_name", ""),
-            "campaign_id": str(doc.get("campaign_id", "")),
-            "status": doc.get("status", ""),
-            "error_reason": doc.get("error_reason", ""),
-            "retry_count": doc.get("retry_count", 0),
-            "created_at": doc["created_at"].isoformat(),
-        })
+        logs.append(
+            {
+                "id": str(doc["_id"]),
+                "channel": "email",
+                "recipient": doc.get("recipient_email", ""),
+                "recipient_name": doc.get("recipient_name", ""),
+                "campaign_id": str(doc.get("campaign_id", "")),
+                "status": doc.get("status", ""),
+                "error_reason": doc.get("error_reason", ""),
+                "retry_count": doc.get("retry_count", 0),
+                "created_at": doc["created_at"].isoformat(),
+            }
+        )
     return logs
 
 
 # ── Delivery Logs ──────────────────────────────────────────────────────────────
+
 
 @router.get("/logs")
 async def delivery_logs(
@@ -581,14 +736,39 @@ async def delivery_logs(
     results: list[dict] = []
 
     if channel in (None, "whatsapp"):
-        wa_job_ids = [doc["_id"] async for doc in db.campaign_jobs.find({"restaurant_id": {_MONGO_IN: rids}}, {"_id": 1})]
+        wa_job_ids = [
+            doc["_id"]
+            async for doc in db.campaign_jobs.find(
+                {"restaurant_id": {_MONGO_IN: rids}}, {"_id": 1}
+            )
+        ]
         if wa_job_ids:
-            results.extend(await _get_wa_logs(db, wa_job_ids, from_dt, to_dt, status, search, after_id, page_size))
+            results.extend(
+                await _get_wa_logs(
+                    db, wa_job_ids, from_dt, to_dt, status, search, after_id, page_size
+                )
+            )
 
     if channel in (None, "email"):
-        email_job_ids = [doc["_id"] async for doc in db.email_campaign_jobs.find({"restaurant_id": {_MONGO_IN: rids}}, {"_id": 1})]
+        email_job_ids = [
+            doc["_id"]
+            async for doc in db.email_campaign_jobs.find(
+                {"restaurant_id": {_MONGO_IN: rids}}, {"_id": 1}
+            )
+        ]
         if email_job_ids:
-            results.extend(await _get_email_logs(db, email_job_ids, from_dt, to_dt, status, search, after_id, page_size))
+            results.extend(
+                await _get_email_logs(
+                    db,
+                    email_job_ids,
+                    from_dt,
+                    to_dt,
+                    status,
+                    search,
+                    after_id,
+                    page_size,
+                )
+            )
 
     # Merge-sort and slice
     results.sort(key=lambda x: x["created_at"], reverse=True)
@@ -613,11 +793,24 @@ async def export_logs(
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rids = list({restaurant["id"], str(restaurant.get("_id"))} - {None})
 
-    headers = ["Timestamp", "Channel", "Recipient", "Name",
-               "Campaign ID", "Status", "Error Reason", "Retry Count"]
+    headers = [
+        "Timestamp",
+        "Channel",
+        "Recipient",
+        "Name",
+        "Campaign ID",
+        "Status",
+        "Error Reason",
+        "Retry Count",
+    ]
     rows: list[list] = []
 
-    wa_job_ids = [doc["_id"] async for doc in db.campaign_jobs.find({"restaurant_id": {"$in": rids}}, {"_id": 1})]
+    wa_job_ids = [
+        doc["_id"]
+        async for doc in db.campaign_jobs.find(
+            {"restaurant_id": {"$in": rids}}, {"_id": 1}
+        )
+    ]
     if channel in (None, "whatsapp") and wa_job_ids:
         wa_q: dict = {
             "job_id": {_MONGO_IN: wa_job_ids},
@@ -625,19 +818,28 @@ async def export_logs(
         }
         if status:
             wa_q["status"] = status
-        async for doc in db.message_logs.find(wa_q).sort("created_at", -1).limit(_MAX_EXPORT_ROWS):
-            rows.append([
-                doc["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
-                "WhatsApp",
-                doc.get("to_phone", ""),
-                doc.get("name", ""),
-                str(doc.get("job_id", "")),
-                doc.get("status", ""),
-                doc.get("error_message", ""),
-                doc.get("retry_count", 0),
-            ])
+        async for doc in (
+            db.message_logs.find(wa_q).sort("created_at", -1).limit(_MAX_EXPORT_ROWS)
+        ):
+            rows.append(
+                [
+                    doc["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "WhatsApp",
+                    doc.get("to_phone", ""),
+                    doc.get("name", ""),
+                    str(doc.get("job_id", "")),
+                    doc.get("status", ""),
+                    doc.get("error_message", ""),
+                    doc.get("retry_count", 0),
+                ]
+            )
 
-    email_job_ids = [doc["_id"] async for doc in db.email_campaign_jobs.find({"restaurant_id": {"$in": rids}}, {"_id": 1})]
+    email_job_ids = [
+        doc["_id"]
+        async for doc in db.email_campaign_jobs.find(
+            {"restaurant_id": {"$in": rids}}, {"_id": 1}
+        )
+    ]
     if channel in (None, "email") and email_job_ids:
         email_q: dict = {
             "campaign_id": {_MONGO_IN: email_job_ids},
@@ -645,28 +847,43 @@ async def export_logs(
         }
         if status:
             email_q["status"] = status
-        async for doc in db.email_logs.find(email_q).sort("created_at", -1).limit(_MAX_EXPORT_ROWS):
-            rows.append([
-                doc["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
-                "Email",
-                doc.get("recipient_email", ""),
-                doc.get("recipient_name", ""),
-                str(doc.get("campaign_id", "")),
-                doc.get("status", ""),
-                doc.get("error_reason", ""),
-                doc.get("retry_count", 0),
-            ])
+        async for doc in (
+            db.email_logs.find(email_q).sort("created_at", -1).limit(_MAX_EXPORT_ROWS)
+        ):
+            rows.append(
+                [
+                    doc["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "Email",
+                    doc.get("recipient_email", ""),
+                    doc.get("recipient_name", ""),
+                    str(doc.get("campaign_id", "")),
+                    doc.get("status", ""),
+                    doc.get("error_reason", ""),
+                    doc.get("retry_count", 0),
+                ]
+            )
 
     rows.sort(key=lambda x: x[0], reverse=True)
 
     filename = f"delivery_logs_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(db, current_user, restaurant["id"], "logs", format, {
-        "from": str(from_dt.date()), "to": str(to_dt.date()),
-        "channel": channel, "status": status,
-    })
+    await _audit_export(
+        db,
+        current_user,
+        restaurant["id"],
+        "logs",
+        format,
+        {
+            "from": str(from_dt.date()),
+            "to": str(to_dt.date()),
+            "channel": channel,
+            "status": status,
+        },
+    )
     return _export_response(rows, headers, filename, format)
 
+
 # ── Inbox Engagement Reports ──────────────────────────────────────────────────
+
 
 async def _build_inbox_data(
     restaurant: dict,
@@ -679,9 +896,7 @@ async def _build_inbox_data(
     # and includes potential members (anonymous senders).
     # The report is now GLOBAL (irrespective of rid) but includes restaurant attribution
     pipeline = [
-        {_MONGO_MATCH: {
-            "received_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt}
-        }},
+        {_MONGO_MATCH: {"received_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt}}},
         {_MONGO_SORT: {"received_at": -1}},
         {
             "$lookup": {
@@ -711,9 +926,9 @@ async def _build_inbox_data(
                 "restaurantName": {
                     "$ifNull": [
                         {"$arrayElemAt": ["$restaurant_info.name", 0]},
-                        "Unassigned"
+                        "Unassigned",
                     ]
-                }
+                },
             }
         },
         {
@@ -731,7 +946,7 @@ async def _build_inbox_data(
     ]
 
     engaged_customers = await db.inbound_messages.aggregate(pipeline).to_list(1000)
-    
+
     total_messages = sum(c["message_count"] for c in engaged_customers)
     unique_senders = len(engaged_customers)
     avg_per_sender = round(total_messages / unique_senders, 1) if unique_senders else 0
@@ -794,13 +1009,231 @@ async def inbox_export(
     data = await _build_inbox_data(restaurant, from_dt, to_dt, db)
     customers = data["engaged_customers"]
 
-    headers = ["Customer Name", "Phone", "Incoming Messages", "Latest Message Recv.", "Last Active Date"]
-    rows = [[
-        c["name"], c["phone"], c["message_count"], c["last_message"], c["last_received_at"][:10],
-    ] for c in customers]
+    headers = [
+        "Customer Name",
+        "Phone",
+        "Incoming Messages",
+        "Latest Message Recv.",
+        "Last Active Date",
+    ]
+    rows = [
+        [
+            c["name"],
+            c["phone"],
+            c["message_count"],
+            c["last_message"],
+            c["last_received_at"][:10],
+        ]
+        for c in customers
+    ]
 
     filename = f"inbox_engagement_report_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(db, current_user, rid, "inbox", format, {
-        "from": str(from_dt.date()), "to": str(to_dt.date()),
-    })
+    await _audit_export(
+        db,
+        current_user,
+        rid,
+        "inbox",
+        format,
+        {
+            "from": str(from_dt.date()),
+            "to": str(to_dt.date()),
+        },
+    )
+    return _export_response(rows, headers, filename, format)
+
+
+# ── Meta Billing Reports ───────────────────────────────────────────────────────
+
+
+async def _build_billing_data(
+    restaurant_id: str,
+    from_dt: datetime,
+    to_dt: datetime,
+    db: AsyncIOMotorDatabase,
+) -> dict:
+    rest_doc = await db.restaurants.find_one(
+        {
+            "$or": [
+                {"id": restaurant_id},
+                {
+                    "_id": (
+                        ObjectId(restaurant_id)
+                        if ObjectId.is_valid(restaurant_id)
+                        else None
+                    )
+                },
+            ]
+        }
+    )
+    rid_oid = str(rest_doc["_id"]) if rest_doc else None
+    rids = list({restaurant_id, rid_oid} - {None})
+
+    base_match = {
+        "restaurant_id": {_MONGO_IN: rids},
+        "recorded_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
+    }
+
+    # Total spend + count
+    totals_pipeline = [
+        {_MONGO_MATCH: base_match},
+        {
+            _MONGO_GROUP: {
+                "_id": None,
+                "total_spend": {_MONGO_SUM: "$price"},
+                "total_conversations": {_MONGO_SUM: 1},
+            }
+        },
+    ]
+    totals_raw = await db.meta_billing_events.aggregate(totals_pipeline).to_list(1)
+    totals = (
+        totals_raw[0] if totals_raw else {"total_spend": 0, "total_conversations": 0}
+    )
+
+    # Spend by category (MARKETING, UTILITY, AUTHENTICATION, SERVICE)
+    by_category_pipeline = [
+        {_MONGO_MATCH: base_match},
+        {
+            _MONGO_GROUP: {
+                "_id": "$category",
+                "spend": {_MONGO_SUM: "$price"},
+                "count": {_MONGO_SUM: 1},
+            }
+        },
+        {_MONGO_SORT: {"spend": -1}},
+    ]
+    by_category_raw = await db.meta_billing_events.aggregate(
+        by_category_pipeline
+    ).to_list(20)
+    by_category = [
+        {
+            "category": r["_id"] or "UNKNOWN",
+            "spend": round(r["spend"], 4),
+            "count": r["count"],
+        }
+        for r in by_category_raw
+    ]
+
+    # Daily spend trend
+    daily_pipeline = [
+        {_MONGO_MATCH: base_match},
+        {
+            _MONGO_GROUP: {
+                "_id": {
+                    "year": {"$year": "$recorded_at"},
+                    "month": {"$month": "$recorded_at"},
+                    "day": {"$dayOfMonth": "$recorded_at"},
+                },
+                "spend": {_MONGO_SUM: "$price"},
+                "count": {_MONGO_SUM: 1},
+            }
+        },
+        {_MONGO_SORT: {"_id.year": 1, "_id.month": 1, "_id.day": 1}},
+    ]
+    daily_raw = await db.meta_billing_events.aggregate(daily_pipeline).to_list(366)
+    daily_trend = [
+        {
+            "date": f"{r['_id']['year']}-{r['_id']['month']:02d}-{r['_id']['day']:02d}",
+            "spend": round(r["spend"], 4),
+            "count": r["count"],
+        }
+        for r in daily_raw
+    ]
+
+    currency_raw = await db.meta_billing_events.find_one(
+        {"restaurant_id": {_MONGO_IN: rids}}, {"currency": 1}
+    )
+    currency = (
+        currency_raw.get("currency", settings.default_currency)
+        if currency_raw
+        else settings.default_currency
+    )
+
+    return {
+        "summary": {
+            "total_spend": round(totals["total_spend"], 4),
+            "total_conversations": totals["total_conversations"],
+            "currency": currency,
+        },
+        "by_category": by_category,
+        "daily_trend": daily_trend,
+    }
+
+
+@router.get("/billing/summary")
+async def billing_summary(
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    from_date: Annotated[date | None, Query()] = None,
+    to_date: Annotated[date | None, Query()] = None,
+):
+    from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
+    rid = restaurant["id"]
+
+    cache_key = f"reports:billing:{rid}:{_date_hash(from_dt, to_dt)}"
+    cached = await _cache_get(cache_key)
+    if cached:
+        return cached
+
+    result = await _build_billing_data(rid, from_dt, to_dt, db)
+    await _cache_set(cache_key, result)
+    return result
+
+
+@router.get("/billing/export")
+async def billing_export(
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    from_date: Annotated[date | None, Query()] = None,
+    to_date: Annotated[date | None, Query()] = None,
+    format: Annotated[Literal["csv", "xlsx"], Query(alias="format")] = "xlsx",
+):
+    from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
+    rid = restaurant["id"]
+    rest_doc = await db.restaurants.find_one(
+        {
+            "$or": [
+                {"id": rid},
+                {"_id": (ObjectId(rid) if ObjectId.is_valid(rid) else None)},
+            ]
+        }
+    )
+    rid_oid = str(rest_doc["_id"]) if rest_doc else None
+    rids = list({rid, rid_oid} - {None})
+
+    headers = ["Date", "Category", "Currency", "Price", "WA Message ID"]
+    rows = []
+    async for doc in (
+        db.meta_billing_events.find(
+            {
+                "restaurant_id": {_MONGO_IN: rids},
+                "recorded_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
+            }
+        )
+        .sort("recorded_at", -1)
+        .limit(10000)
+    ):
+        rows.append(
+            [
+                doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                doc.get("category", ""),
+                doc.get("currency", ""),
+                doc.get("price", 0),
+                doc.get("wa_message_id", ""),
+            ]
+        )
+
+    filename = f"meta_billing_{from_dt.date()}_{to_dt.date()}"
+    await _audit_export(
+        db,
+        current_user,
+        rid,
+        "billing",
+        format,
+        {
+            "from": str(from_dt.date()),
+            "to": str(to_dt.date()),
+        },
+    )
     return _export_response(rows, headers, filename, format)

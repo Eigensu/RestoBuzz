@@ -95,6 +95,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DASHBOARD_URL", "NEXT_PUBLIC_APP_URL"),
     )
 
+    # Reporting / Billing
+    default_currency: str = "INR"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

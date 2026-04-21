@@ -180,7 +180,8 @@ export default function CampaignDetailPage() {
           )}
 
           {(campaign?.failed_count ?? 0) > 0 &&
-            ![CampaignStatus.RUNNING, CampaignStatus.QUEUED].includes(campaign?.status as CampaignStatus) && (
+            ![CampaignStatus.RUNNING, CampaignStatus.QUEUED].includes(campaign?.status as CampaignStatus) && 
+            !campaign?.has_been_retried && (
               <button
                 onClick={() => retryMutation.mutate()}
                 disabled={retryMutation.isPending}

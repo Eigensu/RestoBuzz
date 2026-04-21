@@ -28,6 +28,7 @@ export interface Campaign {
   include_unsubscribe: boolean;
   created_at: string;
   parent_campaign_id: string | null;
+  has_been_retried: boolean;
 }
 
 export interface MessageLog {

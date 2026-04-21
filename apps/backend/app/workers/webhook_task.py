@@ -57,6 +57,38 @@ async def _handle_statuses(db, redis, statuses: list) -> None:
         if result:
             await _store_error_details(db, wa_id, status, s)
             await _increment_campaign_counter(db, result, status)
+            await _store_pricing(db, wa_id, s, result, now)
+
+
+async def _store_pricing(
+    db, wa_id: str, s: dict, message_log: dict, now: datetime
+) -> None:
+    """Persist Meta conversation pricing from the webhook status payload."""
+    pricing = s.get("pricing")
+    if not pricing or not pricing.get("billable"):
+        return
+
+    restaurant_id = message_log.get("restaurant_id")
+    job_id = message_log.get("job_id")
+
+    from app.config import settings
+    await db.meta_billing_events.update_one(
+        {"wa_message_id": wa_id},
+        {
+            "$setOnInsert": {
+                "wa_message_id": wa_id,
+                "restaurant_id": restaurant_id,
+                "job_id": job_id,
+                "billable": True,
+                "pricing_model": pricing.get("pricing_model", "CONVERSATION"),
+                "category": pricing.get("category", ""),
+                "currency": pricing.get("currency", settings.default_currency),
+                "price": float(pricing.get("price", 0)),
+                "recorded_at": now,
+            }
+        },
+        upsert=True,
+    )
 
 
 async def _store_error_details(db, wa_id: str, status: str, s: dict) -> None:
@@ -155,7 +187,9 @@ async def _handle_messages(db, redis, value: dict) -> None:
 
         context = msg.get("context", {})
         replied_to_wa_id = context.get("id")
-        orig_msg = await _find_and_mark_replied(db, replied_to_wa_id, from_phone, doc["received_at"])
+        orig_msg = await _find_and_mark_replied(
+            db, replied_to_wa_id, from_phone, doc["received_at"]
+        )
 
         if orig_msg and orig_msg.get("job_id"):
             await db.campaign_jobs.update_one(

@@ -22,6 +22,7 @@ import {
   XCircle,
   Clock,
   Activity,
+  IndianRupee as RupeeIcon,
 } from "lucide-react";
 import {
   BarChart,
@@ -41,7 +42,7 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ReportTab = "campaigns" | "members" | "inbox" | "logs";
+type ReportTab = "campaigns" | "members" | "inbox" | "logs" | "billing";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,13 +79,28 @@ function StatCard({
     amber: "text-amber-500",
   };
   return (
-    <div className={cn("bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2", className)}>
+    <div
+      className={cn(
+        "bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-2",
+        className,
+      )}
+    >
       <div className="flex items-center justify-between">
-        <p className={cn("text-[10px] font-black uppercase tracking-widest text-gray-400", className && "text-inherit text-opacity-60")}>
+        <p
+          className={cn(
+            "text-[10px] font-black uppercase tracking-widest text-gray-400",
+            className && "text-inherit text-opacity-60",
+          )}
+        >
           {label}
         </p>
         {Icon && (
-          <div className={cn("p-1.5 bg-[#eff2f0] rounded-lg", className && "bg-white/50")}>
+          <div
+            className={cn(
+              "p-1.5 bg-[#eff2f0] rounded-lg",
+              className && "bg-white/50",
+            )}
+          >
             <Icon className="w-3.5 h-3.5 text-[#24422e]" />
           </div>
         )}
@@ -97,7 +113,16 @@ function StatCard({
       >
         {value}
       </p>
-      {sub && <p className={cn("text-xs text-gray-400 font-medium", className && "text-inherit text-opacity-60")}>{sub}</p>}
+      {sub && (
+        <p
+          className={cn(
+            "text-xs text-gray-400 font-medium",
+            className && "text-inherit text-opacity-60",
+          )}
+        >
+          {sub}
+        </p>
+      )}
     </div>
   );
 }
@@ -145,13 +170,32 @@ function StatusBadge({ status }: { readonly status: string }) {
   );
 }
 
-const PIE_COLORS = ["#24422e", "#3a6b47", "#6aab82", "#a8d5b5", "#c8e8d0", "#d4edda"];
+const PIE_COLORS = [
+  "#24422e",
+  "#3a6b47",
+  "#6aab82",
+  "#a8d5b5",
+  "#c8e8d0",
+  "#d4edda",
+];
 
 // ── Campaign Tab ──────────────────────────────────────────────────────────────
 
-function CampaignTab({ data, loading }: { readonly data: any; readonly loading: boolean }) {
+function CampaignTab({
+  data,
+  loading,
+}: {
+  readonly data: any;
+  readonly loading: boolean;
+}) {
   if (loading) return <TabSkeleton />;
-  if (!data) return <EmptyState icon={TrendingUp} message="No campaign data for this period." />;
+  if (!data)
+    return (
+      <EmptyState
+        icon={TrendingUp}
+        message="No campaign data for this period."
+      />
+    );
 
   const { summary, campaigns, weekly_trend } = data;
 
@@ -197,7 +241,9 @@ function CampaignTab({ data, loading }: { readonly data: any; readonly loading: 
                 <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-0.5">
                   Best Campaign
                 </p>
-                <p className="font-black text-gray-900 text-sm">{summary.best_campaign.name}</p>
+                <p className="font-black text-gray-900 text-sm">
+                  {summary.best_campaign.name}
+                </p>
                 <p className="text-xs text-gray-500">
                   {summary.best_campaign.read_rate}% read rate ·{" "}
                   {summary.best_campaign.channel.toUpperCase()}
@@ -212,7 +258,9 @@ function CampaignTab({ data, loading }: { readonly data: any; readonly loading: 
                 <p className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-0.5">
                   Highest Failure
                 </p>
-                <p className="font-black text-gray-900 text-sm">{summary.worst_campaign.name}</p>
+                <p className="font-black text-gray-900 text-sm">
+                  {summary.worst_campaign.name}
+                </p>
                 <p className="text-xs text-gray-500">
                   {summary.worst_campaign.failure_rate}% failure rate ·{" "}
                   {summary.worst_campaign.channel.toUpperCase()}
@@ -232,12 +280,31 @@ function CampaignTab({ data, loading }: { readonly data: any; readonly loading: 
               <XAxis dataKey="week" tick={{ fontSize: 11, fill: "#9ca3af" }} />
               <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
               <Tooltip
-                contentStyle={{ borderRadius: 12, border: "1px solid #f0f0f0", fontSize: 12 }}
+                contentStyle={{
+                  borderRadius: 12,
+                  border: "1px solid #f0f0f0",
+                  fontSize: 12,
+                }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="sent" name="Sent" fill="#c8e8d0" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="delivered" name="Delivered" fill="#3a6b47" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="read" name="Read/Opened" fill="#24422e" radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey="sent"
+                name="Sent"
+                fill="#c8e8d0"
+                radius={[4, 4, 0, 0]}
+              />
+              <Bar
+                dataKey="delivered"
+                name="Delivered"
+                fill="#3a6b47"
+                radius={[4, 4, 0, 0]}
+              />
+              <Bar
+                dataKey="read"
+                name="Read/Opened"
+                fill="#24422e"
+                radius={[4, 4, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </SectionCard>
@@ -249,21 +316,32 @@ function CampaignTab({ data, loading }: { readonly data: any; readonly loading: 
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
-                {["Channel", "Name", "Date", "Status", "Sent", "Delivered", "Delivery%", "Read%", "Failed"].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="text-[10px] font-black uppercase tracking-widest text-gray-400 text-left pb-3 pr-4"
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
+                {[
+                  "Channel",
+                  "Name",
+                  "Date",
+                  "Status",
+                  "Sent",
+                  "Delivered",
+                  "Delivery%",
+                  "Read%",
+                  "Failed",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="text-[10px] font-black uppercase tracking-widest text-gray-400 text-left pb-3 pr-4"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {campaigns.map((c: any) => (
-                <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
+                <tr
+                  key={c.id}
+                  className="border-b border-gray-50 hover:bg-gray-50/50 transition"
+                >
                   <td className="py-3 pr-4">
                     <span className="text-[10px] font-black uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-full">
                       {c.channel}
@@ -272,20 +350,35 @@ function CampaignTab({ data, loading }: { readonly data: any; readonly loading: 
                   <td className="py-3 pr-4 font-medium text-gray-900 max-w-[160px] truncate">
                     {c.name}
                   </td>
-                  <td className="py-3 pr-4 text-gray-500 text-xs">{c.created_at.slice(0, 10)}</td>
+                  <td className="py-3 pr-4 text-gray-500 text-xs">
+                    {c.created_at.slice(0, 10)}
+                  </td>
                   <td className="py-3 pr-4">
                     <StatusBadge status={c.status} />
                   </td>
-                  <td className="py-3 pr-4 text-gray-700">{c.sent.toLocaleString()}</td>
-                  <td className="py-3 pr-4 text-gray-700">{c.delivered.toLocaleString()}</td>
-                  <td className="py-3 pr-4 font-black text-emerald-700">{c.delivery_rate}%</td>
-                  <td className="py-3 pr-4 font-black text-[#24422e]">{c.read_rate}%</td>
-                  <td className="py-3 pr-4 font-black text-red-400">{c.failed}</td>
+                  <td className="py-3 pr-4 text-gray-700">
+                    {c.sent.toLocaleString()}
+                  </td>
+                  <td className="py-3 pr-4 text-gray-700">
+                    {c.delivered.toLocaleString()}
+                  </td>
+                  <td className="py-3 pr-4 font-black text-emerald-700">
+                    {c.delivery_rate}%
+                  </td>
+                  <td className="py-3 pr-4 font-black text-[#24422e]">
+                    {c.read_rate}%
+                  </td>
+                  <td className="py-3 pr-4 font-black text-red-400">
+                    {c.failed}
+                  </td>
                 </tr>
               ))}
               {campaigns.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-sm text-gray-400">
+                  <td
+                    colSpan={9}
+                    className="py-8 text-center text-sm text-gray-400"
+                  >
                     No campaigns in this period
                   </td>
                 </tr>
@@ -300,9 +393,16 @@ function CampaignTab({ data, loading }: { readonly data: any; readonly loading: 
 
 // ── Member Tab ────────────────────────────────────────────────────────────────
 
-function MemberTab({ data, loading }: { readonly data: any; readonly loading: boolean }) {
+function MemberTab({
+  data,
+  loading,
+}: {
+  readonly data: any;
+  readonly loading: boolean;
+}) {
   if (loading) return <TabSkeleton />;
-  if (!data) return <EmptyState icon={Users} message="No member data available." />;
+  if (!data)
+    return <EmptyState icon={Users} message="No member data available." />;
 
   const { summary, monthly_growth, category_split, top_visitors } = data;
 
@@ -346,7 +446,8 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
           <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
           <div>
             <p className="text-sm font-black text-amber-800">
-              {summary.dormant_members.toLocaleString()} dormant members — no activity in 30+ days
+              {summary.dormant_members.toLocaleString()} dormant members — no
+              activity in 30+ days
             </p>
             <p className="text-xs text-amber-600 mt-0.5">
               Consider sending a re-engagement campaign to win them back.
@@ -363,16 +464,33 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={monthly_growth}>
                   <defs>
-                    <linearGradient id="memberGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#24422e" stopOpacity={0.15} />
+                    <linearGradient
+                      id="memberGradient"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="5%"
+                        stopColor="#24422e"
+                        stopOpacity={0.15}
+                      />
                       <stop offset="95%" stopColor="#24422e" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fill: "#9ca3af" }}
+                  />
                   <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
                   <Tooltip
-                    contentStyle={{ borderRadius: 12, border: "1px solid #f0f0f0", fontSize: 12 }}
+                    contentStyle={{
+                      borderRadius: 12,
+                      border: "1px solid #f0f0f0",
+                      fontSize: 12,
+                    }}
                   />
                   <Area
                     type="monotone"
@@ -385,7 +503,9 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-gray-400 text-center py-8">No data in this range</p>
+              <p className="text-sm text-gray-400 text-center py-8">
+                No data in this range
+              </p>
             )}
           </SectionCard>
         </div>
@@ -407,25 +527,41 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
                     paddingAngle={3}
                   >
                     {category_split.map((c: any, i: number) => (
-                      <Cell key={c.category} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                      <Cell
+                        key={c.category}
+                        fill={PIE_COLORS[i % PIE_COLORS.length]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ borderRadius: 12, border: "1px solid #f0f0f0", fontSize: 12 }}
+                    contentStyle={{
+                      borderRadius: 12,
+                      border: "1px solid #f0f0f0",
+                      fontSize: 12,
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-1.5 mt-2">
                 {category_split.map((c: any, i: number) => (
-                  <div key={c.category} className="flex items-center justify-between text-xs">
+                  <div
+                    key={c.category}
+                    className="flex items-center justify-between text-xs"
+                  >
                     <div className="flex items-center gap-2">
                       <div
                         className="w-2.5 h-2.5 rounded-full"
-                        style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
+                        style={{
+                          background: PIE_COLORS[i % PIE_COLORS.length],
+                        }}
                       />
-                      <span className="font-medium text-gray-700 uppercase">{c.category}</span>
+                      <span className="font-medium text-gray-700 uppercase">
+                        {c.category}
+                      </span>
                     </div>
-                    <span className="font-black text-gray-900">{c.count.toLocaleString()}</span>
+                    <span className="font-black text-gray-900">
+                      {c.count.toLocaleString()}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -443,28 +579,41 @@ function MemberTab({ data, loading }: { readonly data: any; readonly loading: bo
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {["#", "Name", "Phone", "Type", "Visits", "Last Visit"].map((h) => (
-                    <th
-                      key={h}
-                      className="text-[10px] font-black uppercase tracking-widest text-gray-400 text-left pb-3 pr-4"
-                    >
-                      {h}
-                    </th>
-                  ))}
+                  {["#", "Name", "Phone", "Type", "Visits", "Last Visit"].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        className="text-[10px] font-black uppercase tracking-widest text-gray-400 text-left pb-3 pr-4"
+                      >
+                        {h}
+                      </th>
+                    ),
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {top_visitors.map((v: any, i: number) => (
-                  <tr key={v.phone} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
-                    <td className="py-3 pr-4 text-gray-400 font-black text-xs">{i + 1}</td>
-                    <td className="py-3 pr-4 font-medium text-gray-900">{v.name}</td>
-                    <td className="py-3 pr-4 text-gray-500 font-mono text-xs">{v.phone}</td>
+                  <tr
+                    key={v.phone}
+                    className="border-b border-gray-50 hover:bg-gray-50/50 transition"
+                  >
+                    <td className="py-3 pr-4 text-gray-400 font-black text-xs">
+                      {i + 1}
+                    </td>
+                    <td className="py-3 pr-4 font-medium text-gray-900">
+                      {v.name}
+                    </td>
+                    <td className="py-3 pr-4 text-gray-500 font-mono text-xs">
+                      {v.phone}
+                    </td>
                     <td className="py-3 pr-4">
                       <span className="text-[10px] font-black uppercase bg-[#eff2f0] text-[#24422e] px-2 py-0.5 rounded-full">
                         {v.type}
                       </span>
                     </td>
-                    <td className="py-3 pr-4 font-black text-[#24422e]">{v.visit_count}</td>
+                    <td className="py-3 pr-4 font-black text-[#24422e]">
+                      {v.visit_count}
+                    </td>
                     <td className="py-3 pr-4 text-gray-400 text-xs">
                       {v.last_visit ? v.last_visit.slice(0, 10) : "—"}
                     </td>
@@ -525,7 +674,10 @@ function LogsTab({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="log-status" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label
+            htmlFor="log-status"
+            className="text-[10px] font-black uppercase tracking-widest text-gray-400"
+          >
             Status
           </label>
           <select
@@ -547,28 +699,41 @@ function LogsTab({
       </div>
 
       {items.length === 0 ? (
-        <EmptyState icon={Inbox} message="No delivery logs found for this filter." />
+        <EmptyState
+          icon={Inbox}
+          message="No delivery logs found for this filter."
+        />
       ) : (
         <SectionCard title="Delivery Logs">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {["Channel", "Recipient", "Name", "Campaign", "Status", "Error", "Retries", "Time"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="text-[10px] font-black uppercase tracking-widest text-gray-400 text-left pb-3 pr-4"
-                      >
-                        {h}
-                      </th>
-                    ),
-                  )}
+                  {[
+                    "Channel",
+                    "Recipient",
+                    "Name",
+                    "Campaign",
+                    "Status",
+                    "Error",
+                    "Retries",
+                    "Time",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="text-[10px] font-black uppercase tracking-widest text-gray-400 text-left pb-3 pr-4"
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {items.map((row: any) => (
-                  <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
+                  <tr
+                    key={row.id}
+                    className="border-b border-gray-50 hover:bg-gray-50/50 transition"
+                  >
                     <td className="py-3 pr-4">
                       <span className="text-[10px] font-black uppercase tracking-widest bg-gray-100 px-2 py-0.5 rounded-full">
                         {row.channel}
@@ -589,7 +754,9 @@ function LogsTab({
                     <td className="py-3 pr-4 text-xs text-red-400 max-w-[140px] truncate">
                       {row.error_reason || "—"}
                     </td>
-                    <td className="py-3 pr-4 text-center text-gray-500">{row.retry_count}</td>
+                    <td className="py-3 pr-4 text-center text-gray-500">
+                      {row.retry_count}
+                    </td>
                     <td className="py-3 pr-4 text-xs text-gray-400 whitespace-nowrap">
                       {row.created_at.slice(0, 16).replace("T", " ")}
                     </td>
@@ -612,12 +779,20 @@ function LogsTab({
   );
 }
 
-
 // ── Inbox Tab ─────────────────────────────────────────────────────────────────
 
-function InboxTab({ data, loading }: { readonly data: any; readonly loading: boolean }) {
+function InboxTab({
+  data,
+  loading,
+}: {
+  readonly data: any;
+  readonly loading: boolean;
+}) {
   if (loading) return <TabSkeleton />;
-  if (!data) return <EmptyState icon={MessageSquare} message="No inbox data available." />;
+  if (!data)
+    return (
+      <EmptyState icon={MessageSquare} message="No inbox data available." />
+    );
 
   const { summary, engaged_customers } = data;
 
@@ -646,7 +821,10 @@ function InboxTab({ data, loading }: { readonly data: any; readonly loading: boo
         {summary.top_engaged_customer && (
           <StatCard
             label="Top Customer"
-            value={summary.top_engaged_customer.name || summary.top_engaged_customer._id}
+            value={
+              summary.top_engaged_customer.name ||
+              summary.top_engaged_customer._id
+            }
             sub={`${summary.top_engaged_customer.message_count} messages sent`}
             icon={Users}
             className="bg-[#eff2f0] text-[#24422e]"
@@ -659,7 +837,13 @@ function InboxTab({ data, loading }: { readonly data: any; readonly loading: boo
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
-                {["Name", "Phone", "Last Message", "Messages Sent", "Last Active"].map((h) => (
+                {[
+                  "Name",
+                  "Phone",
+                  "Last Message",
+                  "Messages Sent",
+                  "Last Active",
+                ].map((h) => (
                   <th
                     key={h}
                     className="text-[10px] font-black uppercase tracking-widest text-gray-400 text-left pb-3 pr-4"
@@ -671,9 +855,16 @@ function InboxTab({ data, loading }: { readonly data: any; readonly loading: boo
             </thead>
             <tbody>
               {engaged_customers.slice(0, 15).map((c: any) => (
-                <tr key={c.phone} className="border-b border-gray-50 hover:bg-gray-50/50 transition">
-                  <td className="py-3 pr-4 font-medium text-gray-900">{c.name}</td>
-                  <td className="py-3 pr-4 text-gray-500 font-mono text-xs">{c.phone}</td>
+                <tr
+                  key={c.phone}
+                  className="border-b border-gray-50 hover:bg-gray-50/50 transition"
+                >
+                  <td className="py-3 pr-4 font-medium text-gray-900">
+                    {c.name}
+                  </td>
+                  <td className="py-3 pr-4 text-gray-500 font-mono text-xs">
+                    {c.phone}
+                  </td>
                   <td className="py-3 pr-4 text-gray-600 italic text-xs max-w-[200px] truncate">
                     {c.last_message}
                   </td>
@@ -687,7 +878,10 @@ function InboxTab({ data, loading }: { readonly data: any; readonly loading: boo
               ))}
               {engaged_customers.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-12 text-center text-sm text-gray-400 font-medium">
+                  <td
+                    colSpan={4}
+                    className="py-12 text-center text-sm text-gray-400 font-medium"
+                  >
                     No engagement data for this period
                   </td>
                 </tr>
@@ -696,6 +890,210 @@ function InboxTab({ data, loading }: { readonly data: any; readonly loading: boo
           </table>
         </div>
       </SectionCard>
+    </div>
+  );
+}
+
+// ── Billing Tab ───────────────────────────────────────────────────────────────
+
+const CATEGORY_COLORS: Record<string, string> = {
+  MARKETING: "#24422e",
+  UTILITY: "#3a6b47",
+  AUTHENTICATION: "#6aab82",
+  SERVICE: "#a8d5b5",
+};
+
+function BillingTab({
+  data,
+  loading,
+}: {
+  readonly data: any;
+  readonly loading: boolean;
+}) {
+  if (loading) return <TabSkeleton />;
+  if (!data)
+    return (
+      <EmptyState
+        icon={DollarSign}
+        message="No billing data for this period."
+      />
+    );
+
+  const { summary, by_category, daily_trend } = data;
+  const fmt = (n: number) => {
+    const currency = summary.currency || "INR";
+    const locale = currency === "INR" ? "en-IN" : undefined;
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    }).format(n);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Info banner */}
+      <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-5 py-4">
+        <RupeeIcon className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+        <p className="text-sm text-blue-700 font-medium">
+          Spend data is sourced directly from Meta&apos;s webhook{" "}
+          <code className="bg-blue-100 px-1 rounded text-xs">pricing</code>{" "}
+          field. Only billable conversations are counted.
+        </p>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <StatCard
+          icon={RupeeIcon}
+          label="Total Spend"
+          value={fmt(summary.total_spend)}
+          sub={`Currency: ${summary.currency}`}
+          highlight="green"
+        />
+        <StatCard
+          icon={MessageSquare}
+          label="Billable Conversations"
+          value={summary.total_conversations.toLocaleString()}
+          sub="Unique conversations charged"
+        />
+        <StatCard
+          icon={Activity}
+          label="Avg Cost / Conversation"
+          value={
+            summary.total_conversations > 0
+              ? fmt(summary.total_spend / summary.total_conversations)
+              : fmt(0)
+          }
+          sub="Across all categories"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Daily Spend Chart */}
+        <div className="lg:col-span-2">
+          <SectionCard title="Daily Spend Trend">
+            {daily_trend?.length > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={daily_trend}>
+                  <defs>
+                    <linearGradient
+                      id="billingGradient"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="5%"
+                        stopColor="#24422e"
+                        stopOpacity={0.15}
+                      />
+                      <stop offset="95%" stopColor="#24422e" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 10, fill: "#9ca3af" }}
+                    tickFormatter={(v) => v.slice(5)}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: "#9ca3af" }}
+                    tickFormatter={(v) => `${summary.currency} ${v}`}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 12,
+                      border: "1px solid #f0f0f0",
+                      fontSize: 12,
+                    }}
+                    formatter={(v: number) => [fmt(v), "Spend"]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="spend"
+                    name="Spend"
+                    stroke="#24422e"
+                    strokeWidth={2.5}
+                    fill="url(#billingGradient)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-gray-400 text-center py-8">
+                No spend data in this range
+              </p>
+            )}
+          </SectionCard>
+        </div>
+
+        {/* By Category Pie */}
+        <SectionCard title="Spend by Category">
+          {by_category?.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie
+                    data={by_category}
+                    dataKey="spend"
+                    nameKey="category"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={65}
+                    innerRadius={35}
+                    paddingAngle={3}
+                  >
+                    {by_category.map((c: any) => (
+                      <Cell
+                        key={c.category}
+                        fill={CATEGORY_COLORS[c.category] ?? "#c8e8d0"}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: 12,
+                      border: "1px solid #f0f0f0",
+                      fontSize: 12,
+                    }}
+                    formatter={(v: number) => [fmt(v), "Spend"]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-2 mt-2">
+                {by_category.map((c: any) => (
+                  <div
+                    key={c.category}
+                    className="flex items-center justify-between text-xs"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{
+                          background: CATEGORY_COLORS[c.category] ?? "#c8e8d0",
+                        }}
+                      />
+                      <span className="font-medium text-gray-700 uppercase">
+                        {c.category}
+                      </span>
+                      <span className="text-gray-400">
+                        ({c.count.toLocaleString()})
+                      </span>
+                    </div>
+                    <span className="font-black text-gray-900">
+                      {fmt(c.spend)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">No data</p>
+          )}
+        </SectionCard>
+      </div>
     </div>
   );
 }
@@ -768,8 +1166,18 @@ export default function ReportsPage() {
 
   // Campaign summary
   const campaignQuery = useQuery({
-    queryKey: ["reports", "campaigns", restaurant?.id, fromDate, toDate, channel],
-    queryFn: () => api.get(`/reports/campaigns/summary?${buildParams()}`).then((r) => r.data),
+    queryKey: [
+      "reports",
+      "campaigns",
+      restaurant?.id,
+      fromDate,
+      toDate,
+      channel,
+    ],
+    queryFn: () =>
+      api
+        .get(`/reports/campaigns/summary?${buildParams()}`)
+        .then((r) => r.data),
     enabled: !!restaurant && tab === "campaigns",
   });
 
@@ -807,12 +1215,39 @@ export default function ReportsPage() {
 
   // Logs query (resets items when filters change)
   const logsQuery = useQuery({
-    queryKey: ["reports", "logs", restaurant?.id, fromDate, toDate, channel, logStatus, logSearch],
+    queryKey: [
+      "reports",
+      "logs",
+      restaurant?.id,
+      fromDate,
+      toDate,
+      channel,
+      logStatus,
+      logSearch,
+    ],
     queryFn: () =>
       api
-        .get(`/reports/logs?${buildParams({ status: logStatus, search: logSearch })}`)
+        .get(
+          `/reports/logs?${buildParams({ status: logStatus, search: logSearch })}`,
+        )
         .then((r) => r.data),
     enabled: !!restaurant && tab === "logs",
+  });
+
+  // Billing summary
+  const billingQuery = useQuery({
+    queryKey: ["reports", "billing", restaurant?.id, fromDate, toDate],
+    queryFn: () =>
+      api
+        .get(
+          `/reports/billing/summary?${new URLSearchParams({
+            from_date: fromDate,
+            to_date: toDate,
+            restaurant_id: restaurant!.id,
+          })}`,
+        )
+        .then((r) => r.data),
+    enabled: !!restaurant && tab === "billing",
   });
 
   // TanStack Query v5 removed onSuccess — sync via useEffect instead
@@ -855,6 +1290,7 @@ export default function ReportsPage() {
         members: "/reports/members/export",
         inbox: "/reports/inbox/export",
         logs: "/reports/logs/export",
+        billing: "/reports/billing/export",
       };
 
       const res = await api.get(`${endpointMap[tab]}?${base}`, {
@@ -880,6 +1316,7 @@ export default function ReportsPage() {
     { key: "members", label: "Members", icon: Users },
     { key: "inbox", label: "Inbox Engagement", icon: MessageSquare },
     { key: "logs", label: "Delivery Logs", icon: FileText },
+    { key: "billing", label: "Meta Billing", icon: RupeeIcon },
   ];
 
   return (
@@ -891,7 +1328,9 @@ export default function ReportsPage() {
             <div className="p-2 bg-[#eff2f0] rounded-lg">
               <BarChart3 className="w-6 h-6 text-[#24422e]" />
             </div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">Reports</h1>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight">
+              Reports
+            </h1>
           </div>
           <p className="text-sm text-gray-500 mt-1 ml-11 font-medium">
             Analytics and exports for {restaurant.name}
@@ -917,7 +1356,10 @@ export default function ReportsPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-end bg-white border border-gray-100 rounded-2xl shadow-sm p-4">
         <div className="flex flex-col gap-1">
-          <label htmlFor="from-date" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label
+            htmlFor="from-date"
+            className="text-[10px] font-black uppercase tracking-widest text-gray-400"
+          >
             From
           </label>
           <input
@@ -929,7 +1371,10 @@ export default function ReportsPage() {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="to-date" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label
+            htmlFor="to-date"
+            className="text-[10px] font-black uppercase tracking-widest text-gray-400"
+          >
             To
           </label>
           <input
@@ -941,7 +1386,10 @@ export default function ReportsPage() {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="channel-select" className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+          <label
+            htmlFor="channel-select"
+            className="text-[10px] font-black uppercase tracking-widest text-gray-400"
+          >
             Channel
           </label>
           <select
@@ -979,7 +1427,10 @@ export default function ReportsPage() {
 
       {/* Tab Content */}
       {tab === "campaigns" && (
-        <CampaignTab data={campaignQuery.data} loading={campaignQuery.isLoading} />
+        <CampaignTab
+          data={campaignQuery.data}
+          loading={campaignQuery.isLoading}
+        />
       )}
       {tab === "members" && (
         <MemberTab data={memberQuery.data} loading={memberQuery.isLoading} />
@@ -991,7 +1442,10 @@ export default function ReportsPage() {
         <LogsTab
           data={
             allLogItems.length > 0
-              ? { ...(logsQuery.data as LogsResponse | undefined), items: allLogItems }
+              ? {
+                  ...(logsQuery.data as LogsResponse | undefined),
+                  items: allLogItems,
+                }
               : (logsQuery.data as LogsResponse | undefined)
           }
           loading={logsQuery.isLoading}
@@ -1007,6 +1461,9 @@ export default function ReportsPage() {
           }}
           onLoadMore={handleLoadMore}
         />
+      )}
+      {tab === "billing" && (
+        <BillingTab data={billingQuery.data} loading={billingQuery.isLoading} />
       )}
     </div>
   );
