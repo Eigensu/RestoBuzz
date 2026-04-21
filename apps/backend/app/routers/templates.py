@@ -15,8 +15,10 @@ from app.services.meta_api import (
 )
 from app.core.errors import NotFoundError, ValidationError
 from app.config import settings
+from app.core.logging import get_logger
 
 router = APIRouter(prefix="/templates", tags=["templates"])
+logger = get_logger(__name__)
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -284,11 +286,39 @@ async def sync_templates(
         if lang:
             key["language"] = lang
         keys.append(key)
+        # Detect transition to APPROVED to trigger email alert
+        old_doc = await db.templates.find_one(key)
+        was_approved = old_doc and old_doc.get("status") == "APPROVED"
+        already_alerted = old_doc and old_doc.get("alert_sent")
+        is_approved = t.get("status") == "APPROVED"
+
+        update_fields = {**t, "synced_at": datetime.now(timezone.utc)}
+        if not was_approved and is_approved:
+            update_fields["alert_sent"] = True
+
         await db.templates.update_one(
             key,
-            {"$set": {**t, "synced_at": datetime.now(timezone.utc)}},
+            {"$set": update_fields},
             upsert=True,
         )
+
+        if not was_approved and is_approved and not already_alerted:
+            # Enqueue background job so the endpoint returns immediately and
+            # email fan-out (with retries) is handled by a Celery worker.
+            try:
+                from app.workers.alert_tasks import send_template_approval_alert_task
+
+                send_template_approval_alert_task.delay(
+                    t["name"],
+                    t.get("language", "en_US"),
+                    t.get("category", "MARKETING"),
+                )
+            except Exception:
+                logger.exception(
+                    "template_alert_failed",
+                    name=t["name"],
+                    lang=t.get("language"),
+                )
 
     # Remove templates that no longer exist in Meta for this workspace.
     if keys:

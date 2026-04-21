@@ -102,6 +102,7 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
         parent_campaign_id=(
             str(doc["parent_campaign_id"]) if doc.get("parent_campaign_id") else None
         ),
+        has_been_retried=doc.get("has_been_retried", False),
     )
 
 
@@ -343,7 +344,9 @@ async def get_analytics(
                         {
                             "$project": {
                                 "_id": 0,
-                                "phone": {"$trim": {"input": {"$toString": "$guest_number"}}},
+                                "phone": {
+                                    "$trim": {"input": {"$toString": "$guest_number"}}
+                                },
                             }
                         },
                         {_MATCH: {"phone": {"$ne": ""}}},
@@ -389,31 +392,61 @@ async def get_analytics(
     base_match = {"job_id": {"$in": campaign_ids}}
 
     # ── 1. Totals ─────────────────────────────────────────────────────────────
-    totals_cursor = db.campaign_jobs.aggregate(
+    # sent_count is only taken from root campaigns (no parent_campaign_id) to
+    # avoid double-counting recipients who were retried.
+    # delivered/read/failed/replies are aggregated across all campaigns in the
+    # chain because those reflect real delivery outcomes regardless of which
+    # attempt produced them.
+    root_totals_cursor = db.campaign_jobs.aggregate(
         [
-            {_MATCH: {"restaurant_id": restaurant["id"]}},
+            {
+                _MATCH: {
+                    "restaurant_id": restaurant["id"],
+                    "parent_campaign_id": {"$exists": False},
+                }
+            },
             {
                 _GROUP: {
                     "_id": None,
                     "sent": {"$sum": "$sent_count"},
-                    "delivered": {"$sum": "$delivered_count"},
-                    "read": {"$sum": "$read_count"},
-                    "failed": {"$sum": "$failed_count"},
-                    "replies": {"$sum": "$replies_count"},
                     "total_campaigns": {"$sum": 1},
                 }
             },
         ]
     )
-    totals_list = await totals_cursor.to_list(1)
-    totals_dict = totals_list[0] if totals_list else {"sent": 0, "delivered": 0, "read": 0, "failed": 0, "replies": 0, "total_campaigns": 0}
+    root_totals_list = await root_totals_cursor.to_list(1)
+    root_totals_dict = (
+        root_totals_list[0] if root_totals_list else {"sent": 0, "total_campaigns": 0}
+    )
+
+    delivery_totals_cursor = db.campaign_jobs.aggregate(
+        [
+            {_MATCH: {"restaurant_id": restaurant["id"]}},
+            {
+                _GROUP: {
+                    "_id": None,
+                    "delivered": {"$sum": "$delivered_count"},
+                    "read": {"$sum": "$read_count"},
+                    "failed": {"$sum": "$failed_count"},
+                    "replies": {"$sum": "$replies_count"},
+                }
+            },
+        ]
+    )
+    delivery_totals_list = await delivery_totals_cursor.to_list(1)
+    delivery_totals_dict = (
+        delivery_totals_list[0]
+        if delivery_totals_list
+        else {"delivered": 0, "read": 0, "failed": 0, "replies": 0}
+    )
+
     totals = {
-        "sent": totals_dict.get("sent", 0),
-        "delivered": totals_dict.get("delivered", 0),
-        "read": totals_dict.get("read", 0),
-        "failed": totals_dict.get("failed", 0),
-        "replies": totals_dict.get("replies", 0),
-        "total_campaigns": totals_dict.get("total_campaigns", 0),
+        "sent": root_totals_dict.get("sent", 0),
+        "delivered": delivery_totals_dict.get("delivered", 0),
+        "read": delivery_totals_dict.get("read", 0),
+        "failed": delivery_totals_dict.get("failed", 0),
+        "replies": delivery_totals_dict.get("replies", 0),
+        "total_campaigns": root_totals_dict.get("total_campaigns", 0),
         "reservego_members": reservego_members_count,
     }
 
@@ -817,6 +850,15 @@ async def retry_failed(
 
     now = datetime.now(timezone.utc)
 
+    # Atomic compare-and-set: claim the retry slot only if not already taken.
+    # Uses update_one so concurrent requests cannot both succeed.
+    claim_result = await db.campaign_jobs.update_one(
+        {"_id": campaign_oid, "has_been_retried": {"$ne": True}},
+        {"$set": {"has_been_retried": True, "retry_claimed_at": now}},
+    )
+    if claim_result.modified_count == 0:
+        raise ValidationError("This campaign has already been retried")
+
     # Walk up to find the root campaign so all retries share the same root
     root_id = original.get("parent_campaign_id") or campaign_oid
 
@@ -849,34 +891,48 @@ async def retry_failed(
     batch_size = 1000
     new_logs_batch = []
 
-    async for log in cursor:
-        new_logs_batch.append(
-            {
-                "job_id": job_id,
-                "recipient_phone": log["recipient_phone"],
-                "recipient_name": log.get("recipient_name", ""),
-                "template_name": log["template_name"],
-                "template_variables": log.get("template_variables", {}),
-                "media_url": log.get("media_url"),
-                "status": "queued",
-                "retry_count": 0,
-                "endpoint_used": None,
-                "fallback_used": False,
-                "error_code": None,
-                "error_message": None,
-                "status_history": [],
-                "created_at": now,
-                "updated_at": now,
-                "locked_until": None,
-            }
-        )
+    try:
+        async for log in cursor:
+            new_logs_batch.append(
+                {
+                    "job_id": job_id,
+                    "recipient_phone": log["recipient_phone"],
+                    "recipient_name": log.get("recipient_name", ""),
+                    "template_name": log["template_name"],
+                    "template_variables": log.get("template_variables", {}),
+                    "media_url": log.get("media_url"),
+                    "status": "queued",
+                    "retry_count": 0,
+                    "endpoint_used": None,
+                    "fallback_used": False,
+                    "error_code": None,
+                    "error_message": None,
+                    "status_history": [],
+                    "created_at": now,
+                    "updated_at": now,
+                    "locked_until": None,
+                }
+            )
 
-        if len(new_logs_batch) >= batch_size:
+            if len(new_logs_batch) >= batch_size:
+                await db.message_logs.insert_many(new_logs_batch)
+                new_logs_batch = []
+
+        if new_logs_batch:
             await db.message_logs.insert_many(new_logs_batch)
-            new_logs_batch = []
 
-    if new_logs_batch:
-        await db.message_logs.insert_many(new_logs_batch)
+    except Exception as exc:
+        # Roll back the claim flag so the user can attempt a retry again.
+        await db.campaign_jobs.update_one(
+            {"_id": campaign_oid},
+            {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}},
+        )
+        logger.error(
+            "retry_failed_message_log_insert_error",
+            campaign_id=str(campaign_oid),
+            error=str(exc),
+        )
+        raise ServerError("Failed to create retry message logs") from exc
 
     from app.workers.send_task import dispatch_campaign_task
 

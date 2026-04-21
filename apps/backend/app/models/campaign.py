@@ -53,6 +53,7 @@ class CampaignResponse(BaseModel):
     include_unsubscribe: bool
     created_at: datetime
     parent_campaign_id: str | None = None  # set on retry campaigns
+    has_been_retried: bool = False
 
 
 class CampaignListResponse(BaseModel):

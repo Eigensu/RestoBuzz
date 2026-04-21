@@ -8,7 +8,8 @@ from app.database import get_db
 from app.core.logging import get_logger
 from app.core.errors import WebhookSignatureError
 from app.services.message_types import normalize_message_type
-from app.services.meta_api import send_text_message, MetaAPIError
+from app.services.meta_api import send_text_message
+from app.services.email_suppression import add_email_suppression
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -97,7 +98,9 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
 STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
 
-async def _send_benefits_reply(db, to: str, restaurant_id: str = None, phone_id: str = None) -> None:
+async def _send_benefits_reply(
+    db, to: str, restaurant_id: str = None, phone_id: str = None
+) -> None:
     """Send the benefits link as a text reply and persist it to outbound_messages."""
     link = settings.benefits_link
     if not link:
@@ -129,7 +132,7 @@ async def _send_benefits_reply(db, to: str, restaurant_id: str = None, phone_id:
             "restaurant_id": restaurant_id,
             "wa_phone_id": phone_id,
             "sender_name": "System (Auto-Response)",
-            "channel": "whatsapp"
+            "channel": "whatsapp",
         }
         await db.outbound_messages.insert_one(outbound_doc)
         logger.info("benefits_reply_sent", to=to, wa_id=wa_id)
@@ -143,12 +146,16 @@ async def _process_payload(db, payload: dict) -> None:
             value = change.get("value", {})
             metadata = value.get("metadata", {})
             # This is the Meta Phone Number ID that received the message
-            recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
+            recipient_id = (
+                str(metadata.get("phone_number_id", ""))
+                if metadata.get("phone_number_id")
+                else None
+            )
 
             # 1. Resolve restaurant_id from recipient_id
             restaurant_id = None
             if recipient_id:
-                # Store resolved RID in a local cache for this batch if needed, 
+                # Store resolved RID in a local cache for this batch if needed,
                 # but a simple DB fetch is safe.
                 rest_doc = await db.restaurants.find_one({"wa_phone_ids": recipient_id})
                 if rest_doc:
@@ -159,6 +166,11 @@ async def _process_payload(db, payload: dict) -> None:
                 c["wa_id"]: c.get("profile", {}).get("name")
                 for c in value.get("contacts", [])
             }
+
+            # Collect restaurants that received new messages; dispatch a single
+            # alert task per unique restaurant after the message loop instead of
+            # awaiting the alert inline on every message.
+            restaurants_to_check: set[str] = set()
 
             for msg in messages:
                 wa_id = msg.get("id")
@@ -206,7 +218,7 @@ async def _process_payload(db, payload: dict) -> None:
                     "raw_payload": msg,
                     "restaurant_id": restaurant_id,  # Mandatory for tenant-scoping
                     "wa_phone_id": recipient_id,
-                    # If restaurant_id is None, it effectively quarantines the message 
+                    # If restaurant_id is None, it effectively quarantines the message
                     # from all tenant-scoped APIs.
                 }
 
@@ -228,14 +240,24 @@ async def _process_payload(db, payload: dict) -> None:
                     # (Checked after idempotency to prevent duplicate replies)
                     if msg_type == "interactive":
                         interactive = msg.get("interactive", {})
-                        if interactive.get("button_reply", {}).get("id") == "get_benefits":
-                            await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
+                        if (
+                            interactive.get("button_reply", {}).get("id")
+                            == "get_benefits"
+                        ):
+                            await _send_benefits_reply(
+                                db, from_phone, restaurant_id, recipient_id
+                            )
                     elif msg_type == "button":
                         btn = msg.get("button", {})
                         btn_payload = (btn.get("payload") or "").strip().lower()
                         btn_text = (btn.get("text") or "").strip().lower()
-                        if btn_payload == "get_benefits" or btn_text == "get the benefits":
-                            await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
+                        if (
+                            btn_payload == "get_benefits"
+                            or btn_text == "get the benefits"
+                        ):
+                            await _send_benefits_reply(
+                                db, from_phone, restaurant_id, recipient_id
+                            )
 
                     if body_text and body_text.strip().lower() in STOP_KEYWORDS:
                         await db.suppression_list.update_one(
@@ -250,6 +272,23 @@ async def _process_payload(db, payload: dict) -> None:
                             upsert=True,
                         )
                         logger.info("auto_suppressed", phone=from_phone)
+
+                    # Accumulate restaurant for post-loop alert dispatch
+                    if restaurant_id:
+                        restaurants_to_check.add(restaurant_id)
+
+            # Dispatch one unread-alert task per unique restaurant.
+            # This prevents N identical DB+email round-trips (one per message)
+            # and keeps the webhook handler non-blocking.
+            for rid in restaurants_to_check:
+                try:
+                    from app.workers.alert_tasks import send_unread_threshold_alert_task
+
+                    send_unread_threshold_alert_task.delay(rid)
+                except Exception as e:
+                    logger.error(
+                        "unread_alert_dispatch_failed", restaurant_id=rid, error=str(e)
+                    )
 
             # Handle status updates (delivered, read, failed)
             statuses = value.get("statuses", [])
@@ -274,8 +313,6 @@ async def _process_payload(db, payload: dict) -> None:
                     continue
 
                 # Update outbound_messages (inbox replies) in real time;
-                # campaign-related status handling (message_logs, status_history,
-                # counters, etc.) is delegated to the Celery worker.
                 result = await db.outbound_messages.update_one(
                     {"wa_message_id": wa_id},
                     {
@@ -436,7 +473,6 @@ async def _handle_error_reporting(db, log, new_status, data):
 
 async def _handle_auto_suppression(db, log, new_status, data):
     if new_status in ("bounced", "complained"):
-        from app.services.email_suppression import add_email_suppression
 
         bounce_type = data.get("bounce", {}).get("type", "")
         reason = (

@@ -71,7 +71,13 @@ async def init_indexes() -> None:
             IndexModel([("locked_until", ASCENDING)]),
             IndexModel([("job_id", ASCENDING), ("created_at", DESCENDING)]),
             # For reports delivery log filtering
-            IndexModel([("job_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)]),
+            IndexModel(
+                [
+                    ("job_id", ASCENDING),
+                    ("status", ASCENDING),
+                    ("created_at", DESCENDING),
+                ]
+            ),
         ]
     )
 
@@ -95,7 +101,13 @@ async def init_indexes() -> None:
             IndexModel([("card_uid", ASCENDING)], sparse=True),
             IndexModel([("ecard_code", ASCENDING)], sparse=True),
             # For dormant member report query
-            IndexModel([("restaurant_id", ASCENDING), ("is_active", ASCENDING), ("last_visit", ASCENDING)]),
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("is_active", ASCENDING),
+                    ("last_visit", ASCENDING),
+                ]
+            ),
         ]
     )
 
@@ -216,6 +228,15 @@ async def init_indexes() -> None:
                 ]
             ),
             IndexModel([("restaurant_id", ASCENDING), ("uploaded_at", DESCENDING)]),
+        ]
+    )
+
+    # meta_billing_events (WhatsApp conversation pricing from webhooks)
+    await db.meta_billing_events.create_indexes(
+        [
+            IndexModel([("wa_message_id", ASCENDING)], unique=True),
+            IndexModel([("restaurant_id", ASCENDING), ("recorded_at", DESCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING), ("category", ASCENDING)]),
         ]
     )
 

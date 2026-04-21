@@ -86,9 +86,22 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("BENEFITS_LINK")
     )
 
-    # ReserveGo upload portal credentials
     reservego_user: str = ""
     reservego_password: str = ""
+
+    # Frontend Dashboard URL (used for email alert links)
+    dashboard_url: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("DASHBOARD_URL", "NEXT_PUBLIC_APP_URL"),
+    )
+
+    # Reporting / Billing
+    default_currency: str = "INR"
+
+    # Alert thresholds
+    unread_alert_threshold: int = Field(
+        default=9, validation_alias=AliasChoices("UNREAD_ALERT_THRESHOLD")
+    )
 
     @property
     def cors_origins_list(self) -> list[str]:

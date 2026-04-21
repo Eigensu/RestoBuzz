@@ -74,9 +74,9 @@ export function useDashboardAnalytics(restaurantId?: string) {
       );
 
       totalAudience += root.total_count;
+      totalSent += root.sent_count;
 
       allInChain.forEach((c) => {
-        totalSent += c.sent_count;
         totalDelivered += c.delivered_count;
         totalRead += c.read_count;
         totalReplies += c.replies_count || 0;
@@ -239,7 +239,9 @@ export function useDashboardAnalytics(restaurantId?: string) {
       const dateKey = createdAt.toISOString().slice(0, 10);
 
       if (timeSeriesMap[dateKey]) {
-        timeSeriesMap[dateKey].sent += c.sent_count;
+        if (!c.parent_campaign_id) {
+          timeSeriesMap[dateKey].sent += c.sent_count;
+        }
         timeSeriesMap[dateKey].delivered += c.delivered_count;
         timeSeriesMap[dateKey].read += c.read_count;
         timeSeriesMap[dateKey].failed += c.failed_count;
