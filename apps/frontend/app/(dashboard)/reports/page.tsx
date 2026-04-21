@@ -1126,7 +1126,7 @@ function BillingTab({
                   />
                   <YAxis
                     tick={{ fontSize: 10, fill: "#9ca3af" }}
-                    tickFormatter={(v) => `${summary.currency} ${v}`}
+                    tickFormatter={(v) => fmt(Number(v))}
                   />
                   <Tooltip
                     contentStyle={{

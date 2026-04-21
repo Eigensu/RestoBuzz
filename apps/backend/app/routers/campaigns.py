@@ -834,9 +834,6 @@ async def retry_failed(
     if not original:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
 
-    if original.get("has_been_retried"):
-        raise ValidationError("This campaign has already been retried")
-
     retry_restaurant_id = original.get("restaurant_id")
     if not retry_restaurant_id:
         raise ValidationError(
@@ -852,6 +849,15 @@ async def retry_failed(
         raise ValidationError("No failed messages to retry")
 
     now = datetime.now(timezone.utc)
+
+    # Atomic compare-and-set: claim the retry slot only if not already taken.
+    # Uses update_one so concurrent requests cannot both succeed.
+    claim_result = await db.campaign_jobs.update_one(
+        {"_id": campaign_oid, "has_been_retried": {"$ne": True}},
+        {"$set": {"has_been_retried": True, "retry_claimed_at": now}},
+    )
+    if claim_result.modified_count == 0:
+        raise ValidationError("This campaign has already been retried")
 
     # Walk up to find the root campaign so all retries share the same root
     root_id = original.get("parent_campaign_id") or campaign_oid
@@ -885,38 +891,48 @@ async def retry_failed(
     batch_size = 1000
     new_logs_batch = []
 
-    async for log in cursor:
-        new_logs_batch.append(
-            {
-                "job_id": job_id,
-                "recipient_phone": log["recipient_phone"],
-                "recipient_name": log.get("recipient_name", ""),
-                "template_name": log["template_name"],
-                "template_variables": log.get("template_variables", {}),
-                "media_url": log.get("media_url"),
-                "status": "queued",
-                "retry_count": 0,
-                "endpoint_used": None,
-                "fallback_used": False,
-                "error_code": None,
-                "error_message": None,
-                "status_history": [],
-                "created_at": now,
-                "updated_at": now,
-                "locked_until": None,
-            }
-        )
+    try:
+        async for log in cursor:
+            new_logs_batch.append(
+                {
+                    "job_id": job_id,
+                    "recipient_phone": log["recipient_phone"],
+                    "recipient_name": log.get("recipient_name", ""),
+                    "template_name": log["template_name"],
+                    "template_variables": log.get("template_variables", {}),
+                    "media_url": log.get("media_url"),
+                    "status": "queued",
+                    "retry_count": 0,
+                    "endpoint_used": None,
+                    "fallback_used": False,
+                    "error_code": None,
+                    "error_message": None,
+                    "status_history": [],
+                    "created_at": now,
+                    "updated_at": now,
+                    "locked_until": None,
+                }
+            )
 
-        if len(new_logs_batch) >= batch_size:
+            if len(new_logs_batch) >= batch_size:
+                await db.message_logs.insert_many(new_logs_batch)
+                new_logs_batch = []
+
+        if new_logs_batch:
             await db.message_logs.insert_many(new_logs_batch)
-            new_logs_batch = []
 
-    if new_logs_batch:
-        await db.message_logs.insert_many(new_logs_batch)
-
-    await db.campaign_jobs.update_one(
-        {"_id": campaign_oid}, {"$set": {"has_been_retried": True}}
-    )
+    except Exception as exc:
+        # Roll back the claim flag so the user can attempt a retry again.
+        await db.campaign_jobs.update_one(
+            {"_id": campaign_oid},
+            {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}},
+        )
+        logger.error(
+            "retry_failed_message_log_insert_error",
+            campaign_id=str(campaign_oid),
+            error=str(exc),
+        )
+        raise ServerError("Failed to create retry message logs") from exc
 
     from app.workers.send_task import dispatch_campaign_task
 

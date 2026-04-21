@@ -1143,7 +1143,7 @@ async def _build_billing_data(
         {"restaurant_id": {_MONGO_IN: rids}}, {"currency": 1}
     )
     currency = (
-        currency_raw.get("currency", settings.default_currency)
+        (currency_raw.get("currency") or settings.default_currency)
         if currency_raw
         else settings.default_currency
     )
@@ -1187,8 +1187,9 @@ async def billing_export(
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     from_date: Annotated[date | None, Query()] = None,
     to_date: Annotated[date | None, Query()] = None,
-    format: Annotated[Literal["csv", "xlsx"], Query(alias="format")] = "xlsx",
+    fmt: Annotated[Literal["csv", "xlsx"], Query(alias="format")] = "xlsx",
 ):
+    _MAX_EXPORT_ROWS = 10_000
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
     rest_doc = await db.restaurants.find_one(
@@ -1212,7 +1213,7 @@ async def billing_export(
             }
         )
         .sort("recorded_at", -1)
-        .limit(10000)
+        .limit(_MAX_EXPORT_ROWS)
     ):
         rows.append(
             [
@@ -1224,16 +1225,28 @@ async def billing_export(
             ]
         )
 
+    truncated = len(rows) == _MAX_EXPORT_ROWS
+    if truncated:
+        logger.warning(
+            "billing_export_truncated",
+            restaurant_id=rid,
+            limit=_MAX_EXPORT_ROWS,
+            from_dt=str(from_dt.date()),
+            to_dt=str(to_dt.date()),
+        )
+
     filename = f"meta_billing_{from_dt.date()}_{to_dt.date()}"
     await _audit_export(
         db,
         current_user,
         rid,
         "billing",
-        format,
+        fmt,
         {
             "from": str(from_dt.date()),
             "to": str(to_dt.date()),
         },
     )
-    return _export_response(rows, headers, filename, format)
+    response = _export_response(rows, headers, filename, fmt)
+    response.headers["X-Export-Truncated"] = "true" if truncated else "false"
+    return response

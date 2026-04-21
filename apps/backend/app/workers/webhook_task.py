@@ -72,6 +72,12 @@ async def _store_pricing(
     job_id = message_log.get("job_id")
 
     from app.config import settings
+    raw_price = pricing.get("price")
+    try:
+        safe_price = float(raw_price) if raw_price is not None else 0.0
+    except (ValueError, TypeError):
+        safe_price = 0.0
+
     await db.meta_billing_events.update_one(
         {"wa_message_id": wa_id},
         {
@@ -83,7 +89,7 @@ async def _store_pricing(
                 "pricing_model": pricing.get("pricing_model", "CONVERSATION"),
                 "category": pricing.get("category", ""),
                 "currency": pricing.get("currency", settings.default_currency),
-                "price": float(pricing.get("price", 0)),
+                "price": safe_price,
                 "recorded_at": now,
             }
         },
