@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.workers.send_email_task",
         "app.workers.email_reconciliation_task",
         "app.workers.scheduled_poller",
+        "app.workers.alert_tasks",
     ],
 )
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
@@ -22,6 +22,7 @@ import {
   XCircle,
   Clock,
   Activity,
+  DollarSign,
   IndianRupee as RupeeIcon,
 } from "lucide-react";
 import {
@@ -43,6 +44,130 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type ReportTab = "campaigns" | "members" | "inbox" | "logs" | "billing";
+
+interface CampaignRow {
+  id: string;
+  channel: string;
+  name: string;
+  created_at: string;
+  status: string;
+  sent: number;
+  delivered: number;
+  delivery_rate: number;
+  read_rate: number;
+  failed: number;
+}
+
+interface CategoryCount {
+  category: string;
+  count: number;
+}
+
+interface TopVisitor {
+  phone: string;
+  name: string;
+  type: string;
+  visit_count: number;
+  last_visit: string | null;
+}
+
+interface CampaignData {
+  summary: {
+    total_campaigns: number;
+    total_sent: number;
+    delivery_rate: number;
+    read_rate: number;
+    failure_rate: number;
+    total_failed: number;
+    best_campaign: { name: string; read_rate: number; channel: string } | null;
+    worst_campaign: {
+      name: string;
+      failure_rate: number;
+      channel: string;
+    } | null;
+  };
+  campaigns: CampaignRow[];
+  weekly_trend: {
+    week: string;
+    sent: number;
+    delivered: number;
+    read: number;
+  }[];
+}
+
+interface MemberData {
+  summary: {
+    total_members: number;
+    active_members: number;
+    new_this_month: number;
+    dormant_members: number;
+    dormant_rate: number;
+    top_engaged_customer: {
+      name: string;
+      _id: string;
+      message_count: number;
+    } | null;
+  };
+  monthly_growth: { month: string; new_members: number }[];
+  category_split: CategoryCount[];
+  top_visitors: TopVisitor[];
+}
+
+interface EngagedCustomer {
+  phone: string;
+  name: string;
+  last_message: string;
+  message_count: number;
+  last_received_at: string;
+}
+
+interface InboxData {
+  summary: {
+    total_incoming_messages: number;
+    unique_engaged_senders: number;
+    avg_messages_per_sender: number;
+    top_engaged_customer: {
+      name: string;
+      _id: string;
+      message_count: number;
+    } | null;
+  };
+  engaged_customers: EngagedCustomer[];
+}
+
+interface LogItem {
+  id: string;
+  channel: string;
+  recipient: string;
+  recipient_name: string | null;
+  campaign_id: string;
+  status: string;
+  error_reason: string | null;
+  retry_count: number;
+  created_at: string;
+}
+
+interface LogsResponse {
+  items: LogItem[];
+  next_cursor?: string | null;
+  page_size?: number;
+}
+
+interface BillingCategoryRow {
+  category: string;
+  spend: number;
+  count?: number;
+}
+
+interface BillingData {
+  summary: {
+    total_spend: number;
+    total_conversations: number;
+    currency: string;
+  };
+  by_category: BillingCategoryRow[];
+  daily_trend: { date: string; spend: number }[];
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -185,7 +310,7 @@ function CampaignTab({
   data,
   loading,
 }: {
-  readonly data: any;
+  readonly data: CampaignData | null | undefined;
   readonly loading: boolean;
 }) {
   if (loading) return <TabSkeleton />;
@@ -337,7 +462,7 @@ function CampaignTab({
               </tr>
             </thead>
             <tbody>
-              {campaigns.map((c: any) => (
+              {campaigns.map((c: CampaignRow) => (
                 <tr
                   key={c.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition"
@@ -397,7 +522,7 @@ function MemberTab({
   data,
   loading,
 }: {
-  readonly data: any;
+  readonly data: MemberData | null | undefined;
   readonly loading: boolean;
 }) {
   if (loading) return <TabSkeleton />;
@@ -526,7 +651,7 @@ function MemberTab({
                     innerRadius={35}
                     paddingAngle={3}
                   >
-                    {category_split.map((c: any, i: number) => (
+                    {category_split.map((c: CategoryCount, i: number) => (
                       <Cell
                         key={c.category}
                         fill={PIE_COLORS[i % PIE_COLORS.length]}
@@ -543,7 +668,7 @@ function MemberTab({
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-1.5 mt-2">
-                {category_split.map((c: any, i: number) => (
+                {category_split.map((c: CategoryCount, i: number) => (
                   <div
                     key={c.category}
                     className="flex items-center justify-between text-xs"
@@ -592,7 +717,7 @@ function MemberTab({
                 </tr>
               </thead>
               <tbody>
-                {top_visitors.map((v: any, i: number) => (
+                {top_visitors.map((v: TopVisitor, i: number) => (
                   <tr
                     key={v.phone}
                     className="border-b border-gray-50 hover:bg-gray-50/50 transition"
@@ -639,7 +764,7 @@ function LogsTab({
   onStatus,
   onLoadMore,
 }: {
-  readonly data: any;
+  readonly data: LogsResponse | null | undefined;
   readonly loading: boolean;
   readonly search: string;
   readonly onSearch: (v: string) => void;
@@ -729,7 +854,7 @@ function LogsTab({
                 </tr>
               </thead>
               <tbody>
-                {items.map((row: any) => (
+                {items.map((row: LogItem) => (
                   <tr
                     key={row.id}
                     className="border-b border-gray-50 hover:bg-gray-50/50 transition"
@@ -765,7 +890,7 @@ function LogsTab({
               </tbody>
             </table>
           </div>
-          {data.next_cursor && (
+          {data?.next_cursor && (
             <button
               onClick={onLoadMore}
               className="mt-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-[#24422e] hover:underline mx-auto"
@@ -785,7 +910,7 @@ function InboxTab({
   data,
   loading,
 }: {
-  readonly data: any;
+  readonly data: InboxData | null | undefined;
   readonly loading: boolean;
 }) {
   if (loading) return <TabSkeleton />;
@@ -854,7 +979,7 @@ function InboxTab({
               </tr>
             </thead>
             <tbody>
-              {engaged_customers.slice(0, 15).map((c: any) => (
+              {engaged_customers.slice(0, 15).map((c: EngagedCustomer) => (
                 <tr
                   key={c.phone}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition"
@@ -907,7 +1032,7 @@ function BillingTab({
   data,
   loading,
 }: {
-  readonly data: any;
+  readonly data: BillingData | null | undefined;
   readonly loading: boolean;
 }) {
   if (loading) return <TabSkeleton />;
@@ -1009,7 +1134,12 @@ function BillingTab({
                       border: "1px solid #f0f0f0",
                       fontSize: 12,
                     }}
-                    formatter={(v: number) => [fmt(v), "Spend"]}
+                    formatter={(v) =>
+                      [fmt(Number((v as number | string) ?? 0)), "Spend"] as [
+                        string,
+                        string,
+                      ]
+                    }
                   />
                   <Area
                     type="monotone"
@@ -1045,7 +1175,7 @@ function BillingTab({
                     innerRadius={35}
                     paddingAngle={3}
                   >
-                    {by_category.map((c: any) => (
+                    {by_category.map((c: BillingCategoryRow) => (
                       <Cell
                         key={c.category}
                         fill={CATEGORY_COLORS[c.category] ?? "#c8e8d0"}
@@ -1058,12 +1188,17 @@ function BillingTab({
                       border: "1px solid #f0f0f0",
                       fontSize: 12,
                     }}
-                    formatter={(v: number) => [fmt(v), "Spend"]}
+                    formatter={(v) =>
+                      [fmt(Number((v as number | string) ?? 0)), "Spend"] as [
+                        string,
+                        string,
+                      ]
+                    }
                   />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-2 mt-2">
-                {by_category.map((c: any) => (
+                {by_category.map((c: BillingCategoryRow) => (
                   <div
                     key={c.category}
                     className="flex items-center justify-between text-xs"
@@ -1079,7 +1214,7 @@ function BillingTab({
                         {c.category}
                       </span>
                       <span className="text-gray-400">
-                        ({c.count.toLocaleString()})
+                        ({(c.count ?? 0).toLocaleString()})
                       </span>
                     </div>
                     <span className="font-black text-gray-900">
@@ -1141,14 +1276,7 @@ export default function ReportsPage() {
   const [channel, setChannel] = useState<string>("all");
   const [logStatus, setLogStatus] = useState("");
   const [logSearch, setLogSearch] = useState("");
-  const [allLogItems, setAllLogItems] = useState<any[]>([]);
-
-  // Typed shape for logs API response
-  interface LogsResponse {
-    items: any[];
-    next_cursor: string | null;
-    page_size: number;
-  }
+  const [extraLogItems, setExtraLogItems] = useState<LogItem[]>([]);
 
   const buildParams = useCallback(
     (extra: Record<string, string> = {}) => {
@@ -1250,11 +1378,14 @@ export default function ReportsPage() {
     enabled: !!restaurant && tab === "billing",
   });
 
-  // TanStack Query v5 removed onSuccess — sync via useEffect instead
-  useEffect(() => {
-    const d = logsQuery.data as LogsResponse | undefined;
-    if (d?.items) setAllLogItems(d.items);
-  }, [logsQuery.data]);
+  // Merge initial query results with any additionally loaded pages
+  const allLogItems = useMemo<LogItem[]>(() => {
+    const base = (logsQuery.data as LogsResponse | undefined)?.items ?? [];
+    return [
+      ...base,
+      ...extraLogItems.filter((e) => !base.some((b) => b.id === e.id)),
+    ];
+  }, [logsQuery.data, extraLogItems]);
 
   const handleLoadMore = async () => {
     const logsData = logsQuery.data as LogsResponse | undefined;
@@ -1267,7 +1398,7 @@ export default function ReportsPage() {
           after_id: logsData.next_cursor,
         })}`,
       );
-      setAllLogItems((prev) => [...prev, ...(res.data.items ?? [])]);
+      setExtraLogItems((prev) => [...prev, ...(res.data.items ?? [])]);
     } catch {
       toast.error("Failed to load more logs");
     }
@@ -1452,12 +1583,12 @@ export default function ReportsPage() {
           search={logSearch}
           onSearch={(v) => {
             setLogSearch(v);
-            setAllLogItems([]);
+            setExtraLogItems([]);
           }}
           status={logStatus}
           onStatus={(v) => {
             setLogStatus(v);
-            setAllLogItems([]);
+            setExtraLogItems([]);
           }}
           onLoadMore={handleLoadMore}
         />

@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     # Reporting / Billing
     default_currency: str = "INR"
 
+    # Alert thresholds
+    unread_alert_threshold: int = Field(
+        default=9, validation_alias=AliasChoices("UNREAD_ALERT_THRESHOLD")
+    )
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

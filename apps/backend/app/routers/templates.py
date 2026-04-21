@@ -15,9 +15,10 @@ from app.services.meta_api import (
 )
 from app.core.errors import NotFoundError, ValidationError
 from app.config import settings
-from app.services.alert_service import handle_template_approval_alert
+from app.core.logging import get_logger
 
 router = APIRouter(prefix="/templates", tags=["templates"])
+logger = get_logger(__name__)
 
 
 # ── Request models ────────────────────────────────────────────────────────────
@@ -302,12 +303,22 @@ async def sync_templates(
         )
 
         if not was_approved and is_approved and not already_alerted:
-            # Note: We trigger this after DB update to ensure state is consistent
+            # Enqueue background job so the endpoint returns immediately and
+            # email fan-out (with retries) is handled by a Celery worker.
             try:
-                await handle_template_approval_alert(db, t["name"], t.get("language", "en_US"), t.get("category", "MARKETING"))
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).error(f"template_alert_failed name={t['name']} lang={t.get('language')} error={e}")
+                from app.workers.alert_tasks import send_template_approval_alert_task
+
+                send_template_approval_alert_task.delay(
+                    t["name"],
+                    t.get("language", "en_US"),
+                    t.get("category", "MARKETING"),
+                )
+            except Exception:
+                logger.exception(
+                    "template_alert_failed",
+                    name=t["name"],
+                    lang=t.get("language"),
+                )
 
     # Remove templates that no longer exist in Meta for this workspace.
     if keys:
