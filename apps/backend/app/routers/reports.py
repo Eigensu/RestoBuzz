@@ -282,6 +282,8 @@ async def _build_campaign_data(
                     "delivered": delivered,
                     "read_or_opened": read,
                     "failed": failed,
+                    # Flag child campaigns so the summary can exclude them
+                    "_is_retry": "parent_campaign_id" in doc,
                     **rates,
                 }
             )
@@ -312,6 +314,8 @@ async def _build_campaign_data(
                     "delivered": delivered,
                     "read_or_opened": opened,
                     "failed": failed,
+                    # Email campaigns don't have a retry chain, treat all as root
+                    "_is_retry": False,
                     **rates,
                 }
             )
@@ -319,27 +323,41 @@ async def _build_campaign_data(
     all_campaigns = wa_campaigns + email_campaigns
     all_campaigns.sort(key=lambda x: x["created_at"], reverse=True)
 
-    total_sent = sum(c["sent"] for c in all_campaigns)
+    # Summary totals: only count "sent" (total unique targeted audience) and
+    # "total_campaigns" from root (parent) campaigns to avoid double-counting.
+    # However, delivered, read, and failed outcomes reflect actual network
+    # activity and must be summed across ALL attempts (including retries).
+    root_campaigns = [c for c in all_campaigns if not c["_is_retry"]]
+
+    total_sent = sum(c["sent"] for c in root_campaigns)
     total_delivered = sum(c["delivered"] for c in all_campaigns)
     total_read = sum(c["read_or_opened"] for c in all_campaigns)
     total_failed = sum(c["failed"] for c in all_campaigns)
     rates = _compute_rates(total_sent, total_delivered, total_read, total_failed)
 
-    best = max(all_campaigns, key=lambda x: x["read_rate"], default=None)
-    worst = max(all_campaigns, key=lambda x: x["failure_rate"], default=None)
+    best = max(root_campaigns, key=lambda x: x["read_rate"], default=None)
+    worst = max(root_campaigns, key=lambda x: x["failure_rate"], default=None)
 
+    # Weekly trend:
+    # - "sent" only increments for root campaigns so we don't spike the audience graph
+    # - "delivered" and "read" increment globally to show when activity actually occurred
     weekly: dict = defaultdict(lambda: {"sent": 0, "delivered": 0, "read": 0})
     for c in all_campaigns:
         dt = datetime.fromisoformat(c["created_at"])
         week_key = dt.strftime("W%W %Y")
-        weekly[week_key]["sent"] += c["sent"]
+        if not c["_is_retry"]:
+            weekly[week_key]["sent"] += c["sent"]
         weekly[week_key]["delivered"] += c["delivered"]
         weekly[week_key]["read"] += c["read_or_opened"]
     weekly_trend = [{"week": k, **v} for k, v in sorted(weekly.items())]
 
+    # Strip internal flag before returning
+    for c in all_campaigns:
+        c.pop("_is_retry", None)
+
     return {
         "summary": {
-            "total_campaigns": len(all_campaigns),
+            "total_campaigns": len(root_campaigns),
             "total_sent": total_sent,
             "total_delivered": total_delivered,
             "total_read": total_read,
