@@ -60,12 +60,12 @@ export function BillingTab({
   return (
     <div className="space-y-6">
       {/* Info banner */}
-      <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-5 py-4">
-        <RupeeIcon className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-        <p className="text-sm text-blue-700 font-medium">
-          Spend data is sourced directly from Meta&apos;s webhook{" "}
-          <code className="bg-blue-100 px-1 rounded text-xs">pricing</code>{" "}
-          field. Only billable conversations are counted.
+      <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-2xl px-5 py-4">
+        <RupeeIcon className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+        <p className="text-sm text-amber-700 font-medium">
+          Spend figures are <span className="font-black">estimates</span> based
+          on ₹0.95 per billable conversation (from Meta&apos;s webhook). Actual
+          charges on your Meta account may differ.
         </p>
       </div>
 
@@ -73,33 +73,33 @@ export function BillingTab({
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <StatCard
           icon={RupeeIcon}
-          label="Total Spend"
+          label="Est. Total Spend"
           value={fmt(summary.total_spend)}
-          sub={`Currency: ${summary.currency}`}
+          sub={`Currency: ${summary.currency} · estimated`}
           highlight="green"
         />
         <StatCard
           icon={MessageSquare}
           label="Billable Conversations"
           value={summary.total_conversations.toLocaleString()}
-          sub="Unique conversations charged"
+          sub="Messages sent (billable)"
         />
         <StatCard
           icon={Activity}
-          label="Avg Cost / Conversation"
+          label="Est. Avg Cost / Message"
           value={
             summary.total_conversations > 0
               ? fmt(summary.total_spend / summary.total_conversations)
               : fmt(0)
           }
-          sub="Across all categories"
+          sub="₹0.95 flat rate applied"
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Daily Spend Chart */}
         <div className="lg:col-span-2">
-          <SectionCard title="Daily Spend Trend">
+          <SectionCard title="Est. Daily Spend Trend">
             {daily_trend?.length > 0 ? (
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={daily_trend}>
