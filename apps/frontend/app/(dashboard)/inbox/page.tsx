@@ -6,7 +6,13 @@ import { useUIStore } from "@/lib/ui-store";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import type { Conversation, InboundMessage } from "@/types";
-import { Send, ArrowLeft, Search, CheckCircle2 } from "lucide-react";
+import {
+  Send,
+  ArrowLeft,
+  Search,
+  CheckCircle2,
+  ChevronDown,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MessageBubble } from "@/components/inbox/atoms/MessageBubble";
 import { ConversationItem } from "@/components/inbox/molecules/ConversationItem";
@@ -53,6 +59,10 @@ export default function InboxPage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filter, setFilter] = useState<"all" | "unread" | "media" | "text">(
+    "all",
+  );
+  const [sortNewest, setSortNewest] = useState(true);
   const [reply, setReply] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const setInboxUnread = useUIStore((s) => s.setInboxUnread);
@@ -62,22 +72,65 @@ export default function InboxPage() {
     total: number;
   }>({
     queryKey: ["inbox-conversations"],
-    queryFn: () =>
-      api.get("/inbox/conversations?page=1&page_size=100").then((r) => r.data),
+    queryFn: async () => {
+      let allItems: Conversation[] = [];
+      let page = 1;
+      let total = 0;
+      while (true) {
+        const res = await api.get(`/inbox/conversations?page=${page}&page_size=500`).then((r) => r.data);
+        allItems = allItems.concat(res.items);
+        total = res.total;
+        if (allItems.length >= total || res.items.length === 0) {
+          break;
+        }
+        page++;
+      }
+      return { items: allItems, total };
+    },
     refetchInterval: 15_000,
   });
 
   const convs = useMemo(() => convsData?.items ?? [], [convsData]);
 
   const filteredConvs = useMemo(() => {
-    if (!searchQuery.trim()) return convs;
-    const q = searchQuery.toLowerCase();
-    return convs.filter(
-      (c) =>
-        (c.sender_name?.toLowerCase() || "").includes(q) ||
-        c.from_phone.includes(q),
-    );
-  }, [convs, searchQuery]);
+    let result = convs;
+
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (c) =>
+          (c.sender_name?.toLowerCase() || "").includes(q) ||
+          c.from_phone.includes(q),
+      );
+    }
+
+    // Filter chips
+    if (filter === "unread") {
+      result = result.filter((c) => c.unread_count > 0);
+    } else if (filter === "media") {
+      result = result.filter((c) =>
+        ["image", "document", "video", "audio", "sticker"].includes(
+          c.last_message_type,
+        ),
+      );
+    } else if (filter === "text") {
+      result = result.filter((c) =>
+        ["text", "button", "interactive"].includes(c.last_message_type),
+      );
+    }
+
+    // Sort
+    if (!sortNewest) {
+      result = [...result].sort(
+        (a, b) =>
+          new Date(a.last_received_at).getTime() -
+          new Date(b.last_received_at).getTime(),
+      );
+    }
+
+    return result;
+  }, [convs, searchQuery, filter, sortNewest]);
 
   useEffect(() => {
     setInboxUnread(convs.reduce((sum, c) => sum + c.unread_count, 0));
@@ -166,13 +219,52 @@ export default function InboxPage() {
               className="w-full bg-[#eff2f0]/50 border-none rounded-xl pl-9 pr-4 py-2.5 text-sm font-medium text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-[#24422e]/20 transition-all outline-none"
             />
           </div>
-          <div className="flex items-center justify-between mt-4">
+
+          {/* Filter + sort row */}
+          <div className="flex items-center gap-2 mt-3">
+            <div className="relative flex-1">
+              <select
+                value={filter}
+                onChange={(e) =>
+                  setFilter(
+                    e.target.value as "all" | "unread" | "media" | "text",
+                  )
+                }
+                aria-label="Filter chats"
+                className="w-full appearance-none bg-[#eff2f0]/60 border-none rounded-xl pl-3 pr-8 py-2 text-[11px] font-black uppercase tracking-widest text-[#24422e] focus:ring-2 focus:ring-[#24422e]/20 outline-none cursor-pointer transition-all"
+              >
+                <option value="all">All chats</option>
+                <option value="unread">
+                  {`Unread${convs.filter((c) => c.unread_count > 0).length > 0 ? ` (${convs.filter((c) => c.unread_count > 0).length})` : ""}`}
+                </option>
+                <option value="text">Text only</option>
+                <option value="media">Media only</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#24422e]/50" />
+            </div>
+            <div className="relative">
+              <select
+                value={sortNewest ? "newest" : "oldest"}
+                onChange={(e) => setSortNewest(e.target.value === "newest")}
+                aria-label="Sort by date"
+                className="appearance-none bg-[#eff2f0]/60 border-none rounded-xl pl-3 pr-7 py-2 text-[11px] font-black uppercase tracking-widest text-[#24422e] focus:ring-2 focus:ring-[#24422e]/20 outline-none cursor-pointer transition-all"
+              >
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#24422e]/50" />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mt-3">
             <p className="text-[10px] font-black text-[#24422e]/40 uppercase tracking-widest">
-              Recent Chats
+              {filteredConvs.length} chat{filteredConvs.length !== 1 ? "s" : ""}
             </p>
-            <span className="px-2 py-0.5 bg-[#eff2f0] text-[#24422e] text-[10px] font-bold rounded-full">
-              {convs.filter((c) => c.unread_count > 0).length} UNREAD
-            </span>
+            {convs.filter((c) => c.unread_count > 0).length > 0 && (
+              <span className="px-2 py-0.5 bg-[#eff2f0] text-[#24422e] text-[10px] font-bold rounded-full">
+                {convs.filter((c) => c.unread_count > 0).length} unread
+              </span>
+            )}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar">

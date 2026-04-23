@@ -41,26 +41,26 @@ async def get_unread_count(
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     # Global count
-    count = await db.inbound_messages.count_documents({
-        "is_read": False,
-        "is_resolved": {_MONGO_NE: True}
-    })
+    count = await db.inbound_messages.count_documents(
+        {"is_read": False, "is_resolved": {_MONGO_NE: True}}
+    )
     return {"count": count}
 
 
 @router.get("/conversations", response_model=ConversationListResponse)
 async def list_conversations(
     page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 30,
+    page_size: Annotated[int, Query(ge=1, le=500)] = 30,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
     skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
     pipeline = [
         {_MONGO_MATCH: {
-            "received_at": {_MONGO_GTE: since}
+            "received_at": {_MONGO_GTE: since},
+            "is_resolved": {_MONGO_NE: True}
         }},
-        {_MONGO_SORT: {"received_at": -1}},
+        {_MONGO_SORT: {"from_phone": 1, "received_at": -1}},
         {
             _MONGO_GROUP: {
                 "_id": "$from_phone",
@@ -74,7 +74,6 @@ async def list_conversations(
                 "is_resolved": {_MONGO_FIRST: "$is_resolved"},
             }
         },
-        {_MONGO_MATCH: {"is_resolved": {_MONGO_NE: True}}},
         {_MONGO_SORT: {"last_received_at": -1}},
         {
             _MONGO_FACET: {
@@ -118,19 +117,13 @@ async def get_conversation(
     since = datetime.now(timezone.utc) - timedelta(days=30)
 
     pipeline = [
-        {_MONGO_MATCH: {
-            "from_phone": phone,
-            "received_at": {_MONGO_GTE: since}
-        }},
+        {_MONGO_MATCH: {"from_phone": phone, "received_at": {_MONGO_GTE: since}}},
         {_MONGO_ADD_FIELDS: {"direction": "inbound"}},
         {
             _MONGO_UNION: {
                 "coll": "outbound_messages",
                 "pipeline": [
-                    {_MONGO_MATCH: {
-                        "to_phone": phone,
-                        "sent_at": {_MONGO_GTE: since}
-                    }},
+                    {_MONGO_MATCH: {"to_phone": phone, "sent_at": {_MONGO_GTE: since}}},
                     {
                         _MONGO_ADD_FIELDS: {
                             "direction": "outbound",
