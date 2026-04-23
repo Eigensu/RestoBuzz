@@ -73,7 +73,6 @@ export default function InboxPage() {
   }>({
     queryKey: ["inbox-conversations"],
     queryFn: async () => {
-      const MAX_PAGES = 20;
       let allItems: Conversation[] = [];
       let page = 1;
       let total = 0;
@@ -82,10 +81,6 @@ export default function InboxPage() {
         allItems = allItems.concat(res.items);
         total = res.total;
         if (allItems.length >= total || res.items.length === 0) {
-          break;
-        }
-        if (page >= MAX_PAGES) {
-          console.warn(`[inbox] Conversation fetch capped at ${MAX_PAGES} pages (${allItems.length} items). Some conversations may not appear.`);
           break;
         }
         page++;
@@ -237,6 +232,7 @@ export default function InboxPage() {
                   )
                 }
                 aria-label="Filter chats"
+                aria-label="Filter chats"
                 className="w-full appearance-none bg-[#eff2f0]/60 border-none rounded-xl pl-3 pr-8 py-2 text-[11px] font-black uppercase tracking-widest text-[#24422e] focus:ring-2 focus:ring-[#24422e]/20 outline-none cursor-pointer transition-all"
               >
                 <option value="all">All chats</option>
@@ -252,6 +248,7 @@ export default function InboxPage() {
               <select
                 value={sortNewest ? "newest" : "oldest"}
                 onChange={(e) => setSortNewest(e.target.value === "newest")}
+                aria-label="Sort by date"
                 aria-label="Sort by date"
                 className="appearance-none bg-[#eff2f0]/60 border-none rounded-xl pl-3 pr-7 py-2 text-[11px] font-black uppercase tracking-widest text-[#24422e] focus:ring-2 focus:ring-[#24422e]/20 outline-none cursor-pointer transition-all"
               >

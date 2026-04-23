@@ -101,7 +101,7 @@ export interface LogItem {
   channel: string;
   recipient: string;
   recipient_name: string | null;
-  campaign_id: string | null | undefined;
+  campaign_id: string;
   status: string;
   error_reason: string | null;
   retry_count: number;
@@ -151,5 +151,4 @@ export interface ReserveGoData {
   booking_sources: { source: string; count: number; revenue: number }[];
   top_sections: { section: string; count: number; revenue: number }[];
   visit_distribution: { label: string; count: number }[];
-  guest_sources: { source: string; count: number }[];
 }
