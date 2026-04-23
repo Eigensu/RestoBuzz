@@ -56,8 +56,11 @@ async def list_conversations(
     skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
     pipeline = [
-        {_MONGO_MATCH: {"received_at": {_MONGO_GTE: since}}},
-        {_MONGO_SORT: {"received_at": -1}},
+        {_MONGO_MATCH: {
+            "received_at": {_MONGO_GTE: since},
+            "is_resolved": {_MONGO_NE: True}
+        }},
+        {_MONGO_SORT: {"from_phone": 1, "received_at": -1}},
         {
             _MONGO_GROUP: {
                 "_id": "$from_phone",
@@ -71,7 +74,6 @@ async def list_conversations(
                 "is_resolved": {_MONGO_FIRST: "$is_resolved"},
             }
         },
-        {_MONGO_MATCH: {"is_resolved": {_MONGO_NE: True}}},
         {_MONGO_SORT: {"last_received_at": -1}},
         {
             _MONGO_FACET: {

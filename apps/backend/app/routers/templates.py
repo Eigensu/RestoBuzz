@@ -308,18 +308,21 @@ async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict) -> dict[str, 
     is_approved = t.get("status") == "APPROVED"
 
     update_fields = {**t, "synced_at": datetime.now(timezone.utc)}
-    if not was_approved and is_approved:
-        update_fields["alert_sent"] = True
 
     await db.templates.update_one(key, {"$set": update_fields}, upsert=True)
 
     if not was_approved and is_approved and not already_alerted:
-        _enqueue_approval_alert(t)
+        success = _enqueue_approval_alert(t)
+        if success:
+            await db.templates.update_one(
+                key, 
+                {"$set": {"alert_sent": True, "synced_at": datetime.now(timezone.utc)}}
+            )
 
     return key
 
 
-def _enqueue_approval_alert(t: dict) -> None:
+def _enqueue_approval_alert(t: dict) -> bool:
     """Fire-and-forget Celery task for template approval email."""
     try:
         send_template_approval_alert_task.delay(
@@ -327,9 +330,11 @@ def _enqueue_approval_alert(t: dict) -> None:
             t.get("language", "en_US"),
             t.get("category", "MARKETING"),
         )
+        return True
     except Exception:
         logger.exception(
             "template_alert_failed",
             name=t["name"],
             lang=t.get("language"),
         )
+        return False
