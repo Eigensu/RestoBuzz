@@ -1278,6 +1278,46 @@ async def billing_export(
 # ── Billing Backfill ───────────────────────────────────────────────────────────
 
 
+@router.get("/billing/debug")
+async def billing_debug(
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """Debug: show what's actually in meta_billing_events for this restaurant."""
+    rid = restaurant["id"]
+    rid_oid = str(restaurant.get("_id", ""))
+    rids = list({rid, rid_oid} - {None, ""})
+
+    total_in_collection = await db.meta_billing_events.count_documents({})
+    matched = await db.meta_billing_events.count_documents(
+        {"restaurant_id": {"$in": rids}}
+    )
+    # Sample up to 5 docs regardless of restaurant to see what IDs are stored
+    sample = []
+    async for doc in db.meta_billing_events.find(
+        {},
+        {
+            "_id": 0,
+            "wa_message_id": 1,
+            "restaurant_id": 1,
+            "category": 1,
+            "recorded_at": 1,
+        },
+    ).limit(5):
+        if doc.get("recorded_at"):
+            doc["recorded_at"] = doc["recorded_at"].isoformat()
+        sample.append(doc)
+
+    return {
+        "restaurant_id_used": rid,
+        "restaurant_oid_used": rid_oid,
+        "total_events_in_collection": total_in_collection,
+        "matched_for_this_restaurant": matched,
+        "sample_docs": sample,
+    }
+
+
 @router.post("/billing/backfill-prices")
 async def backfill_billing_prices(
     current_user: Annotated[dict, Depends(require_role("admin"))],
