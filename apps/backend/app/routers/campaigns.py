@@ -33,7 +33,7 @@ from app.models.message import (
     MessageLogResponse,
     StatusHistoryEntry,
 )
-from app.services.meta_api import send_template_message
+from app.services.meta_api import send_template_message, MetaAPIError
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 logger = get_logger(__name__)
@@ -292,13 +292,17 @@ async def send_test_message(
     if not to_phone:
         raise ValidationError("Phone number is required")
 
-    wa_message_id, endpoint_used = await send_template_message(
-        to=to_phone,
-        template_name=body.template_name,
-        variables=request_variables,
-        media_url=body.media_url,
-        language=language,
-    )
+    try:
+        wa_message_id, endpoint_used = await send_template_message(
+            to=to_phone,
+            template_name=body.template_name,
+            variables=request_variables,
+            media_url=body.media_url,
+            language=language,
+        )
+    except MetaAPIError as e:
+        raise ValidationError(str(e))
+
     resolved_endpoint = "fallback" if endpoint_used == "fallback" else "primary"
 
     return CampaignTestMessageResponse(
