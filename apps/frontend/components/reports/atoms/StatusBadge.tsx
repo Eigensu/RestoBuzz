@@ -14,11 +14,12 @@ export function StatusBadge({ status }: { readonly status: string }) {
     completed: "bg-emerald-50 text-emerald-700",
     cancelled: "bg-gray-100 text-gray-500",
   };
+  const key = (status ?? "").toLowerCase().trim();
   return (
     <span
       className={cn(
         "inline-flex px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest",
-        map[status] ?? "bg-gray-50 text-gray-500",
+        map[key] ?? "bg-gray-50 text-gray-500",
       )}
     >
       {status}

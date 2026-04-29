@@ -46,8 +46,8 @@ export function BillingTab({
     );
 
   const { summary, by_category, daily_trend } = data;
+  const currency = summary.currency || "INR";
   const fmt = (n: number) => {
-    const currency = summary.currency || "INR";
     const locale = currency === "INR" ? "en-IN" : undefined;
     return new Intl.NumberFormat(locale, {
       style: "currency",
@@ -75,7 +75,7 @@ export function BillingTab({
           icon={RupeeIcon}
           label="Est. Total Spend"
           value={fmt(summary.total_spend)}
-          sub={`Currency: ${summary.currency} · estimated`}
+          sub={`Currency: ${currency} · estimated`}
           highlight="green"
         />
         <StatCard

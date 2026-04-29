@@ -80,7 +80,7 @@ async def _record_billing_event(
                 "restaurant_id": message_log.get("restaurant_id"),
                 "job_id": message_log.get("job_id"),
                 "category": (pricing.get("category") or "").lower(),
-                "pricing_model": pricing.get("pricing_model", "CBP"),
+                "pricing_model": pricing.get("pricing_model") or "PMP",
                 "recorded_at": now,
             }
         },

@@ -301,7 +301,9 @@ async def send_test_message(
             language=language,
         )
     except MetaAPIError as e:
-        raise ValidationError(str(e))
+        if e.code in ("network_error", "parse_error", "config_error", "no_endpoint"):
+            raise ServerError(str(e)) from e
+        raise ValidationError(str(e)) from e
 
     resolved_endpoint = "fallback" if endpoint_used == "fallback" else "primary"
 

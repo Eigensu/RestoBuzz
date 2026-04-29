@@ -73,6 +73,7 @@ export default function InboxPage() {
   }>({
     queryKey: ["inbox-conversations"],
     queryFn: async () => {
+      const MAX_PAGES = 20;
       let allItems: Conversation[] = [];
       let page = 1;
       let total = 0;
@@ -83,6 +84,10 @@ export default function InboxPage() {
         if (allItems.length >= total || res.items.length === 0) {
           break;
         }
+        if (page >= MAX_PAGES) {
+          console.warn(`[inbox] Conversation fetch capped at ${MAX_PAGES} pages (${allItems.length} items). Some conversations may not appear.`);
+          break;
+        }
         page++;
       }
       return { items: allItems, total };
@@ -91,6 +96,7 @@ export default function InboxPage() {
   });
 
   const convs = useMemo(() => convsData?.items ?? [], [convsData]);
+  const unreadCount = useMemo(() => convs.filter((c) => c.unread_count > 0).length, [convs]);
 
   const filteredConvs = useMemo(() => {
     let result = convs;
@@ -235,7 +241,7 @@ export default function InboxPage() {
               >
                 <option value="all">All chats</option>
                 <option value="unread">
-                  {`Unread${convs.filter((c) => c.unread_count > 0).length > 0 ? ` (${convs.filter((c) => c.unread_count > 0).length})` : ""}`}
+                  {`Unread${unreadCount > 0 ? ` (${unreadCount})` : ""}`}
                 </option>
                 <option value="text">Text only</option>
                 <option value="media">Media only</option>
@@ -260,9 +266,9 @@ export default function InboxPage() {
             <p className="text-[10px] font-black text-[#24422e]/40 uppercase tracking-widest">
               {filteredConvs.length} chat{filteredConvs.length !== 1 ? "s" : ""}
             </p>
-            {convs.filter((c) => c.unread_count > 0).length > 0 && (
+            {unreadCount > 0 && (
               <span className="px-2 py-0.5 bg-[#eff2f0] text-[#24422e] text-[10px] font-bold rounded-full">
-                {convs.filter((c) => c.unread_count > 0).length} unread
+                {unreadCount} unread
               </span>
             )}
           </div>

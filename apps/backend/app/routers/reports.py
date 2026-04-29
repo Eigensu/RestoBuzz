@@ -1063,12 +1063,7 @@ async def inbox_export(
 # ── Meta Billing Reports ───────────────────────────────────────────────────────
 
 # Per-category INR rates applied at query time — no price stored in DB events.
-_META_INR_RATES: dict[str, float] = {
-    "marketing": 0.95,
-    "utility": 0.125,
-    "authentication": 0.145,
-    "service": 0.00,
-}
+# Rates are configured via settings.meta_inr_rates
 
 
 async def _build_billing_data(
@@ -1099,7 +1094,7 @@ async def _build_billing_data(
         "recorded_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
     }
 
-    # Total count → spend = count × rate (per category)
+    # Total count → spend = count * rate (per category)
     totals_pipeline = [
         {_MONGO_MATCH: base_match},
         {
@@ -1131,14 +1126,14 @@ async def _build_billing_data(
             "category": r["_id"] or "unknown",
             "count": r["count"],
             "spend": round(
-                r["count"] * _META_INR_RATES.get((r["_id"] or "").lower(), 0.0), 2
+                r["count"] * settings.meta_inr_rates.get((r["_id"] or "").lower(), 0.0), 2
             ),
         }
         for r in by_category_raw
     ]
     total_spend = round(sum(c["spend"] for c in by_category), 2)
 
-    # Daily count → spend trend (use marketing rate as default for unknowns)
+    # Daily count → spend trend (unknown categories fall back to 0.0 / no rate)
     daily_pipeline = [
         {_MONGO_MATCH: base_match},
         {
@@ -1161,7 +1156,7 @@ async def _build_billing_data(
     for r in daily_raw:
         date_key = f"{r['_id']['year']}-{r['_id']['month']:02d}-{r['_id']['day']:02d}"
         cat = (r["_id"].get("category") or "").lower()
-        rate = _META_INR_RATES.get(cat, 0.0)
+        rate = settings.meta_inr_rates.get(cat, 0.0)
         if date_key not in daily_map:
             daily_map[date_key] = {"date": date_key, "count": 0, "spend": 0.0}
         daily_map[date_key]["count"] += r["count"]
@@ -1175,7 +1170,7 @@ async def _build_billing_data(
             "total_spend": total_spend,
             "total_conversations": total_conversations,
             "currency": settings.default_currency,
-            "rates": _META_INR_RATES,
+            "rates": settings.meta_inr_rates,
         },
         "by_category": by_category,
         "daily_trend": daily_trend,
@@ -1238,12 +1233,14 @@ async def billing_export(
         .sort("recorded_at", -1)
         .limit(_MAX_EXPORT_ROWS)
     ):
+        cat = (doc.get("category") or "").lower()
+        computed_price = round(settings.meta_inr_rates.get(cat, 0.0), 2)
         rows.append(
             [
                 doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),
                 doc.get("category", ""),
-                doc.get("currency", ""),
-                doc.get("price", 0),
+                settings.default_currency,
+                computed_price,
                 doc.get("wa_message_id", ""),
             ]
         )
@@ -1296,7 +1293,7 @@ async def billing_debug(
     # Sample up to 5 docs regardless of restaurant to see what IDs are stored
     sample = []
     async for doc in db.meta_billing_events.find(
-        {},
+        {"restaurant_id": {"$in": rids}},
         {
             "_id": 0,
             "wa_message_id": 1,
@@ -1320,16 +1317,18 @@ async def billing_debug(
 
 @router.post("/billing/backfill-prices")
 async def backfill_billing_prices(
-    current_user: Annotated[dict, Depends(require_role("admin"))],
+    current_user: Annotated[dict, Depends(require_role("super_admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     """
+    TODO: If _build_billing_data and billing_export are updated to compute from
+    settings.meta_inr_rates directly, this endpoint can be removed.
     One-time fix: update all meta_billing_events that have price=0 (or missing)
     by applying the INR rate table based on category.
     Safe to run multiple times — only touches records with price == 0.
     """
     updated = 0
-    for category, rate in _META_INR_RATES.items():
+    for category, rate in settings.meta_inr_rates.items():
         # Match both lowercase and uppercase variants stored by old code
         result = await db.meta_billing_events.update_many(
             {
@@ -1340,4 +1339,4 @@ async def backfill_billing_prices(
         )
         updated += result.modified_count
 
-    return {"updated": updated, "rates_applied": _META_INR_RATES}
+    return {"updated": updated, "rates_applied": settings.meta_inr_rates}

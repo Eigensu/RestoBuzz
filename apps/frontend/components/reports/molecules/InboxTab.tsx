@@ -103,7 +103,7 @@ export function InboxTab({
               {engaged_customers.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="py-12 text-center text-sm text-gray-400 font-medium"
                   >
                     No engagement data for this period

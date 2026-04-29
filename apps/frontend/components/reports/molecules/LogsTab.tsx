@@ -121,7 +121,7 @@ export function LogsTab({
                       {row.recipient_name || "—"}
                     </td>
                     <td className="py-3 pr-4 text-gray-400 font-mono text-[10px] max-w-[80px] truncate">
-                      {row.campaign_id.slice(-8)}
+                      {row.campaign_id ? row.campaign_id.slice(-8) : "—"}
                     </td>
                     <td className="py-3 pr-4">
                       <StatusBadge status={row.status} />
