@@ -97,6 +97,12 @@ class Settings(BaseSettings):
 
     # Reporting / Billing
     default_currency: str = "INR"
+    meta_inr_rates: dict[str, float] = {
+        "marketing": 0.95,
+        "utility": 0.125,
+        "authentication": 0.145,
+        "service": 0.00,
+    }
 
     # Alert thresholds
     unread_alert_threshold: int = Field(

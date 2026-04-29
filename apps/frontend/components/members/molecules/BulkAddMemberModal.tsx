@@ -50,12 +50,7 @@ export function BulkAddMemberModal({
 
       if (members.length === 0) throw new Error("No valid members found");
 
-      // We'll send them one by one or implement a bulk endpoint if needed.
-      // For now, let's look if there's a bulk create endpoint.
-      // Backend only has single POST /members. 
-      // I'll implement a small loop or use Promise.all
-      // Note: Backend has a bulk delete, but no bulk create (except for Excel).
-      // I'll use Promise.allSettled to add them.
+      // No bulk-create endpoint exists; fall back to concurrent individual POSTs.
       const results = await Promise.allSettled(
         members.map(m => api.post("/members", m))
       );

@@ -1062,6 +1062,9 @@ async def inbox_export(
 
 # ── Meta Billing Reports ───────────────────────────────────────────────────────
 
+# Per-category INR rates applied at query time — no price stored in DB events.
+# Rates are configured via settings.meta_inr_rates
+
 
 async def _build_billing_data(
     restaurant_id: str,
@@ -1091,47 +1094,46 @@ async def _build_billing_data(
         "recorded_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
     }
 
-    # Total spend + count
+    # Total count → spend = count * rate (per category)
     totals_pipeline = [
         {_MONGO_MATCH: base_match},
         {
             _MONGO_GROUP: {
                 "_id": None,
-                "total_spend": {_MONGO_SUM: "$price"},
                 "total_conversations": {_MONGO_SUM: 1},
             }
         },
     ]
     totals_raw = await db.meta_billing_events.aggregate(totals_pipeline).to_list(1)
-    totals = (
-        totals_raw[0] if totals_raw else {"total_spend": 0, "total_conversations": 0}
-    )
+    total_conversations = totals_raw[0]["total_conversations"] if totals_raw else 0
 
-    # Spend by category (MARKETING, UTILITY, AUTHENTICATION, SERVICE)
+    # Count by category, apply per-category rate
     by_category_pipeline = [
         {_MONGO_MATCH: base_match},
         {
             _MONGO_GROUP: {
                 "_id": "$category",
-                "spend": {_MONGO_SUM: "$price"},
                 "count": {_MONGO_SUM: 1},
             }
         },
-        {_MONGO_SORT: {"spend": -1}},
+        {_MONGO_SORT: {"count": -1}},
     ]
     by_category_raw = await db.meta_billing_events.aggregate(
         by_category_pipeline
     ).to_list(20)
     by_category = [
         {
-            "category": r["_id"] or "UNKNOWN",
-            "spend": round(r["spend"], 4),
+            "category": r["_id"] or "unknown",
             "count": r["count"],
+            "spend": round(
+                r["count"] * settings.meta_inr_rates.get((r["_id"] or "").lower(), 0.0), 2
+            ),
         }
         for r in by_category_raw
     ]
+    total_spend = round(sum(c["spend"] for c in by_category), 2)
 
-    # Daily spend trend
+    # Daily count → spend trend (unknown categories fall back to 0.0 / no rate)
     daily_pipeline = [
         {_MONGO_MATCH: base_match},
         {
@@ -1140,37 +1142,35 @@ async def _build_billing_data(
                     "year": {"$year": "$recorded_at"},
                     "month": {"$month": "$recorded_at"},
                     "day": {"$dayOfMonth": "$recorded_at"},
+                    "category": "$category",
                 },
-                "spend": {_MONGO_SUM: "$price"},
                 "count": {_MONGO_SUM: 1},
             }
         },
         {_MONGO_SORT: {"_id.year": 1, "_id.month": 1, "_id.day": 1}},
     ]
     daily_raw = await db.meta_billing_events.aggregate(daily_pipeline).to_list(366)
-    daily_trend = [
-        {
-            "date": f"{r['_id']['year']}-{r['_id']['month']:02d}-{r['_id']['day']:02d}",
-            "spend": round(r["spend"], 4),
-            "count": r["count"],
-        }
-        for r in daily_raw
-    ]
 
-    currency_raw = await db.meta_billing_events.find_one(
-        {"restaurant_id": {_MONGO_IN: rids}}, {"currency": 1}
-    )
-    currency = (
-        (currency_raw.get("currency") or settings.default_currency)
-        if currency_raw
-        else settings.default_currency
-    )
+    # Merge same-day rows across categories
+    daily_map: dict[str, dict] = {}
+    for r in daily_raw:
+        date_key = f"{r['_id']['year']}-{r['_id']['month']:02d}-{r['_id']['day']:02d}"
+        cat = (r["_id"].get("category") or "").lower()
+        rate = settings.meta_inr_rates.get(cat, 0.0)
+        if date_key not in daily_map:
+            daily_map[date_key] = {"date": date_key, "count": 0, "spend": 0.0}
+        daily_map[date_key]["count"] += r["count"]
+        daily_map[date_key]["spend"] = round(
+            daily_map[date_key]["spend"] + r["count"] * rate, 2
+        )
+    daily_trend = list(daily_map.values())
 
     return {
         "summary": {
-            "total_spend": round(totals["total_spend"], 4),
-            "total_conversations": totals["total_conversations"],
-            "currency": currency,
+            "total_spend": total_spend,
+            "total_conversations": total_conversations,
+            "currency": settings.default_currency,
+            "rates": settings.meta_inr_rates,
         },
         "by_category": by_category,
         "daily_trend": daily_trend,
@@ -1233,12 +1233,14 @@ async def billing_export(
         .sort("recorded_at", -1)
         .limit(_MAX_EXPORT_ROWS)
     ):
+        cat = (doc.get("category") or "").lower()
+        computed_price = round(settings.meta_inr_rates.get(cat, 0.0), 2)
         rows.append(
             [
                 doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),
                 doc.get("category", ""),
-                doc.get("currency", ""),
-                doc.get("price", 0),
+                settings.default_currency,
+                computed_price,
                 doc.get("wa_message_id", ""),
             ]
         )
@@ -1268,3 +1270,73 @@ async def billing_export(
     response = _export_response(rows, headers, filename, fmt)
     response.headers["X-Export-Truncated"] = "true" if truncated else "false"
     return response
+
+
+# ── Billing Backfill ───────────────────────────────────────────────────────────
+
+
+@router.get("/billing/debug")
+async def billing_debug(
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """Debug: show what's actually in meta_billing_events for this restaurant."""
+    rid = restaurant["id"]
+    rid_oid = str(restaurant.get("_id", ""))
+    rids = list({rid, rid_oid} - {None, ""})
+
+    total_in_collection = await db.meta_billing_events.count_documents({})
+    matched = await db.meta_billing_events.count_documents(
+        {"restaurant_id": {"$in": rids}}
+    )
+    # Sample up to 5 docs regardless of restaurant to see what IDs are stored
+    sample = []
+    async for doc in db.meta_billing_events.find(
+        {"restaurant_id": {"$in": rids}},
+        {
+            "_id": 0,
+            "wa_message_id": 1,
+            "restaurant_id": 1,
+            "category": 1,
+            "recorded_at": 1,
+        },
+    ).limit(5):
+        if doc.get("recorded_at"):
+            doc["recorded_at"] = doc["recorded_at"].isoformat()
+        sample.append(doc)
+
+    return {
+        "restaurant_id_used": rid,
+        "restaurant_oid_used": rid_oid,
+        "total_events_in_collection": total_in_collection,
+        "matched_for_this_restaurant": matched,
+        "sample_docs": sample,
+    }
+
+
+@router.post("/billing/backfill-prices")
+async def backfill_billing_prices(
+    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """
+    TODO: If _build_billing_data and billing_export are updated to compute from
+    settings.meta_inr_rates directly, this endpoint can be removed.
+    One-time fix: update all meta_billing_events that have price=0 (or missing)
+    by applying the INR rate table based on category.
+    Safe to run multiple times — only touches records with price == 0.
+    """
+    updated = 0
+    for category, rate in settings.meta_inr_rates.items():
+        # Match both lowercase and uppercase variants stored by old code
+        result = await db.meta_billing_events.update_many(
+            {
+                "category": {"$in": [category, category.upper()]},
+                "price": {"$in": [0, 0.0, None]},
+            },
+            {"$set": {"price": rate, "currency": settings.default_currency}},
+        )
+        updated += result.modified_count
+
+    return {"updated": updated, "rates_applied": settings.meta_inr_rates}

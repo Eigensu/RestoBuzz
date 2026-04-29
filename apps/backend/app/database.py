@@ -85,8 +85,26 @@ async def init_indexes() -> None:
     await db.inbound_messages.create_indexes(
         [
             IndexModel([("wa_message_id", ASCENDING)], unique=True),
+            # Covering index for the conversation-list pipeline:
+            # $match (is_resolved ≠ true, received_at ≥ since)
+            # → $sort (from_phone ASC, received_at DESC)
+            # → $group $first (most-recent message per phone)
+            # Having is_resolved + received_at + from_phone in a single index lets
+            # MongoDB satisfy the match, sort, and group without a collection scan.
+            IndexModel(
+                [
+                    ("is_resolved", ASCENDING),
+                    ("received_at", DESCENDING),
+                    ("from_phone", ASCENDING),
+                ]
+            ),
+            # Retained for backwards-compat with per-phone thread queries.
             IndexModel([("from_phone", ASCENDING), ("received_at", DESCENDING)]),
-            IndexModel([("is_read", ASCENDING)]),
+            # Partial index for the unread-count query (is_read=False, is_resolved≠true).
+            IndexModel(
+                [("is_read", ASCENDING), ("is_resolved", ASCENDING)],
+                partialFilterExpression={"is_read": False},
+            ),
         ]
     )
 

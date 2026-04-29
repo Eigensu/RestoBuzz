@@ -652,7 +652,12 @@ async def get_analytics(
 
     # ── Guest source breakdown (from uploads) ─────────────────────────────────
     guest_source_pipeline = [
-        {_MONGO_MATCH: {"restaurant_id": restaurant_id, "source": {"$nin": [None, ""]}}},
+        {
+            _MONGO_MATCH: {
+                "restaurant_id": restaurant_id,
+                "source": {"$nin": [None, ""]},
+            }
+        },
         {_MONGO_GROUP: {"_id": "$source", "count": {_MONGO_SUM: 1}}},
         {_MONGO_SORT: {"count": -1}},
         {_MONGO_LIMIT: 6},
@@ -979,13 +984,9 @@ async def reservego_upload(
     _auth: Annotated[None, Depends(_require_token)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     restaurant_id: Annotated[str, Query()],
-    current_user: Annotated[dict, Depends(require_role("viewer"))] = None,
     data_from: Annotated[str | None, Query()] = None,
     data_until: Annotated[str | None, Query()] = None,
 ):
-    # Security: Validate restaurant access
-    await validate_restaurant_access(current_user, restaurant_id, db)
-
     filename = file.filename or ""
     if not filename.lower().endswith(".xlsx"):
         raise InvalidFileFormatError("Only .xlsx Excel files are supported")

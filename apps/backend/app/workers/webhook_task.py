@@ -57,39 +57,30 @@ async def _handle_statuses(db, redis, statuses: list) -> None:
         if result:
             await _store_error_details(db, wa_id, status, s)
             await _increment_campaign_counter(db, result, status)
-            await _store_pricing(db, wa_id, s, result, now)
+            await _record_billing_event(db, wa_id, s, result, now)
 
 
-async def _store_pricing(
+async def _record_billing_event(
     db, wa_id: str, s: dict, message_log: dict, now: datetime
 ) -> None:
-    """Persist Meta conversation pricing from the webhook status payload."""
+    """Record a billable conversation event from the webhook status payload.
+
+    Meta only sends billable=true/false + category — no price.
+    Price calculation (₹0.95/conversation) happens in reports.py at query time.
+    """
     pricing = s.get("pricing")
     if not pricing or not pricing.get("billable"):
         return
-
-    restaurant_id = message_log.get("restaurant_id")
-    job_id = message_log.get("job_id")
-
-    from app.config import settings
-    raw_price = pricing.get("price")
-    try:
-        safe_price = float(raw_price) if raw_price is not None else 0.0
-    except (ValueError, TypeError):
-        safe_price = 0.0
 
     await db.meta_billing_events.update_one(
         {"wa_message_id": wa_id},
         {
             "$setOnInsert": {
                 "wa_message_id": wa_id,
-                "restaurant_id": restaurant_id,
-                "job_id": job_id,
-                "billable": True,
-                "pricing_model": pricing.get("pricing_model", "CONVERSATION"),
-                "category": pricing.get("category", ""),
-                "currency": pricing.get("currency", settings.default_currency),
-                "price": safe_price,
+                "restaurant_id": message_log.get("restaurant_id"),
+                "job_id": message_log.get("job_id"),
+                "category": (pricing.get("category") or "").lower(),
+                "pricing_model": pricing.get("pricing_model") or "PMP",
                 "recorded_at": now,
             }
         },
