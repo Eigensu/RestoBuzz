@@ -35,9 +35,17 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 logger = get_logger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-_DEFAULT_MAX_DAYS = 90
-_SUPER_ADMIN_MAX_DAYS = 365
+_DEFAULT_MAX_DAYS = 3650
+_SUPER_ADMIN_MAX_DAYS = 3650
 _SUMMARY_CACHE_TTL = 300  # 5 minutes
+
+# Per-category INR rates billed to customers (includes markup)
+_CUSTOMER_BILLED_RATES: dict[str, float] = {
+    "marketing": 1.20,
+    "utility": 0.25,
+    "authentication": 0.30,
+    "service": 0.00,
+}
 
 _MONTH_NAMES = [
     "Jan",
@@ -1130,6 +1138,7 @@ async def _build_billing_data(
         {
             "category": r["_id"] or "unknown",
             "count": r["count"],
+            "rate": _CUSTOMER_BILLED_RATES.get((r["_id"] or "").lower(), 0.0),
             "spend": round(
                 r["count"] * _META_INR_RATES.get((r["_id"] or "").lower(), 0.0), 2
             ),
@@ -1170,15 +1179,33 @@ async def _build_billing_data(
         )
     daily_trend = list(daily_map.values())
 
+    # Monthly breakdown (new)
+    monthly_map: dict[str, dict] = {}
+    for r in daily_raw:
+        month_key = f"{r['_id']['year']}-{r['_id']['month']:02d}"
+        cat = (r["_id"].get("category") or "").lower()
+        rate = _CUSTOMER_BILLED_RATES.get(cat, 0.0)
+        if month_key not in monthly_map:
+            monthly_map[month_key] = {"month": month_key, "count": 0, "spend": 0.0}
+        monthly_map[month_key]["count"] += r["count"]
+        monthly_map[month_key]["spend"] = round(
+            monthly_map[month_key]["spend"] + r["count"] * rate, 2
+        )
+    monthly_breakdown = list(monthly_map.values())
+
+    avg_cost_per_message = round(total_spend / total_conversations, 2) if total_conversations > 0 else 0.0
+
     return {
         "summary": {
             "total_spend": total_spend,
             "total_conversations": total_conversations,
+            "avg_cost_per_message": avg_cost_per_message,
             "currency": settings.default_currency,
             "rates": _META_INR_RATES,
         },
         "by_category": by_category,
         "daily_trend": daily_trend,
+        "monthly_breakdown": monthly_breakdown,
     }
 
 
@@ -1238,6 +1265,8 @@ async def billing_export(
         .sort("recorded_at", -1)
         .limit(_MAX_EXPORT_ROWS)
     ):
+        cat = (doc.get("category") or "").lower()
+        computed_price = round(settings.meta_inr_rates.get(cat, 0.0), 2)
         rows.append(
             [
                 doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),

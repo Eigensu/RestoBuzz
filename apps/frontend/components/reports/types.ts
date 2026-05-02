@@ -118,16 +118,19 @@ export interface BillingCategoryRow {
   category: string;
   spend: number;
   count?: number;
+  rate?: number;
 }
 
 export interface BillingData {
   summary: {
     total_spend: number;
     total_conversations: number;
+    avg_cost_per_message: number;
     currency: string;
   };
   by_category: BillingCategoryRow[];
   daily_trend: { date: string; spend: number }[];
+  monthly_breakdown?: { month: string; count: number; spend: number }[];
 }
 
 export interface ReserveGoData {

@@ -38,6 +38,26 @@ function defaultTo() {
   return formatDate(new Date());
 }
 
+function getPresetDates(preset: "this_month" | "last_month" | "last_3_months" | "all_time") {
+  const now = new Date();
+  const todayStr = formatDate(now);
+  
+  if (preset === "this_month") {
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: formatDate(firstDay), to: todayStr };
+  } else if (preset === "last_month") {
+    const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { from: formatDate(firstDay), to: formatDate(lastDay) };
+  } else if (preset === "last_3_months") {
+    const firstDay = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    return { from: formatDate(firstDay), to: todayStr };
+  } else if (preset === "all_time") {
+    return { from: "2020-01-01", to: todayStr };
+  }
+  return { from: defaultFrom(), to: defaultTo() };
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
@@ -361,6 +381,49 @@ export default function ReportsPage() {
             <option value="whatsapp">WhatsApp</option>
             <option value="email">Email</option>
           </select>
+        </div>
+        
+        <div className="flex gap-1 ml-auto">
+          <button
+            onClick={() => {
+              const d = getPresetDates("this_month");
+              setFromDate(d.from);
+              setToDate(d.to);
+            }}
+            className="text-[10px] font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg transition"
+          >
+            This Month
+          </button>
+          <button
+            onClick={() => {
+              const d = getPresetDates("last_month");
+              setFromDate(d.from);
+              setToDate(d.to);
+            }}
+            className="text-[10px] font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg transition"
+          >
+            Last Month
+          </button>
+          <button
+            onClick={() => {
+              const d = getPresetDates("last_3_months");
+              setFromDate(d.from);
+              setToDate(d.to);
+            }}
+            className="text-[10px] font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg transition"
+          >
+            Last 3 Months
+          </button>
+          <button
+            onClick={() => {
+              const d = getPresetDates("all_time");
+              setFromDate(d.from);
+              setToDate(d.to);
+            }}
+            className="text-[10px] font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg transition"
+          >
+            All Time
+          </button>
         </div>
       </div>
 

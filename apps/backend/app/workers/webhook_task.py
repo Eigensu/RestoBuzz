@@ -72,13 +72,27 @@ async def _record_billing_event(
     if not pricing or not pricing.get("billable"):
         return
 
+    restaurant_id = message_log.get("restaurant_id")
+    job_id = message_log.get("job_id")
+    
+    if not restaurant_id and job_id:
+        # Resolve restaurant_id from campaign_jobs
+        from bson.objectid import ObjectId
+        try:
+            job_oid = ObjectId(job_id) if isinstance(job_id, str) else job_id
+            job = await db.campaign_jobs.find_one({"_id": job_oid})
+            if job:
+                restaurant_id = job.get("restaurant_id")
+        except Exception:
+            pass
+
     await db.meta_billing_events.update_one(
         {"wa_message_id": wa_id},
         {
             "$setOnInsert": {
                 "wa_message_id": wa_id,
-                "restaurant_id": message_log.get("restaurant_id"),
-                "job_id": message_log.get("job_id"),
+                "restaurant_id": restaurant_id,
+                "job_id": job_id,
                 "category": (pricing.get("category") or "").lower(),
                 "pricing_model": pricing.get("pricing_model", "CBP"),
                 "recorded_at": now,

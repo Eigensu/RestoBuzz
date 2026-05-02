@@ -190,6 +190,7 @@ export default function AuthLayout({
                   type="button"
                   onClick={() => setShowLoginPw(!showLoginPw)}
                   className="text-[#24422e] shrink-0"
+                  suppressHydrationWarning
                 >
                   {showLoginPw ? (
                     <EyeOff className="w-4 h-4" />
@@ -223,6 +224,7 @@ export default function AuthLayout({
                 type="button"
                 onClick={() => toggle("register")}
                 className="text-[#24422e] font-bold hover:underline"
+                suppressHydrationWarning
               >
                 Sign Up
               </button>
@@ -362,6 +364,7 @@ export default function AuthLayout({
                   type="button"
                   onClick={() => setShowRegPw(!showRegPw)}
                   className="text-[#24422e] shrink-0"
+                  suppressHydrationWarning
                 >
                   {showRegPw ? (
                     <EyeOff className="w-4 h-4" />
@@ -397,6 +400,7 @@ export default function AuthLayout({
                   type="button"
                   onClick={() => setShowRegCf(!showRegCf)}
                   className="text-[#24422e] shrink-0"
+                  suppressHydrationWarning
                 >
                   {showRegCf ? (
                     <EyeOff className="w-4 h-4" />
@@ -437,6 +441,7 @@ export default function AuthLayout({
                 type="submit"
                 disabled={regLoading}
                 className="w-full bg-[#24422e] hover:bg-[#1a3022] text-white py-3 text-sm font-medium transition-colors disabled:opacity-60"
+                suppressHydrationWarning
               >
                 {regLoading ? "Signing up…" : "Sign Up"}
               </button>
@@ -448,6 +453,7 @@ export default function AuthLayout({
                 type="button"
                 onClick={() => toggle("login")}
                 className="text-[#24422e] font-bold hover:underline"
+                suppressHydrationWarning
               >
                 Log In
               </button>
