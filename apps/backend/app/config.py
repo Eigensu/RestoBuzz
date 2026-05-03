@@ -110,6 +110,11 @@ class Settings(BaseSettings):
         "service": 0.00,
     }
 
+    # External Datasources
+    fielia_mongo_uri: str = Field(
+        default="", validation_alias=AliasChoices("FIELIA_MONGO_URI")
+    )
+
     # Alert thresholds
     unread_alert_threshold: int = Field(
         default=9, validation_alias=AliasChoices("UNREAD_ALERT_THRESHOLD")

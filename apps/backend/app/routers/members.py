@@ -51,6 +51,8 @@ def _serialize(doc: dict) -> MemberResponse:
     )
 
 
+from app.services.fielia_members_service import fielia_service
+
 @router.get("", response_model=MemberListResponse)
 async def list_members(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
@@ -60,6 +62,10 @@ async def list_members(
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
+    if restaurant["id"] == "r2":
+        skip = (page - 1) * page_size
+        return await fielia_service.list_members(limit=page_size, offset=skip, search=search, member_type=member_type)
+
     query: dict = {"restaurant_id": restaurant["id"]}
     if member_type and member_type != "all":
         query["type"] = member_type

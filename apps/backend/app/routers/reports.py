@@ -27,6 +27,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.errors import ValidationError
 from app.core.logging import get_logger
+from app.services.fielia_members_service import fielia_service
 from app.database import get_db
 from app.dependencies import get_active_restaurant, require_role
 from app.config import settings
@@ -479,6 +480,11 @@ async def member_summary(
     to_date: Annotated[date | None, Query()] = None,
 ):
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
+    rid = restaurant["id"]
+
+    if rid == "r2":
+        result = await fielia_service.get_summary(from_dt, to_dt)
+        return result
 
     # We find all possible identifiers for the restaurant (Slug and OID)
     rid = restaurant["id"]
@@ -613,6 +619,15 @@ async def member_export(
 ):
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
+
+    if rid == "r2":
+        rows = await fielia_service.get_export_rows(from_dt, to_dt)
+        headers = [
+            "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
+            "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes"
+        ]
+        filename = f"fielia_member_report_{from_dt.date()}_{to_dt.date()}"
+        return _export_response(rows, headers, filename, format)
     rid_oid = str(restaurant.get("_id"))
     rids = list({rid, rid_oid} - {None})
 
@@ -1370,3 +1385,5 @@ async def backfill_billing_prices(
         updated += result.modified_count
 
     return {"updated": updated, "rates_applied": _META_INR_RATES}
+
+
