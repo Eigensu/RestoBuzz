@@ -133,6 +133,10 @@ export interface Member {
   visit_count: number;
   last_visit: string | null;
   is_active: boolean;
+  /** Backend-computed dormancy status. Optional so older API responses don't crash. */
+  activity_status?: "active" | "dormant" | "unknown" | null;
+  /** Provenance of the activity match (uuid_match, phone_match, fallback_internal). */
+  activity_source?: string | null;
   joined_at: string;
 }
 

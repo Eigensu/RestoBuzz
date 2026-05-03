@@ -28,31 +28,46 @@ class FieliaMembersService:
                 return None
         return cls._client
 
-    def _map_doc(self, doc: dict):
+    def _map_doc(self, doc: dict, activity: tuple | None = None):
         """Normalize external document to internal Member model."""
         try:
+            from app.services.dormancy_service import dormancy_service
+            
             joined_at = doc.get("createdAt")
             if isinstance(joined_at, datetime):
                 joined_at = joined_at.replace(tzinfo=timezone.utc)
             
-            last_visit = doc.get("updatedAt")
-            if isinstance(last_visit, datetime):
-                last_visit = last_visit.replace(tzinfo=timezone.utc)
+            # Internal last activity (from the document itself)
+            internal_activity = doc.get("updatedAt")
+            if isinstance(internal_activity, datetime):
+                internal_activity = internal_activity.replace(tzinfo=timezone.utc)
+
+            name = doc.get("content") or f"{doc.get('firstName', '')} {doc.get('lastName', '')}".strip() or "Unknown"
+            
+            # Behavioral activity from ReserveGo (passed via activity arg)
+            last_visit_date, source = None, None
+            if activity:
+                last_visit_date, source = activity
+            
+            # Compute status using hierarchy
+            status, fallback_source = dormancy_service.compute_status(last_visit_date, internal_activity)
 
             return {
                 "id": str(doc.get("_id")),
                 "restaurant_id": "r2",
-                "type": doc.get("type", "ecard"),
-                "name": doc.get("content") or f"{doc.get('firstName', '')} {doc.get('lastName', '')}".strip() or "Unknown",
+                "type": "nfc",
+                "name": name,
                 "phone": doc.get("phone") or "N/A",
                 "email": doc.get("email"),
-                "card_uid": doc.get("uuid"), # Mapping external uuid to card_uid
+                "card_uid": doc.get("uuid"),
                 "ecard_code": None,
                 "joined_at": joined_at.isoformat() if joined_at else None,
                 "visit_count": len(doc.get("scanHistory", [])),
                 "points": 0,
-                "last_visit": last_visit.isoformat() if last_visit else None,
+                "last_visit": (last_visit_date or internal_activity).isoformat() if (last_visit_date or internal_activity) else None,
                 "is_active": True,
+                "activity_status": status,
+                "activity_source": source or fallback_source,
                 "tags": [],
                 "notes": doc.get("address", "")
             }
@@ -79,12 +94,38 @@ class FieliaMembersService:
                     {"content": {"$regex": search, "$options": "i"}},
                 ]
 
+            if member_type:
+                # Strictly enforce 'nfc'. Any other category (ecard, or custom) should show nothing for Fielia.
+                if member_type.lower() != "nfc":
+                    return {"items": [], "total": 0, "page": (offset // limit) + 1, "page_size": limit}
+
             total = await collection.count_documents(query)
             cursor = collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
 
+            # --- BULK DORMANCY PRELOADING ---
+            from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
+            from app.database import get_db
+            
+            db_main = get_db()
+            phones = [d.get("phone") for d in docs]
+            uuids = [d.get("uuid") for d in docs]
+            activity_map = await dormancy_service.get_bulk_activity(db_main, "r2", phones, uuids)
+            # --------------------------------
+
+            items = []
+            for d in docs:
+                # Find activity in map
+                norm_phone = normalize_phone_for_match(d.get("phone"))
+                uuid = d.get("uuid")
+                activity = activity_map.get(uuid) or activity_map.get(norm_phone)
+                
+                m = self._map_doc(d, activity)
+                if m:
+                    items.append(m)
+
             return {
-                "items": [m for d in docs if (m := self._map_doc(d)) is not None],
+                "items": items,
                 "total": total,
                 "page": (offset // limit) + 1,
                 "page_size": limit

@@ -42,6 +42,8 @@ class MemberResponse(BaseModel):
     visit_count: int
     last_visit: datetime | None
     is_active: bool
+    activity_status: Literal["active", "dormant", "unknown"] = "unknown"
+    activity_source: str | None = None
     joined_at: datetime
 
 
