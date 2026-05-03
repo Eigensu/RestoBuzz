@@ -204,6 +204,7 @@ async def init_indexes() -> None:
     await db.reservego_uploads.create_indexes(
         [
             IndexModel([("phone", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel([("uuid", ASCENDING)], sparse=True),
             IndexModel(
                 [
                     ("guest_name", ASCENDING),
@@ -220,6 +221,8 @@ async def init_indexes() -> None:
     await db.reservego_bill_data.create_indexes(
         [
             IndexModel([("bill_number", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel([("phone", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel([("uuid", ASCENDING)], sparse=True),
             IndexModel(
                 [
                     ("guest_name", ASCENDING),

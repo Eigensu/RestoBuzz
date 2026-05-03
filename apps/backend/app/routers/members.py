@@ -32,7 +32,23 @@ router = APIRouter(prefix="/members", tags=["members"])
 logger = get_logger(__name__)
 
 
-def _serialize(doc: dict) -> MemberResponse:
+from datetime import timedelta
+
+def _serialize(doc: dict, activity: tuple | None = None) -> MemberResponse:
+    from app.services.dormancy_service import dormancy_service
+    
+    last_visit = doc.get("last_visit")
+    if last_visit and isinstance(last_visit, str):
+        last_visit = datetime.fromisoformat(last_visit)
+
+    # Behavioral activity from ReserveGo
+    last_visit_date, source = None, None
+    if activity:
+        last_visit_date, source = activity
+
+    # Compute status using hierarchy
+    status, fallback_source = dormancy_service.compute_status(last_visit_date, last_visit)
+
     return MemberResponse(
         id=str(doc["_id"]),
         restaurant_id=doc["restaurant_id"],
@@ -45,8 +61,10 @@ def _serialize(doc: dict) -> MemberResponse:
         tags=doc.get("tags", []),
         notes=doc.get("notes"),
         visit_count=doc.get("visit_count", 0),
-        last_visit=doc.get("last_visit"),
+        last_visit=last_visit_date or last_visit,
         is_active=doc.get("is_active", True),
+        activity_status=status,
+        activity_source=source or fallback_source,
         joined_at=doc["joined_at"],
     )
 
@@ -79,7 +97,23 @@ async def list_members(
     skip = (page - 1) * page_size
     total = await db.members.count_documents(query)
     cursor = db.members.find(query).sort("joined_at", -1).skip(skip).limit(page_size)
-    items = [_serialize(doc) async for doc in cursor]
+    docs = await cursor.to_list(length=page_size)
+
+    # --- BULK DORMANCY PRELOADING ---
+    from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
+    
+    phones = [d.get("phone") for d in docs]
+    uuids = [d.get("card_uid") for d in docs]
+    activity_map = await dormancy_service.get_bulk_activity(db, restaurant["id"], phones, uuids)
+    # --------------------------------
+
+    items = []
+    for d in docs:
+        norm_phone = normalize_phone_for_match(d.get("phone"))
+        uuid = d.get("card_uid")
+        activity = activity_map.get(uuid) or activity_map.get(norm_phone)
+        items.append(_serialize(d, activity))
+
     return MemberListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
