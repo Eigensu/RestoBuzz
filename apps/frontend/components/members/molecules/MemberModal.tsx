@@ -40,15 +40,19 @@ export function MemberModal({
 
   const mutation = useMutation({
     mutationFn: () => {
+      const isNfc = form.type === "nfc";
+      const isEcard = form.type === "ecard";
       const payload = {
         restaurant_id: restaurantId,
         type: form.type,
         name: form.name,
         phone: form.phone,
         email: form.email || null,
-        card_uid: form.type === "nfc" ? form.card_uid || null : null,
-        ecard_code: form.type === "ecard" ? form.ecard_code || null : null,
+        // NFC → card_uid, ecard → ecard_code, custom → card_uid as reference
+        card_uid: (isNfc || (!isNfc && !isEcard)) ? form.card_uid || null : null,
+        ecard_code: isEcard ? form.ecard_code || null : null,
         notes: form.notes || null,
+        tags: [],
       };
       return editing
         ? api.patch(`/members/${editing.id}`, payload)
@@ -157,10 +161,10 @@ export function MemberModal({
               </label>
               <input
                 id="member-card"
-                value={form.type === "nfc" ? form.card_uid : form.ecard_code}
+                value={form.type === "ecard" ? form.ecard_code : form.card_uid}
                 onChange={(e) =>
                   set(
-                    form.type === "nfc" ? "card_uid" : "ecard_code",
+                    form.type === "ecard" ? "ecard_code" : "card_uid",
                     e.target.value,
                   )
                 }

@@ -158,6 +158,17 @@ async def update_categories(
         return_document=True,
     )
 
+    # NEW: Automatically delete members that belonged to the removed categories
+    old_categories = set(restaurant.get("member_categories") or ["nfc", "ecard"])
+    removed_categories = old_categories - set(cleaned_categories)
+    if removed_categories:
+        await db.members.delete_many({
+            "restaurant_id": restaurant["id"],
+            "type": {"$in": list(removed_categories)}
+        })
+
+    return result
+
     return RestaurantResponse(
         id=result.get("id") or str(result["_id"]),
         name=result.get("name", ""),

@@ -50,7 +50,7 @@ export default function MembersPage() {
       const form = new FormData();
       form.append("file", file);
       return api.post(
-        `/members/import?restaurant_id=${restaurant!.id}&type=${tab === "all" ? "ecard" : tab}`,
+        `/members/import?restaurant_id=${restaurant!.id}&type=${tab === "all" ? "nfc" : tab}`,
         form,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
