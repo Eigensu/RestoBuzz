@@ -80,13 +80,77 @@ async def list_members(
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     db: Annotated[Any, Depends(get_db)] = None,
 ):
+    skip = (page - 1) * page_size
+    
+    # --- HYBRID MODEL FOR R2 (FIELIA) ---
     if restaurant["id"] == "r2":
-        skip = (page - 1) * page_size
-        return await fielia_service.list_members(limit=page_size, offset=skip, search=search, member_type=member_type)
+        fielia_res = {"items": [], "total": 0}
+        
+        # 1. Fetch from Fielia if applicable
+        if not member_type or member_type == "all" or member_type.lower() == "nfc":
+            fielia_res = await fielia_service.list_members(
+                limit=page_size, 
+                offset=skip, 
+                search=search, 
+                member_type="nfc" if member_type == "all" else member_type
+            )
+            
+        # 2. Fetch from Internal DB (for custom categories or all)
+        internal_query: dict = {"restaurant_id": "r2"}
+        if member_type and member_type != "all":
+            # Case-insensitive match for type
+            internal_query["type"] = {"$regex": f"^{member_type}$", "$options": "i"}
+        
+        if search:
+            internal_query["$or"] = [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"phone": {"$regex": search, "$options": "i"}},
+                {"email": {"$regex": search, "$options": "i"}},
+            ]
+            
+        internal_total = await db.members.count_documents(internal_query)
+        internal_cursor = db.members.find(internal_query).sort("joined_at", -1).skip(skip).limit(page_size)
+        internal_docs = await internal_cursor.to_list(length=page_size)
+        
+        # Bulk dormancy for internal docs
+        from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
+        internal_phones = [d.get("phone") for d in internal_docs]
+        internal_uuids = [d.get("card_uid") for d in internal_docs]
+        activity_map = await dormancy_service.get_bulk_activity(db, "r2", internal_phones, internal_uuids)
+        
+        internal_items = []
+        for d in internal_docs:
+            norm_phone = normalize_phone_for_match(d.get("phone"))
+            uuid = d.get("card_uid")
+            activity = activity_map.get(uuid) or activity_map.get(norm_phone)
+            internal_items.append(_serialize(d, activity))
+            
+        # 3. Combine results
+        # If a specific non-nfc type is requested, only return internal
+        if member_type and member_type != "all" and member_type.lower() != "nfc":
+            return MemberListResponse(items=internal_items, total=internal_total, page=page, page_size=page_size)
+            
+        # If nfc is requested, we mainly show Fielia but append any internal ones
+        if member_type and member_type.lower() == "nfc":
+            return MemberListResponse(
+                items=fielia_res["items"] + internal_items, 
+                total=fielia_res["total"] + internal_total,
+                page=page,
+                page_size=page_size
+            )
+            
+        # If "all" is requested, merge both
+        return MemberListResponse(
+            items=fielia_res["items"] + internal_items, 
+            total=fielia_res["total"] + internal_total,
+            page=page,
+            page_size=page_size
+        )
 
+    # --- STANDARD MODEL FOR OTHER RESTAURANTS ---
     query: dict = {"restaurant_id": restaurant["id"]}
     if member_type and member_type != "all":
-        query["type"] = member_type
+        query["type"] = {"$regex": f"^{member_type}$", "$options": "i"}
     if search:
         query["$or"] = [
             {"name": {"$regex": search, "$options": "i"}},
@@ -94,18 +158,15 @@ async def list_members(
             {"email": {"$regex": search, "$options": "i"}},
         ]
 
-    skip = (page - 1) * page_size
     total = await db.members.count_documents(query)
     cursor = db.members.find(query).sort("joined_at", -1).skip(skip).limit(page_size)
     docs = await cursor.to_list(length=page_size)
 
-    # --- BULK DORMANCY PRELOADING ---
     from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
     
     phones = [d.get("phone") for d in docs]
     uuids = [d.get("card_uid") for d in docs]
     activity_map = await dormancy_service.get_bulk_activity(db, restaurant["id"], phones, uuids)
-    # --------------------------------
 
     items = []
     for d in docs:
@@ -133,13 +194,27 @@ async def create_member(
     if body.type == "ecard" and not body.ecard_code:
         raise ValidationError("ecard_code is required for e-card members")
 
+    # Conflict Check: Check internal DB
     existing = await db.members.find_one(
         {"restaurant_id": restaurant["id"], "phone": body.phone}
     )
     if existing:
         raise ConflictError(
-            "A member with this phone number already exists in this restaurant"
+            "A member with this phone number already exists in our internal database"
         )
+        
+    # Conflict Check: Check Fielia if r2
+    if restaurant["id"] == "r2":
+        from app.services.fielia_members_service import fielia_service
+        client = fielia_service.get_client()
+        if client:
+            f_db = client[fielia_service._db_name]
+            f_coll = f_db[fielia_service._collection_name]
+            f_existing = await f_coll.find_one({"phone": body.phone})
+            if f_existing:
+                raise ConflictError(
+                    "A member with this phone number already exists in the Fielia database"
+                )
 
     now = datetime.now(timezone.utc)
     doc = {

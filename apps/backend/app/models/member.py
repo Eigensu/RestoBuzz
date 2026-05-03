@@ -9,11 +9,11 @@ class MemberCreate(BaseModel):
     restaurant_id: str
     type: MemberType
     name: str = Field(min_length=1, max_length=200)
-    phone: str = Field(min_length=7, max_length=20)
+    phone: str = Field(default="", max_length=30)
     email: str | None = None
     card_uid: str | None = None  # NFC chip UID
     ecard_code: str | None = None  # E-card code
-    tags: list[str] = Field(default_factory=list)
+    tags: list[str] = []
     notes: str | None = None
 
 

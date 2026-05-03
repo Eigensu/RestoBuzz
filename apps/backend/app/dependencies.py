@@ -1,4 +1,5 @@
-from fastapi import Depends
+from typing import Annotated
+from fastapi import Depends, Header, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
@@ -126,24 +127,33 @@ def require_restaurant_access():
 
     return dependency
 async def get_active_restaurant(
-    restaurant_id: str,
+    restaurant_id: str | None = None,
+    x_restaurant_id: Annotated[str | None, Header(alias="X-Restaurant-ID")] = None,
+    query_rid: Annotated[str | None, Query(alias="restaurant_id")] = None,
     current_user: dict = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> dict:
     """
     Unified dependency for restaurant-scoped operations.
-    1. Validates user has access to the restaurant.
-    2. Fetches and returns the full restaurant document.
-    3. Handles 404/403 errors centrally.
+    Supports fetching restaurant_id from:
+    1. Path parameter (if named 'restaurant_id')
+    2. Header ('X-Restaurant-ID')
+    3. Query parameter ('restaurant_id')
     """
+    target_rid = restaurant_id or x_restaurant_id or query_rid
+    if not target_rid:
+        raise ValidationError("restaurant_id is required (in path, X-Restaurant-ID header, or query string)")
+    
+    target_rid = str(target_rid)
+
     # Validate RBAC
-    await validate_restaurant_access(current_user, restaurant_id, db)
+    await validate_restaurant_access(current_user, target_rid, db)
 
     # Fetch Data
-    rest_oid = ObjectId(restaurant_id) if ObjectId.is_valid(restaurant_id) else None
-    
+    rest_oid = ObjectId(target_rid) if ObjectId.is_valid(target_rid) else None
+
     restaurant = await db.restaurants.find_one(
-        {"$or": [{"id": restaurant_id}, {"_id": rest_oid}]}
+        {"$or": [{"id": target_rid}, {"_id": rest_oid}]}
     )
 
     if not restaurant:
