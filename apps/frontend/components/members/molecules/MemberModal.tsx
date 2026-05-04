@@ -28,6 +28,7 @@ export function MemberModal({
   const fallbackCat = memberCategories.length > 0 ? memberCategories[0] : "nfc";
   const [form, setForm] = useState({
     type: editing?.type ?? (defaultType === "all" ? fallbackCat : defaultType),
+    isTypeLocked: !editing && defaultType !== "all",
     name: editing?.name ?? "",
     phone: editing?.phone ?? "",
     email: editing?.email ?? "",
@@ -81,7 +82,7 @@ export function MemberModal({
           </button>
         </div>
         <div className="p-5 space-y-4">
-          {!editing && (
+          {!editing && !form.isTypeLocked && (
             <div className="flex rounded-lg border overflow-hidden bg-gray-50 flex-wrap">
               {memberCategories.map((t) => (
                 <button

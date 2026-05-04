@@ -98,7 +98,7 @@ async def list_members(
         # 2. Fetch from Internal DB (for custom categories or all)
         internal_query: dict = {"restaurant_id": "r2"}
         if member_type and member_type != "all":
-            # Case-insensitive match for type
+            # Strict Case-insensitive match for type (full string match only)
             internal_query["type"] = {"$regex": f"^{member_type}$", "$options": "i"}
         
         if search:
