@@ -238,6 +238,20 @@ export default function ReportsPage() {
       if (channel !== "all") base.set("channel", channel);
       if (tab === "logs" && logStatus) base.set("status", logStatus);
 
+      if (tab === "billing" && billingQuery.data) {
+        const { summary, by_category } = billingQuery.data;
+        const highestSpendCategory = by_category?.length > 0
+          ? by_category.reduce((prev: any, curr: any) =>
+              prev.spend > curr.spend ? prev : curr,
+            ).category
+          : "N/A";
+        
+        base.set("ui_total_billed", summary.total_spend.toString());
+        base.set("ui_total_messages", summary.total_conversations.toString());
+        base.set("ui_avg_cost", (summary.avg_cost_per_message ?? 0).toString());
+        base.set("ui_top_category", highestSpendCategory);
+      }
+
       if (tab === "reservego") {
         throw new Error("ReserveGo uses a different export handler");
       }

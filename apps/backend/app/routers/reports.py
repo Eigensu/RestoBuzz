@@ -1253,8 +1253,13 @@ async def billing_export(
     from_date: Annotated[date | None, Query()] = None,
     to_date: Annotated[date | None, Query()] = None,
     fmt: Annotated[Literal["csv", "xlsx"], Query(alias="format")] = "xlsx",
+    # UI-passed summary metrics to ensure 100% match
+    ui_total_billed: Annotated[float | None, Query()] = None,
+    ui_total_messages: Annotated[int | None, Query()] = None,
+    ui_avg_cost: Annotated[float | None, Query()] = None,
+    ui_top_category: Annotated[str | None, Query()] = None,
 ):
-    _MAX_EXPORT_ROWS = 10_000
+    _MAX_EXPORT_ROWS = 50_000
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
     rest_doc = await db.restaurants.find_one(
@@ -1268,8 +1273,15 @@ async def billing_export(
     rid_oid = str(rest_doc["_id"]) if rest_doc else None
     rids = list({rid, rid_oid} - {None})
 
-    headers = ["Date", "Category", "Currency", "Price", "WA Message ID"]
+    # 1. Detailed Data Sheet Configuration
+    headers = ["Date", "Category", "Est. Cost (INR)", "WA Message ID"]
     rows = []
+    
+    # 2. Summary Counters (Fallbacks)
+    total_messages = 0
+    total_cost = 0.0
+    category_costs = defaultdict(float)
+    
     async for doc in (
         db.meta_billing_events.find(
             {
@@ -1280,43 +1292,86 @@ async def billing_export(
         .sort("recorded_at", -1)
         .limit(_MAX_EXPORT_ROWS)
     ):
-        cat = (doc.get("category") or "").lower()
-        computed_price = round(settings.meta_inr_rates.get(cat, 0.0), 2)
+        cat = (doc.get("category") or "unknown").lower()
+        cost = settings.meta_inr_rates.get(cat, 0.0)
+        
+        # Aggregate for Overview fallback
+        total_messages += 1
+        total_cost += cost
+        category_costs[cat] += cost
+        
+        # Add to Detailed Sheet
         rows.append(
             [
                 doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),
-                doc.get("category", ""),
-                doc.get("currency", ""),
-                doc.get("price", 0),
+                cat.capitalize(),
+                cost,
                 doc.get("wa_message_id", ""),
             ]
         )
 
-    truncated = len(rows) == _MAX_EXPORT_ROWS
-    if truncated:
-        logger.warning(
-            "billing_export_truncated",
-            restaurant_id=rid,
-            limit=_MAX_EXPORT_ROWS,
-            from_dt=str(from_dt.date()),
-            to_dt=str(to_dt.date()),
-        )
+    # 3. Finalize Overview Data (Prioritize UI-passed values)
+    top_cat = ui_top_category or (max(category_costs, key=category_costs.get) if category_costs else "N/A")
+    date_range_str = f"{from_dt.strftime('%d %b %Y')} → {to_dt.strftime('%d %b %Y')}"
+    
+    final_total_messages = ui_total_messages if ui_total_messages is not None else total_messages
+    final_total_cost = ui_total_billed if ui_total_billed is not None else round(total_cost, 2)
+    final_avg_cost = ui_avg_cost if ui_avg_cost is not None else (round(total_cost / total_messages, 2) if total_messages > 0 else 0.0)
 
-    filename = f"meta_billing_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(
-        db,
-        current_user,
-        rid,
-        "billing",
-        fmt,
-        {
-            "from": str(from_dt.date()),
-            "to": str(to_dt.date()),
-        },
-    )
-    response = _export_response(rows, headers, filename, fmt)
-    response.headers["X-Export-Truncated"] = "true" if truncated else "false"
-    return response
+    # 4. Generate Multi-Sheet Excel
+    if fmt == "xlsx":
+        wb = openpyxl.Workbook()
+        
+        # Sheet 1: Billing Data
+        ws1 = wb.active
+        ws1.title = "Billing Data"
+        ws1.append(headers)
+        for r in rows:
+            ws1.append(r)
+            
+        # Sheet 2: Billing Overview
+        ws2 = wb.create_sheet(title="Billing Overview")
+        ws2.append(["Metric", "Value"])
+        ws2.append(["Date Range", date_range_str])
+        ws2.append(["Total Messages Sent", final_total_messages])
+        ws2.append(["Total Amount Billed (INR)", final_total_cost])
+        ws2.append(["Avg Cost per Message", final_avg_cost])
+        ws2.append(["Highest Spend Category", top_cat.capitalize()])
+        
+        # Column formatting for Overview
+        ws2.column_dimensions["A"].width = 30
+        ws2.column_dimensions["B"].width = 40
+        
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        
+        filename = f"meta_billing_{from_dt.date()}_{to_dt.date()}"
+        truncated = len(rows) == _MAX_EXPORT_ROWS
+        
+        response = StreamingResponse(
+            iter([buf.read()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}.xlsx"},
+        )
+        response.headers["X-Export-Truncated"] = "true" if truncated else "false"
+        
+        await _audit_export(
+            db,
+            current_user,
+            rid,
+            "billing",
+            "xlsx",
+            {
+                "from": str(from_dt.date()),
+                "to": str(to_dt.date()),
+            },
+        )
+        return response
+    else:
+        # CSV fallback (Single sheet)
+        filename = f"meta_billing_{from_dt.date()}_{to_dt.date()}"
+        return _csv_response(rows, headers, filename)
 
 
 # ── Billing Backfill ───────────────────────────────────────────────────────────
