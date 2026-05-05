@@ -77,7 +77,9 @@ export default function InboxPage() {
       let page = 1;
       let total = 0;
       while (true) {
-        const res = await api.get(`/inbox/conversations?page=${page}&page_size=500`).then((r) => r.data);
+        const res = await api
+          .get(`/inbox/conversations?page=${page}&page_size=500`)
+          .then((r) => r.data);
         allItems = allItems.concat(res.items);
         total = res.total;
         if (allItems.length >= total || res.items.length === 0) {
@@ -91,7 +93,10 @@ export default function InboxPage() {
   });
 
   const convs = useMemo(() => convsData?.items ?? [], [convsData]);
-  const unreadCount = useMemo(() => convs.filter((c) => c.unread_count > 0).length, [convs]);
+  const unreadCount = useMemo(
+    () => convs.filter((c) => c.unread_count > 0).length,
+    [convs],
+  );
 
   const filteredConvs = useMemo(() => {
     let result = convs;
@@ -232,7 +237,6 @@ export default function InboxPage() {
                   )
                 }
                 aria-label="Filter chats"
-                aria-label="Filter chats"
                 className="w-full appearance-none bg-[#eff2f0]/60 border-none rounded-xl pl-3 pr-8 py-2 text-[11px] font-black uppercase tracking-widest text-[#24422e] focus:ring-2 focus:ring-[#24422e]/20 outline-none cursor-pointer transition-all"
               >
                 <option value="all">All chats</option>
@@ -248,7 +252,6 @@ export default function InboxPage() {
               <select
                 value={sortNewest ? "newest" : "oldest"}
                 onChange={(e) => setSortNewest(e.target.value === "newest")}
-                aria-label="Sort by date"
                 aria-label="Sort by date"
                 className="appearance-none bg-[#eff2f0]/60 border-none rounded-xl pl-3 pr-7 py-2 text-[11px] font-black uppercase tracking-widest text-[#24422e] focus:ring-2 focus:ring-[#24422e]/20 outline-none cursor-pointer transition-all"
               >
