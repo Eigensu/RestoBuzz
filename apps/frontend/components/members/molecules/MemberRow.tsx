@@ -37,7 +37,9 @@ export function MemberRow({
 
       {/* Last Visit */}
       <td className="px-6 py-4 text-[11px] font-medium text-gray-500">
-        {m.last_visit ? relativeIST(m.last_visit) : (
+        {m.last_visit ? (
+          relativeIST(m.last_visit)
+        ) : (
           <span className="text-gray-300 italic">No visit recorded</span>
         )}
       </td>
@@ -53,7 +55,7 @@ export function MemberRow({
       {/* Card ID */}
       <td className="px-6 py-4">
         <span className="font-mono text-[10px] text-gray-500 bg-[#eff2f0]/20 rounded px-1.5 py-0.5 inline-block">
-          {m.type === "nfc" ? m.card_uid : m.ecard_code}
+          {m.type === "nfc" ? m.card_uid : (m.ecard_code ?? m.card_uid)}
         </span>
       </td>
 

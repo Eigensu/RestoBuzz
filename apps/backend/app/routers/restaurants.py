@@ -3,7 +3,13 @@ from fastapi import APIRouter, Depends, Path, Body
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 from app.database import get_db
-from app.dependencies import require_role, get_user_restaurant_ids, get_current_user, require_restaurant_access, get_active_restaurant
+from app.dependencies import (
+    require_role,
+    get_user_restaurant_ids,
+    get_current_user,
+    require_restaurant_access,
+    get_active_restaurant,
+)
 from app.models.user_restaurant import AssignUserRequest, UserRestaurantRole
 from app.models.restaurant import RestaurantResponse, UpdateCategoriesRequest
 from app.core.errors import NotFoundError, ValidationError
@@ -29,14 +35,13 @@ async def list_restaurants(
         for aid in allowed_ids:
             if ObjectId.is_valid(aid):
                 object_ids.append(ObjectId(aid))
-        
-        query = {
-            "$or": [
-                {"id": {"$in": list(allowed_ids)}},
-                {"_id": {"$in": object_ids}}
-            ]
-        } if allowed_ids else {"id": None}
-    
+
+        query = (
+            {"$or": [{"id": {"$in": list(allowed_ids)}}, {"_id": {"$in": object_ids}}]}
+            if allowed_ids
+            else {"id": None}
+        )
+
     cursor = db.restaurants.find(query).sort("name", 1)
     return [
         RestaurantResponse(
@@ -45,7 +50,9 @@ async def list_restaurants(
             location=doc.get("location", ""),
             emoji=doc.get("emoji", "🏪"),
             color=doc.get("color", "gray"),
-            member_categories=doc.get("member_categories") or doc.get("categories") or ["nfc", "ecard"],
+            member_categories=doc.get("member_categories")
+            or doc.get("categories")
+            or ["nfc", "ecard"],
             wa_phone_ids=doc.get("wa_phone_ids", []),
         )
         async for doc in cursor
@@ -129,12 +136,12 @@ async def update_categories(
     _user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    """Updates the member category list for a restaurant. 
+    """Updates the member category list for a restaurant.
     Requires admin access to the specific restaurant."""
     # Normalise: strip whitespace, lowercase, remove blanks, deduplicate preserving order
     seen: set[str] = set()
     cleaned_categories: list[str] = []
-    
+
     # Priority Fix: Use member_categories from body
     for cat in body.member_categories:
         normalised = cat.strip().lower()
@@ -148,26 +155,19 @@ async def update_categories(
     # Robust Update: Ensure we match the same way get_active_restaurant did
     # restaurant['id'] might be a slug or the stringified _id
     rest_oid = restaurant["_id"]
-    
+
     result = await db.restaurants.find_one_and_update(
         {"_id": rest_oid},
         {
             "$set": {"member_categories": cleaned_categories},
-            "$unset": {"categories": ""}
+            "$unset": {"categories": ""},
         },
         return_document=True,
     )
 
-    # NEW: Automatically delete members that belonged to the removed categories
-    old_categories = set(restaurant.get("member_categories") or ["nfc", "ecard"])
-    removed_categories = old_categories - set(cleaned_categories)
-    if removed_categories:
-        await db.members.delete_many({
-            "restaurant_id": restaurant["id"],
-            "type": {"$in": list(removed_categories)}
-        })
-
-    return result
+    # Do not hard-delete members when a category is removed from settings.
+    # Removing a category only updates restaurant configuration — member data
+    # is preserved so it can be reassigned or exported before any cleanup.
 
     return RestaurantResponse(
         id=result.get("id") or str(result["_id"]),

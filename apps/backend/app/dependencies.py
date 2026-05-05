@@ -90,7 +90,7 @@ async def validate_restaurant_access(
         return restaurant_id
 
     user_oid = ObjectId(current_user["_id"])
-    
+
     # We check if the user is assigned via the provided restaurant_id string
     assignment = await db.user_restaurant_roles.find_one(
         {
@@ -98,7 +98,7 @@ async def validate_restaurant_access(
             "restaurant_id": restaurant_id,
         }
     )
-    
+
     if not assignment:
         # If not found directly, this could be a slug/hash mismatch.
         # However, the standard is to find assignments by the stored ID string.
@@ -106,10 +106,10 @@ async def validate_restaurant_access(
         logger.warning(
             "restaurant_access_denied",
             user_id=str(user_oid),
-            restaurant_id=restaurant_id
+            restaurant_id=restaurant_id,
         )
         raise ForbiddenError(f"Access denied to restaurant '{restaurant_id}'")
-        
+
     return restaurant_id
 
 
@@ -126,6 +126,8 @@ def require_restaurant_access():
         return await validate_restaurant_access(current_user, restaurant_id, db)
 
     return dependency
+
+
 async def get_active_restaurant(
     restaurant_id: str | None = None,
     x_restaurant_id: Annotated[str | None, Header(alias="X-Restaurant-ID")] = None,
@@ -142,8 +144,10 @@ async def get_active_restaurant(
     """
     target_rid = restaurant_id or x_restaurant_id or query_rid
     if not target_rid:
-        raise ValidationError("restaurant_id is required (in path, X-Restaurant-ID header, or query string)")
-    
+        raise ValidationError(
+            "restaurant_id is required (in path, X-Restaurant-ID header, or query string)"
+        )
+
     target_rid = str(target_rid)
 
     # Validate RBAC
@@ -157,8 +161,8 @@ async def get_active_restaurant(
     )
 
     if not restaurant:
-        logger.error("restaurant_not_found", restaurant_id=restaurant_id)
-        raise ValidationError(f"Restaurant '{restaurant_id}' not found")
+        logger.error("restaurant_not_found", restaurant_id=target_rid)
+        raise ValidationError(f"Restaurant '{target_rid}' not found")
 
     # Standardize ID field for downstream route logic
     restaurant["id"] = str(restaurant.get("id") or restaurant["_id"])
@@ -168,6 +172,9 @@ async def get_active_restaurant(
     # 2. Secondary: categories (the legacy field)
     # 3. Fallback: ["nfc", "ecard"] (system default)
     if not restaurant.get("member_categories"):
-        restaurant["member_categories"] = restaurant.get("categories") or ["nfc", "ecard"]
+        restaurant["member_categories"] = restaurant.get("categories") or [
+            "nfc",
+            "ecard",
+        ]
 
     return restaurant

@@ -1,6 +1,7 @@
 """Service for accessing the external Fielia (NFC card) MongoDB database."""
 
 import json
+import re
 from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator
 
@@ -105,12 +106,13 @@ class FieliaMembersService:
         """Build a MongoDB query dict for a free-text search across name/phone fields."""
         if not search:
             return {}
+        pattern = re.escape(search)
         return {
             "$or": [
-                {"firstName": {"$regex": search, "$options": "i"}},
-                {"lastName": {"$regex": search, "$options": "i"}},
-                {"phone": {"$regex": search, "$options": "i"}},
-                {"content": {"$regex": search, "$options": "i"}},
+                {"firstName": {"$regex": pattern, "$options": "i"}},
+                {"lastName": {"$regex": pattern, "$options": "i"}},
+                {"phone": {"$regex": pattern, "$options": "i"}},
+                {"content": {"$regex": pattern, "$options": "i"}},
             ]
         }
 
@@ -369,7 +371,7 @@ class FieliaMembersService:
         }
 
     async def get_export_rows(self, from_dt: datetime, to_dt: datetime) -> list:
-        """Fetch export rows from Fielia for a given date range."""
+        """Fetch export rows from Fielia for a given date range, with activity enrichment."""
         db_handle = self.get_db_handle()
         if db_handle is None:
             return []
@@ -377,9 +379,19 @@ class FieliaMembersService:
         try:
             collection = db_handle[self.collection_name]
             query = {"createdAt": {"$gte": from_dt, "$lte": to_dt}}
+            docs = (
+                await collection.find(query).sort("createdAt", -1).to_list(length=None)
+            )
+
+            # Enrich with ReserveGo activity — same as list_members
+            activity_map = await self._resolve_activity_map(docs)
+
             rows = []
-            async for doc in collection.find(query).sort("createdAt", -1):
-                mapped = self._map_doc(doc)
+            for doc in docs:
+                norm_phone = normalize_phone_for_match(doc.get("phone"))
+                uuid_val = doc.get("uuid")
+                activity = activity_map.get(uuid_val) or activity_map.get(norm_phone)
+                mapped = self._map_doc(doc, activity)
                 if mapped:
                     rows.append(
                         [

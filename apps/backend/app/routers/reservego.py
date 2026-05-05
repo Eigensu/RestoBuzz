@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Annotated
 
 import openpyxl
+from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, UploadFile, File, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -23,7 +24,12 @@ from pydantic import BaseModel
 from pymongo import UpdateOne
 
 from app.config import settings
-from app.core.errors import InvalidCredentialsError, InvalidFileFormatError, AppError
+from app.core.errors import (
+    InvalidCredentialsError,
+    InvalidFileFormatError,
+    AppError,
+    NotFoundError,
+)
 from app.core.security import _create_token, decode_token
 from app.database import get_db
 from app.dependencies import require_role, validate_restaurant_access
@@ -987,6 +993,26 @@ async def reservego_upload(
     data_from: Annotated[str | None, Query()] = None,
     data_until: Annotated[str | None, Query()] = None,
 ):
+    # Verify the target restaurant actually exists before accepting any data.
+    # The reservego token carries no restaurant claim, so we validate the
+    # restaurant_id against the DB to prevent uploads to arbitrary tenants.
+    restaurant_doc = await db.restaurants.find_one(
+        {
+            "$or": [
+                {"id": restaurant_id},
+                {
+                    "_id": (
+                        ObjectId(restaurant_id)
+                        if ObjectId.is_valid(restaurant_id)
+                        else None
+                    )
+                },
+            ]
+        },
+        {"_id": 1},
+    )
+    if not restaurant_doc:
+        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
     filename = file.filename or ""
     if not filename.lower().endswith(".xlsx"):
         raise InvalidFileFormatError("Only .xlsx Excel files are supported")

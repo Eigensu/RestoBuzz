@@ -207,26 +207,28 @@ async def create_member(
     if body.type == "ecard" and not body.ecard_code:
         raise ValidationError("ecard_code is required for e-card members")
 
-    existing = await db.members.find_one(
-        {"restaurant_id": restaurant["id"], "phone": body.phone}
-    )
-    if existing:
-        raise ConflictError(
-            "A member with this phone number already exists in our internal database"
+    # Only check uniqueness when a real phone is provided
+    if body.phone:
+        existing = await db.members.find_one(
+            {"restaurant_id": restaurant["id"], "phone": body.phone}
         )
-
-    if restaurant["id"] == "r2":
-        if await fielia_service.check_phone_exists(body.phone):
+        if existing:
             raise ConflictError(
-                "A member with this phone number already exists in the Fielia database"
+                "A member with this phone number already exists in our internal database"
             )
+
+        if restaurant["id"] == "r2":
+            if await fielia_service.check_phone_exists(body.phone):
+                raise ConflictError(
+                    "A member with this phone number already exists in the Fielia database"
+                )
 
     now = datetime.now(timezone.utc)
     doc = {
         "restaurant_id": restaurant["id"],
         "type": body.type,
         "name": body.name,
-        "phone": body.phone,
+        "phone": body.phone or None,
         "email": body.email,
         "card_uid": body.card_uid,
         "ecard_code": body.ecard_code,
@@ -548,7 +550,7 @@ async def import_members(
                 skipped += 1
                 continue
         else:
-            phone = ""
+            phone = None  # store None, not "", to avoid duplicate-empty-phone index collisions
 
         if phone:
             existing = await db.members.find_one(

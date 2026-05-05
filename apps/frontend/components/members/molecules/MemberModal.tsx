@@ -26,9 +26,10 @@ export function MemberModal({
 }: Readonly<MemberModalProps>) {
   const qc = useQueryClient();
   const fallbackCat = memberCategories.length > 0 ? memberCategories[0] : "nfc";
+  // Compute isTypeLocked as a derived value — not state — so it stays in sync with props
+  const isTypeLocked = !editing && defaultType !== "all";
   const [form, setForm] = useState({
     type: editing?.type ?? (defaultType === "all" ? fallbackCat : defaultType),
-    isTypeLocked: !editing && defaultType !== "all",
     name: editing?.name ?? "",
     phone: editing?.phone ?? "",
     email: editing?.email ?? "",
@@ -41,7 +42,6 @@ export function MemberModal({
 
   const mutation = useMutation({
     mutationFn: () => {
-      const isNfc = form.type === "nfc";
       const isEcard = form.type === "ecard";
       const payload = {
         restaurant_id: restaurantId,
@@ -50,10 +50,11 @@ export function MemberModal({
         phone: form.phone,
         email: form.email || null,
         // NFC → card_uid, ecard → ecard_code, custom → card_uid as reference
-        card_uid: (isNfc || (!isNfc && !isEcard)) ? form.card_uid || null : null,
+        card_uid: !isEcard ? form.card_uid || null : null,
         ecard_code: isEcard ? form.ecard_code || null : null,
         notes: form.notes || null,
-        tags: [],
+        // Preserve existing tags on edit; default to empty array on create
+        ...(editing ? { tags: editing.tags } : { tags: [] }),
       };
       return editing
         ? api.patch(`/members/${editing.id}`, payload)
@@ -82,7 +83,7 @@ export function MemberModal({
           </button>
         </div>
         <div className="p-5 space-y-4">
-          {!editing && !form.isTypeLocked && (
+          {!editing && !isTypeLocked && (
             <div className="flex rounded-lg border overflow-hidden bg-gray-50 flex-wrap">
               {memberCategories.map((t) => (
                 <button

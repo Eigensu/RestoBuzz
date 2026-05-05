@@ -73,21 +73,10 @@ export default function InboxPage() {
   }>({
     queryKey: ["inbox-conversations"],
     queryFn: async () => {
-      let allItems: Conversation[] = [];
-      let page = 1;
-      let total = 0;
-      while (true) {
-        const res = await api
-          .get(`/inbox/conversations?page=${page}&page_size=500`)
-          .then((r) => r.data);
-        allItems = allItems.concat(res.items);
-        total = res.total;
-        if (allItems.length >= total || res.items.length === 0) {
-          break;
-        }
-        page++;
-      }
-      return { items: allItems, total };
+      const res = await api
+        .get(`/inbox/conversations?page=1&page_size=500`)
+        .then((r) => r.data);
+      return { items: res.items as Conversation[], total: res.total as number };
     },
     refetchInterval: 15_000,
   });
