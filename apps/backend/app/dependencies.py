@@ -1,4 +1,5 @@
-from fastapi import Depends
+from typing import Annotated
+from fastapi import Depends, Header, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
@@ -89,7 +90,7 @@ async def validate_restaurant_access(
         return restaurant_id
 
     user_oid = ObjectId(current_user["_id"])
-    
+
     # We check if the user is assigned via the provided restaurant_id string
     assignment = await db.user_restaurant_roles.find_one(
         {
@@ -97,7 +98,7 @@ async def validate_restaurant_access(
             "restaurant_id": restaurant_id,
         }
     )
-    
+
     if not assignment:
         # If not found directly, this could be a slug/hash mismatch.
         # However, the standard is to find assignments by the stored ID string.
@@ -105,10 +106,10 @@ async def validate_restaurant_access(
         logger.warning(
             "restaurant_access_denied",
             user_id=str(user_oid),
-            restaurant_id=restaurant_id
+            restaurant_id=restaurant_id,
         )
         raise ForbiddenError(f"Access denied to restaurant '{restaurant_id}'")
-        
+
     return restaurant_id
 
 
@@ -125,30 +126,43 @@ def require_restaurant_access():
         return await validate_restaurant_access(current_user, restaurant_id, db)
 
     return dependency
+
+
 async def get_active_restaurant(
-    restaurant_id: str,
+    restaurant_id: str | None = None,
+    x_restaurant_id: Annotated[str | None, Header(alias="X-Restaurant-ID")] = None,
+    query_rid: Annotated[str | None, Query(alias="restaurant_id")] = None,
     current_user: dict = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> dict:
     """
     Unified dependency for restaurant-scoped operations.
-    1. Validates user has access to the restaurant.
-    2. Fetches and returns the full restaurant document.
-    3. Handles 404/403 errors centrally.
+    Supports fetching restaurant_id from:
+    1. Path parameter (if named 'restaurant_id')
+    2. Header ('X-Restaurant-ID')
+    3. Query parameter ('restaurant_id')
     """
+    target_rid = restaurant_id or x_restaurant_id or query_rid
+    if not target_rid:
+        raise ValidationError(
+            "restaurant_id is required (in path, X-Restaurant-ID header, or query string)"
+        )
+
+    target_rid = str(target_rid)
+
     # Validate RBAC
-    await validate_restaurant_access(current_user, restaurant_id, db)
+    await validate_restaurant_access(current_user, target_rid, db)
 
     # Fetch Data
-    rest_oid = ObjectId(restaurant_id) if ObjectId.is_valid(restaurant_id) else None
-    
+    rest_oid = ObjectId(target_rid) if ObjectId.is_valid(target_rid) else None
+
     restaurant = await db.restaurants.find_one(
-        {"$or": [{"id": restaurant_id}, {"_id": rest_oid}]}
+        {"$or": [{"id": target_rid}, {"_id": rest_oid}]}
     )
 
     if not restaurant:
-        logger.error("restaurant_not_found", restaurant_id=restaurant_id)
-        raise ValidationError(f"Restaurant '{restaurant_id}' not found")
+        logger.error("restaurant_not_found", restaurant_id=target_rid)
+        raise ValidationError(f"Restaurant '{target_rid}' not found")
 
     # Standardize ID field for downstream route logic
     restaurant["id"] = str(restaurant.get("id") or restaurant["_id"])
@@ -158,6 +172,9 @@ async def get_active_restaurant(
     # 2. Secondary: categories (the legacy field)
     # 3. Fallback: ["nfc", "ecard"] (system default)
     if not restaurant.get("member_categories"):
-        restaurant["member_categories"] = restaurant.get("categories") or ["nfc", "ecard"]
+        restaurant["member_categories"] = restaurant.get("categories") or [
+            "nfc",
+            "ecard",
+        ]
 
     return restaurant

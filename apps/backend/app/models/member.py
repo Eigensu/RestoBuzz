@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional
 from datetime import datetime
 
 MemberType = str
@@ -9,11 +9,11 @@ class MemberCreate(BaseModel):
     restaurant_id: str
     type: MemberType
     name: str = Field(min_length=1, max_length=200)
-    phone: str = Field(min_length=7, max_length=20)
+    phone: Optional[str] = Field(default=None, max_length=30)
     email: str | None = None
     card_uid: str | None = None  # NFC chip UID
     ecard_code: str | None = None  # E-card code
-    tags: list[str] = Field(default_factory=list)
+    tags: list[str] = []
     notes: str | None = None
 
 
@@ -42,6 +42,8 @@ class MemberResponse(BaseModel):
     visit_count: int
     last_visit: datetime | None
     is_active: bool
+    activity_status: Literal["active", "dormant", "unknown"] = "unknown"
+    activity_source: str | None = None
     joined_at: datetime
 
 

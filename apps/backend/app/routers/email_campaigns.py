@@ -78,13 +78,13 @@ def _serialize_campaign(doc: dict) -> EmailCampaignResponse:
 
 # ── List Campaigns ────────────────────────────────────────────────────────────
 
-@router.get("", response_model=EmailCampaignListResponse)
+@router.get("")
 async def list_email_campaigns(
     validated_rid: Annotated[str, Depends(require_restaurant_access())],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-):
+) -> EmailCampaignListResponse:
     skip = (page - 1) * page_size
     query = {"restaurant_id": validated_rid}
     total = await db.email_campaign_jobs.count_documents(query)
@@ -168,12 +168,12 @@ def _prepare_and_validate_contacts(contacts, template):
     return deduped_contacts
 
 
-@router.post("", response_model=EmailCampaignResponse, status_code=201)
+@router.post("", status_code=201)
 async def create_email_campaign(
     body: EmailCampaignCreate,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> EmailCampaignResponse:
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
     template = await _resolve_email_template(db, body.template_id)
@@ -411,12 +411,12 @@ async def get_email_analytics(
     }
 
 
-@router.get("/{campaign_id}", response_model=EmailCampaignResponse)
+@router.get("/{campaign_id}")
 async def get_email_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("viewer"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> EmailCampaignResponse:
     doc = await db.email_campaign_jobs.find_one(
         {"_id": to_object_id(campaign_id)}
     )
@@ -428,12 +428,12 @@ async def get_email_campaign(
 
 # ── Start Campaign ────────────────────────────────────────────────────────────
 
-@router.post("/{campaign_id}/start", response_model=EmailCampaignResponse)
+@router.post("/{campaign_id}/start")
 async def start_email_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> EmailCampaignResponse:
     doc = await db.email_campaign_jobs.find_one(
         {"_id": to_object_id(campaign_id)}
     )
@@ -460,12 +460,12 @@ async def start_email_campaign(
 
 # ── Cancel Campaign ──────────────────────────────────────────────────────────
 
-@router.post("/{campaign_id}/cancel", response_model=EmailCampaignResponse)
+@router.post("/{campaign_id}/cancel")
 async def cancel_email_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> EmailCampaignResponse:
     doc = await db.email_campaign_jobs.find_one(
         {"_id": to_object_id(campaign_id)}
     )
@@ -490,7 +490,7 @@ async def cancel_email_campaign(
 
 # ── List Messages ─────────────────────────────────────────────────────────────
 
-@router.get("/{campaign_id}/messages", response_model=EmailLogListResponse)
+@router.get("/{campaign_id}/messages")
 async def list_email_messages(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("viewer"))],
@@ -498,7 +498,7 @@ async def list_email_messages(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     status: Annotated[str | None, Query()] = None,
-):
+) -> EmailLogListResponse:
     job = await db.email_campaign_jobs.find_one(
         {"_id": to_object_id(campaign_id)}
     )

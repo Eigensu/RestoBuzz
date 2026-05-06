@@ -47,12 +47,12 @@ async def get_unread_count(
     return {"count": count}
 
 
-@router.get("/conversations", response_model=ConversationListResponse)
+@router.get("/conversations")
 async def list_conversations(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 30,
     db: Annotated[Any, Depends(get_db)] = None,
-):
+) -> ConversationListResponse:
     skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
     pipeline = [
@@ -102,13 +102,13 @@ async def list_conversations(
     )
 
 
-@router.get("/conversations/{phone}", response_model=list[InboundMessageResponse])
+@router.get("/conversations/{phone}")
 async def get_conversation(
     phone: str,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     db: Annotated[Any, Depends(get_db)] = None,
-):
+) -> list[InboundMessageResponse]:
     # Global view of conversation (all restaurants)
     skip = (page - 1) * page_size
     items = []

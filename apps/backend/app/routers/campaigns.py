@@ -108,7 +108,6 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
 
 @router.get(
     "",
-    response_model=CampaignListResponse,
     dependencies=[Depends(require_role("viewer"))],
 )
 async def list_campaigns(
@@ -116,7 +115,7 @@ async def list_campaigns(
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
-):
+) -> CampaignListResponse:
     skip = (page - 1) * page_size
     query = {"restaurant_id": restaurant["id"]}
     total = await db.campaign_jobs.count_documents(query)
@@ -129,12 +128,12 @@ async def list_campaigns(
     )
 
 
-@router.post("", response_model=CampaignResponse, status_code=201)
+@router.post("", status_code=201)
 async def create_campaign(
     body: CampaignCreate,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> CampaignResponse:
     # Validate access manually since it's in the body
     await get_active_restaurant(body.restaurant_id, current_user, db)
     from redis.asyncio import from_url
@@ -270,12 +269,12 @@ async def create_campaign(
     return _serialize_campaign(job_doc)
 
 
-@router.post("/test-message", response_model=CampaignTestMessageResponse)
+@router.post("/test-message")
 async def send_test_message(
     body: CampaignTestMessageRequest,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> CampaignTestMessageResponse:
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
     # Reuse the template's configured language when available.
@@ -635,12 +634,12 @@ async def get_campaign_group(
     }
 
 
-@router.get("/{campaign_id}", response_model=CampaignResponse)
+@router.get("/{campaign_id}")
 async def get_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("viewer"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> CampaignResponse:
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
@@ -649,12 +648,12 @@ async def get_campaign(
     return _serialize_campaign(doc)
 
 
-@router.post("/{campaign_id}/start", response_model=CampaignResponse)
+@router.post("/{campaign_id}/start")
 async def start_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> CampaignResponse:
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
@@ -676,12 +675,12 @@ async def start_campaign(
     return _serialize_campaign(doc)
 
 
-@router.post("/{campaign_id}/pause", response_model=CampaignResponse)
+@router.post("/{campaign_id}/pause")
 async def pause_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> CampaignResponse:
     # Fetch first to check ownership/access
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
@@ -699,12 +698,12 @@ async def pause_campaign(
     return _serialize_campaign(doc)
 
 
-@router.post("/{campaign_id}/cancel", response_model=CampaignResponse)
+@router.post("/{campaign_id}/cancel")
 async def cancel_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> CampaignResponse:
     # Fetch first to check ownership/access
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
@@ -748,7 +747,7 @@ async def cancel_campaign(
     return _serialize_campaign(doc)
 
 
-@router.get("/{campaign_id}/messages", response_model=MessageLogListResponse)
+@router.get("/{campaign_id}/messages")
 async def list_messages(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("viewer"))],
@@ -756,7 +755,7 @@ async def list_messages(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     status: Annotated[str | None, Query()] = None,
-):
+) -> MessageLogListResponse:
     # Fetch job to verify access
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not job:
@@ -827,14 +826,12 @@ async def failure_breakdown(
     return [{"reason": r["_id"] or "Unknown", "count": r["count"]} for r in results]
 
 
-@router.post(
-    "/{campaign_id}/retry-failed", response_model=CampaignResponse, status_code=201
-)
+@router.post("/{campaign_id}/retry-failed", status_code=201)
 async def retry_failed(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> CampaignResponse:
     campaign_oid = to_object_id(campaign_id)
     original = await db.campaign_jobs.find_one({"_id": campaign_oid})
     if not original:

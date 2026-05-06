@@ -31,11 +31,11 @@ from app.dependencies import get_current_user
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserResponse, status_code=201)
+@router.post("/register", status_code=201)
 async def register(
     body: Annotated[RegisterRequest, Body()],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
-):
+) -> UserResponse:
     # Check if user already exists
     existing = await db.users.find_one({"email": body.email})
     if existing:
@@ -69,11 +69,11 @@ async def register(
     )
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post("/login")
 async def login(
     body: Annotated[LoginRequest, Body()],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
-):
+) -> TokenPair:
     user = await db.users.find_one({"email": body.email})
     if not user or not verify_password(body.password, user["hashed_password"]):
         raise InvalidCredentialsError("Invalid email or password")
@@ -90,11 +90,11 @@ async def login(
     )
 
 
-@router.post("/refresh", response_model=TokenPair)
+@router.post("/refresh")
 async def refresh(
     body: Annotated[RefreshRequest, Body()],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
-):
+) -> TokenPair:
     try:
         payload = decode_token(body.refresh_token)
     except ValueError as exc:
@@ -113,8 +113,8 @@ async def refresh(
     )
 
 
-@router.get("/me", response_model=UserResponse)
-async def me(current_user: Annotated[dict, Depends(get_current_user)]):
+@router.get("/me")
+async def me(current_user: Annotated[dict, Depends(get_current_user)]) -> UserResponse:
     return UserResponse(
         id=str(current_user["_id"]),
         email=current_user["email"],

@@ -26,6 +26,8 @@ export function MemberModal({
 }: Readonly<MemberModalProps>) {
   const qc = useQueryClient();
   const fallbackCat = memberCategories.length > 0 ? memberCategories[0] : "nfc";
+  // Compute isTypeLocked as a derived value — not state — so it stays in sync with props
+  const isTypeLocked = !editing && defaultType !== "all";
   const [form, setForm] = useState({
     type: editing?.type ?? (defaultType === "all" ? fallbackCat : defaultType),
     name: editing?.name ?? "",
@@ -40,15 +42,19 @@ export function MemberModal({
 
   const mutation = useMutation({
     mutationFn: () => {
+      const isEcard = form.type === "ecard";
       const payload = {
         restaurant_id: restaurantId,
         type: form.type,
         name: form.name,
         phone: form.phone,
         email: form.email || null,
-        card_uid: form.type === "nfc" ? form.card_uid || null : null,
-        ecard_code: form.type === "ecard" ? form.ecard_code || null : null,
+        // NFC → card_uid, ecard → ecard_code, custom → card_uid as reference
+        card_uid: isEcard ? null : form.card_uid || null,
+        ecard_code: isEcard ? form.ecard_code || null : null,
         notes: form.notes || null,
+        // Preserve existing tags on edit; default to empty array on create
+        ...(editing ? { tags: editing.tags } : { tags: [] }),
       };
       return editing
         ? api.patch(`/members/${editing.id}`, payload)
@@ -77,7 +83,7 @@ export function MemberModal({
           </button>
         </div>
         <div className="p-5 space-y-4">
-          {!editing && (
+          {!editing && !isTypeLocked && (
             <div className="flex rounded-lg border overflow-hidden bg-gray-50 flex-wrap">
               {memberCategories.map((t) => (
                 <button
@@ -157,10 +163,10 @@ export function MemberModal({
               </label>
               <input
                 id="member-card"
-                value={form.type === "nfc" ? form.card_uid : form.ecard_code}
+                value={form.type === "ecard" ? form.ecard_code : form.card_uid}
                 onChange={(e) =>
                   set(
-                    form.type === "nfc" ? "card_uid" : "ecard_code",
+                    form.type === "ecard" ? "ecard_code" : "card_uid",
                     e.target.value,
                   )
                 }

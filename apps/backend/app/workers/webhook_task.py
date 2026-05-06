@@ -1,5 +1,12 @@
+"""Celery task for processing incoming WhatsApp webhook payloads."""
+
 import asyncio
 from datetime import datetime, timezone, timedelta
+
+from bson.objectid import ObjectId
+from redis.asyncio import from_url as redis_from_url
+
+from app.config import settings
 from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
@@ -15,6 +22,7 @@ STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
 @celery_app.task(name="app.workers.webhook_task.process_webhook_task")
 def process_webhook_task(payload: dict) -> None:
+    """Entry point for the Celery webhook processing task."""
     asyncio.run(_process(payload))
 
 
@@ -72,13 +80,30 @@ async def _record_billing_event(
     if not pricing or not pricing.get("billable"):
         return
 
+    restaurant_id = message_log.get("restaurant_id")
+    job_id = message_log.get("job_id")
+
+    if not restaurant_id and job_id:
+        # Resolve restaurant_id from campaign_jobs
+        try:
+            job_oid = ObjectId(job_id) if isinstance(job_id, str) else job_id
+            job = await db.campaign_jobs.find_one({"_id": job_oid})
+            if job:
+                restaurant_id = job.get("restaurant_id")
+        except (ValueError, TypeError) as exc:
+            logger.error(
+                "billing_restaurant_id_lookup_failed",
+                job_id=str(job_id),
+                error=str(exc),
+            )
+
     await db.meta_billing_events.update_one(
         {"wa_message_id": wa_id},
         {
             "$setOnInsert": {
                 "wa_message_id": wa_id,
-                "restaurant_id": message_log.get("restaurant_id"),
-                "job_id": message_log.get("job_id"),
+                "restaurant_id": restaurant_id,
+                "job_id": job_id,
                 "category": (pricing.get("category") or "").lower(),
                 "pricing_model": pricing.get("pricing_model") or "PMP",
                 "recorded_at": now,
@@ -224,7 +249,4 @@ async def _find_and_mark_replied(
 
 
 def _get_async_redis():
-    from redis.asyncio import from_url
-    from app.config import settings
-
-    return from_url(settings.redis_url, decode_responses=True)
+    return redis_from_url(settings.redis_url, decode_responses=True)

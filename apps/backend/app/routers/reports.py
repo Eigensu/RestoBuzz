@@ -27,6 +27,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.errors import ValidationError
 from app.core.logging import get_logger
+from app.services.fielia_members_service import fielia_service
 from app.database import get_db
 from app.dependencies import get_active_restaurant, require_role
 from app.config import settings
@@ -35,9 +36,17 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 logger = get_logger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-_DEFAULT_MAX_DAYS = 90
-_SUPER_ADMIN_MAX_DAYS = 365
+_DEFAULT_MAX_DAYS = 3650
+_SUPER_ADMIN_MAX_DAYS = 3650
 _SUMMARY_CACHE_TTL = 300  # 5 minutes
+
+# Per-category INR rates billed to customers (includes markup)
+_CUSTOMER_BILLED_RATES: dict[str, float] = {
+    "marketing": 1.20,
+    "utility": 0.25,
+    "authentication": 0.30,
+    "service": 0.00,
+}
 
 _MONTH_NAMES = [
     "Jan",
@@ -471,6 +480,11 @@ async def member_summary(
     to_date: Annotated[date | None, Query()] = None,
 ):
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
+    rid = restaurant["id"]
+
+    if rid == "r2":
+        result = await fielia_service.get_summary(from_dt, to_dt)
+        return result
 
     # We find all possible identifiers for the restaurant (Slug and OID)
     rid = restaurant["id"]
@@ -605,6 +619,35 @@ async def member_export(
 ):
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
+
+    if rid == "r2":
+        return await _export_fielia_members(db, current_user, rid, from_dt, to_dt, category, format)
+
+    return await _export_internal_members(db, current_user, restaurant, from_dt, to_dt, category, format)
+
+
+async def _export_fielia_members(db, user, rid, from_dt, to_dt, category, fmt):
+    """Handle member export for Fielia (r2) restaurant."""
+    rows = await fielia_service.get_export_rows(from_dt, to_dt)
+    if category and category.lower() != "nfc":
+        rows = []
+
+    headers = [
+        "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
+        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes"
+    ]
+    filename = f"fielia_member_report_{from_dt.date()}_{to_dt.date()}"
+    await _audit_export(db, user, rid, "members", fmt, {
+        "from": str(from_dt.date()),
+        "to": str(to_dt.date()),
+        "category": category or "fielia_nfc",
+    })
+    return _export_response(rows, headers, filename, fmt)
+
+
+async def _export_internal_members(db, user, restaurant, from_dt, to_dt, category, fmt):
+    """Handle member export for internal database restaurants."""
+    rid = restaurant["id"]
     rid_oid = str(restaurant.get("_id"))
     rids = list({rid, rid_oid} - {None})
 
@@ -615,53 +658,34 @@ async def member_export(
     if category:
         query["type"] = category
 
-    headers = [
-        "Name",
-        "Phone",
-        "Email",
-        "Type",
-        "Joined Date",
-        "Visit Count",
-        "Last Visit",
-        "Is Active",
-        "Card UID",
-        "eCard Code",
-        "Tags",
-        "Notes",
-    ]
     rows = []
     async for doc in db.members.find(query).sort("joined_at", -1):
-        rows.append(
-            [
-                doc.get("name", ""),
-                doc.get("phone", ""),
-                doc.get("email", "") or "",
-                doc.get("type", ""),
-                doc["joined_at"].strftime("%Y-%m-%d") if doc.get("joined_at") else "",
-                doc.get("visit_count", 0),
-                doc["last_visit"].strftime("%Y-%m-%d") if doc.get("last_visit") else "",
-                "Yes" if doc.get("is_active") else "No",
-                doc.get("card_uid", "") or "",
-                doc.get("ecard_code", "") or "",
-                ", ".join(doc.get("tags", [])),
-                doc.get("notes", "") or "",
-            ]
-        )
+        rows.append([
+            doc.get("name", ""),
+            doc.get("phone", ""),
+            doc.get("email", "") or "",
+            doc.get("type", ""),
+            doc["joined_at"].strftime("%Y-%m-%d") if doc.get("joined_at") else "",
+            doc.get("visit_count", 0),
+            doc["last_visit"].strftime("%Y-%m-%d") if doc.get("last_visit") else "",
+            "Yes" if doc.get("is_active") else "No",
+            doc.get("card_uid", "") or "",
+            doc.get("ecard_code", "") or "",
+            ", ".join(doc.get("tags", [])),
+            doc.get("notes", "") or "",
+        ])
 
+    headers = [
+        "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
+        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes"
+    ]
     filename = f"member_report_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(
-        db,
-        current_user,
-        rid,
-        "members",
-        format,
-        {
-            "from": str(from_dt.date()),
-            "to": str(to_dt.date()),
-            "category": category,
-        },
-    )
-    return _export_response(rows, headers, filename, format)
+    await _audit_export(db, user, rid, "members", fmt, {
+        "from": str(from_dt.date()),
+        "to": str(to_dt.date()),
+        "category": category,
+    })
+    return _export_response(rows, headers, filename, fmt)
 
 
 async def _get_wa_logs(db, rids, from_dt, to_dt, status, search, after_id, page_size):
@@ -671,6 +695,8 @@ async def _get_wa_logs(db, rids, from_dt, to_dt, status, search, after_id, page_
     }
     if status:
         wa_q["status"] = status
+    if member_type and member_type != "all":
+        internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
     if search:
         wa_q["to_phone"] = {_MONGO_REGEX: search, _MONGO_OPTIONS: "i"}
     if after_id:
@@ -1125,8 +1151,10 @@ async def _build_billing_data(
         {
             "category": r["_id"] or "unknown",
             "count": r["count"],
+            "rate": _CUSTOMER_BILLED_RATES.get((r["_id"] or "").lower(), 0.0),
             "spend": round(
-                r["count"] * settings.meta_inr_rates.get((r["_id"] or "").lower(), 0.0), 2
+                r["count"] * _CUSTOMER_BILLED_RATES.get((r["_id"] or "").lower(), 0.0),
+                2,
             ),
         }
         for r in by_category_raw
@@ -1156,7 +1184,7 @@ async def _build_billing_data(
     for r in daily_raw:
         date_key = f"{r['_id']['year']}-{r['_id']['month']:02d}-{r['_id']['day']:02d}"
         cat = (r["_id"].get("category") or "").lower()
-        rate = settings.meta_inr_rates.get(cat, 0.0)
+        rate = _CUSTOMER_BILLED_RATES.get(cat, 0.0)
         if date_key not in daily_map:
             daily_map[date_key] = {"date": date_key, "count": 0, "spend": 0.0}
         daily_map[date_key]["count"] += r["count"]
@@ -1165,15 +1193,35 @@ async def _build_billing_data(
         )
     daily_trend = list(daily_map.values())
 
+    # Monthly breakdown (new)
+    monthly_map: dict[str, dict] = {}
+    for r in daily_raw:
+        month_key = f"{r['_id']['year']}-{r['_id']['month']:02d}"
+        cat = (r["_id"].get("category") or "").lower()
+        rate = _CUSTOMER_BILLED_RATES.get(cat, 0.0)
+        if month_key not in monthly_map:
+            monthly_map[month_key] = {"month": month_key, "count": 0, "spend": 0.0}
+        monthly_map[month_key]["count"] += r["count"]
+        monthly_map[month_key]["spend"] = round(
+            monthly_map[month_key]["spend"] + r["count"] * rate, 2
+        )
+    monthly_breakdown = list(monthly_map.values())
+
+    avg_cost_per_message = (
+        round(total_spend / total_conversations, 2) if total_conversations > 0 else 0.0
+    )
+
     return {
         "summary": {
             "total_spend": total_spend,
             "total_conversations": total_conversations,
+            "avg_cost_per_message": avg_cost_per_message,
             "currency": settings.default_currency,
             "rates": settings.meta_inr_rates,
         },
         "by_category": by_category,
         "daily_trend": daily_trend,
+        "monthly_breakdown": monthly_breakdown,
     }
 
 
@@ -1207,7 +1255,7 @@ async def billing_export(
     to_date: Annotated[date | None, Query()] = None,
     fmt: Annotated[Literal["csv", "xlsx"], Query(alias="format")] = "xlsx",
 ):
-    _MAX_EXPORT_ROWS = 10_000
+    _MAX_EXPORT_ROWS = 50_000
     from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
     rid = restaurant["id"]
     rest_doc = await db.restaurants.find_one(
@@ -1221,8 +1269,15 @@ async def billing_export(
     rid_oid = str(rest_doc["_id"]) if rest_doc else None
     rids = list({rid, rid_oid} - {None})
 
-    headers = ["Date", "Category", "Currency", "Price", "WA Message ID"]
+    # Headers: 4 columns — row shape must match exactly
+    headers = ["Date", "Category", "Est. Cost (INR)", "WA Message ID"]
     rows = []
+
+    # Server-derived aggregates — never trust client-supplied values for totals
+    total_messages = 0
+    total_cost = 0.0
+    category_costs: dict = defaultdict(float)
+
     async for doc in (
         db.meta_billing_events.find(
             {
@@ -1233,43 +1288,71 @@ async def billing_export(
         .sort("recorded_at", -1)
         .limit(_MAX_EXPORT_ROWS)
     ):
-        cat = (doc.get("category") or "").lower()
-        computed_price = round(settings.meta_inr_rates.get(cat, 0.0), 2)
+        cat = (doc.get("category") or "unknown").lower()
+        # Use a single consistent rate source throughout
+        cost = _CUSTOMER_BILLED_RATES.get(cat, 0.0)
+
+        total_messages += 1
+        total_cost += cost
+        category_costs[cat] += cost
+
+        # Row shape matches headers exactly: [date, category, cost, wa_message_id]
         rows.append(
             [
                 doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),
                 doc.get("category", ""),
-                settings.default_currency,
-                computed_price,
+                round(cost, 4),
                 doc.get("wa_message_id", ""),
             ]
         )
 
-    truncated = len(rows) == _MAX_EXPORT_ROWS
-    if truncated:
-        logger.warning(
-            "billing_export_truncated",
-            restaurant_id=rid,
-            limit=_MAX_EXPORT_ROWS,
-            from_dt=str(from_dt.date()),
-            to_dt=str(to_dt.date()),
-        )
-
-    filename = f"meta_billing_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(
-        db,
-        current_user,
-        rid,
-        "billing",
-        fmt,
-        {
-            "from": str(from_dt.date()),
-            "to": str(to_dt.date()),
-        },
+    # Derive overview metrics server-side
+    top_cat = max(category_costs, key=category_costs.get) if category_costs else "N/A"
+    date_range_str = f"{from_dt.strftime('%d %b %Y')} → {to_dt.strftime('%d %b %Y')}"
+    final_total_cost = round(total_cost, 2)
+    final_avg_cost = (
+        round(total_cost / total_messages, 2) if total_messages > 0 else 0.0
     )
-    response = _export_response(rows, headers, filename, fmt)
-    response.headers["X-Export-Truncated"] = "true" if truncated else "false"
-    return response
+
+    audit_filters = {"from": str(from_dt.date()), "to": str(to_dt.date())}
+    filename = f"meta_billing_{from_dt.date()}_{to_dt.date()}"
+    truncated = len(rows) == _MAX_EXPORT_ROWS
+
+    if fmt == "xlsx":
+        wb = openpyxl.Workbook()
+
+        ws1 = wb.active
+        ws1.title = "Billing Data"
+        ws1.append(headers)
+        for r in rows:
+            ws1.append(r)
+
+        ws2 = wb.create_sheet(title="Billing Overview")
+        ws2.append(["Metric", "Value"])
+        ws2.append(["Date Range", date_range_str])
+        ws2.append(["Total Messages Sent", total_messages])
+        ws2.append(["Total Amount Billed (INR)", final_total_cost])
+        ws2.append(["Avg Cost per Message", final_avg_cost])
+        ws2.append(["Highest Spend Category", top_cat.capitalize()])
+        ws2.column_dimensions["A"].width = 30
+        ws2.column_dimensions["B"].width = 40
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        await _audit_export(db, current_user, rid, "billing", "xlsx", audit_filters)
+
+        response = StreamingResponse(
+            iter([buf.read()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}.xlsx"},
+        )
+        response.headers["X-Export-Truncated"] = "true" if truncated else "false"
+        return response
+    else:
+        await _audit_export(db, current_user, rid, "billing", "csv", audit_filters)
+        return _csv_response(rows, headers, filename)
 
 
 # ── Billing Backfill ───────────────────────────────────────────────────────────
@@ -1317,26 +1400,38 @@ async def billing_debug(
 
 @router.post("/billing/backfill-prices")
 async def backfill_billing_prices(
-    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    restaurant_id: Annotated[str | None, Query()] = None,
 ):
     """
-    TODO: If _build_billing_data and billing_export are updated to compute from
-    settings.meta_inr_rates directly, this endpoint can be removed.
-    One-time fix: update all meta_billing_events that have price=0 (or missing)
-    by applying the INR rate table based on category.
-    Safe to run multiple times — only touches records with price == 0.
+    One-time fix: update meta_billing_events that have price=0.
+    If restaurant_id is provided, updates only that restaurant (Admin role enough).
+    If no restaurant_id provided, updates ALL restaurants (Super Admin required).
     """
+    query: dict = {"price": {"$in": [0, 0.0, None]}}
+    
+    if restaurant_id:
+        # Scope to specific restaurant
+        query["restaurant_id"] = restaurant_id
+    else:
+        # Global backfill requires super_admin
+        if "super_admin" not in current_user.get("roles", []):
+            raise ForbiddenError("Global backfill requires super_admin privileges")
+
     updated = 0
     for category, rate in settings.meta_inr_rates.items():
-        # Match both lowercase and uppercase variants stored by old code
+        cat_query = query.copy()
+        cat_query["category"] = {"$in": [category, category.upper()]}
+        
         result = await db.meta_billing_events.update_many(
-            {
-                "category": {"$in": [category, category.upper()]},
-                "price": {"$in": [0, 0.0, None]},
-            },
+            cat_query,
             {"$set": {"price": rate, "currency": settings.default_currency}},
         )
         updated += result.modified_count
 
-    return {"updated": updated, "rates_applied": settings.meta_inr_rates}
+    return {
+        "updated": updated, 
+        "scope": restaurant_id or "global",
+        "rates_applied": settings.meta_inr_rates
+    }

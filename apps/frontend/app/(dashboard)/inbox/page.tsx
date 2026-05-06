@@ -73,30 +73,19 @@ export default function InboxPage() {
   }>({
     queryKey: ["inbox-conversations"],
     queryFn: async () => {
-      const MAX_PAGES = 20;
-      let allItems: Conversation[] = [];
-      let page = 1;
-      let total = 0;
-      while (true) {
-        const res = await api.get(`/inbox/conversations?page=${page}&page_size=500`).then((r) => r.data);
-        allItems = allItems.concat(res.items);
-        total = res.total;
-        if (allItems.length >= total || res.items.length === 0) {
-          break;
-        }
-        if (page >= MAX_PAGES) {
-          console.warn(`[inbox] Conversation fetch capped at ${MAX_PAGES} pages (${allItems.length} items). Some conversations may not appear.`);
-          break;
-        }
-        page++;
-      }
-      return { items: allItems, total };
+      const res = await api
+        .get(`/inbox/conversations?page=1&page_size=500`)
+        .then((r) => r.data);
+      return { items: res.items as Conversation[], total: res.total as number };
     },
     refetchInterval: 15_000,
   });
 
   const convs = useMemo(() => convsData?.items ?? [], [convsData]);
-  const unreadCount = useMemo(() => convs.filter((c) => c.unread_count > 0).length, [convs]);
+  const unreadCount = useMemo(
+    () => convs.filter((c) => c.unread_count > 0).length,
+    [convs],
+  );
 
   const filteredConvs = useMemo(() => {
     let result = convs;
