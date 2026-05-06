@@ -23,12 +23,12 @@ class CreateAdminRequest(BaseModel):
     phone: str | None = None
 
 
-@router.post("/users", response_model=UserResponse, status_code=201)
+@router.post("/users", status_code=201)
 async def create_admin_user(
     body: Annotated[CreateAdminRequest, Body()],
     current_user: Annotated[dict, Depends(require_role("super_admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> UserResponse:
     existing = await db.users.find_one({"email": body.email})
     if existing:
         raise EmailAlreadyExistsError(f"User with email {body.email} already exists")
@@ -65,11 +65,11 @@ async def create_admin_user(
     )
 
 
-@router.get("/users", response_model=list[UserResponse])
+@router.get("/users")
 async def list_admin_users(
     _current_user: Annotated[dict, Depends(require_role("super_admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> list[UserResponse]:
     cursor = db.users.find(
         {"role": {"$in": ["super_admin", "admin"]}},
         {
@@ -110,11 +110,11 @@ class UserAccessReport(BaseModel):
     accesses: list[UserAccessDetail]
 
 
-@router.get("/access-report", response_model=list[UserAccessReport])
+@router.get("/access-report")
 async def get_access_report(
     _current_user: Annotated[dict, Depends(require_role("super_admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> list[UserAccessReport]:
     # 1. Fetch users (Quick fix for OOM risk: limit to 100)
     users_cursor = db.users.find({}).limit(100)
     users = [doc async for doc in users_cursor]

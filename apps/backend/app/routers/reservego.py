@@ -421,8 +421,8 @@ async def _bulk_upsert_bills(docs: list, db: AsyncIOMotorDatabase) -> None:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
-@router.post("/login", response_model=LoginResponse)
-async def reservego_login(body: Annotated[LoginRequest, Body()]):
+@router.post("/login")
+async def reservego_login(body: Annotated[LoginRequest, Body()]) -> LoginResponse:
     if not settings.reservego_user or not settings.reservego_password:
         raise _PortalNotConfiguredError("ReserveGo portal not configured")
     if (
@@ -438,11 +438,11 @@ class Restaurant(BaseModel):
     name: str
 
 
-@router.get("/restaurants", response_model=list[Restaurant])
+@router.get("/restaurants")
 async def list_restaurants(
     _auth: Annotated[None, Depends(_require_token)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> list[Restaurant]:
     """Return all restaurants so the upload portal can show a selector."""
     cursor = db.restaurants.find({}, {"id": 1, "name": 1})
     return [
@@ -993,26 +993,9 @@ async def reservego_upload(
     data_from: Annotated[str | None, Query()] = None,
     data_until: Annotated[str | None, Query()] = None,
 ):
-    # Verify the target restaurant actually exists before accepting any data.
-    # The reservego token carries no restaurant claim, so we validate the
-    # restaurant_id against the DB to prevent uploads to arbitrary tenants.
-    restaurant_doc = await db.restaurants.find_one(
-        {
-            "$or": [
-                {"id": restaurant_id},
-                {
-                    "_id": (
-                        ObjectId(restaurant_id)
-                        if ObjectId.is_valid(restaurant_id)
-                        else None
-                    )
-                },
-            ]
-        },
-        {"_id": 1},
-    )
-    if not restaurant_doc:
-        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
+    # Verify the target restaurant exists
+    await _validate_target_restaurant(db, restaurant_id)
+
     filename = file.filename or ""
     if not filename.lower().endswith(".xlsx"):
         raise InvalidFileFormatError("Only .xlsx Excel files are supported")
@@ -1022,34 +1005,13 @@ async def reservego_upload(
         raise InvalidFileFormatError("Uploaded file is empty")
 
     now = datetime.now(timezone.utc)
-
-    loop = asyncio.get_running_loop()
-    try:
-        parsed = await loop.run_in_executor(
-            _executor, _parse_workbook, contents, filename, now, restaurant_id
-        )
-    except Exception as exc:
-        raise InvalidFileFormatError("Unable to read Excel file") from exc
+    parsed = await _parse_workbook_async(contents, filename, now, restaurant_id)
 
     sheets_summary = {}
     for sheet_name, (kind, docs, skipped) in parsed.items():
-        # Stamp data_from / data_until on every doc
-        if data_from or data_until:
-            for doc in docs:
-                doc["data_from"] = data_from
-                doc["data_until"] = data_until
-        if kind == "guest":
-            await _bulk_upsert_guests(docs, db)
-            sheets_summary[sheet_name] = {"inserted": len(docs), "skipped": skipped}
-        elif kind == "bill":
-            await _bulk_upsert_bills(docs, db)
-            sheets_summary[sheet_name] = {"inserted": len(docs), "skipped": skipped}
-        else:
-            sheets_summary[sheet_name] = {
-                "inserted": 0,
-                "skipped": 0,
-                "note": "unrecognised sheet, skipped",
-            }
+        sheets_summary[sheet_name] = await _process_sheet_docs(
+            db, kind, docs, skipped, data_from, data_until
+        )
 
     total_inserted = sum(v["inserted"] for v in sheets_summary.values())
     total_skipped = sum(v["skipped"] for v in sheets_summary.values())
@@ -1061,3 +1023,46 @@ async def reservego_upload(
         "uploaded_at": now.isoformat(),
         "sheets": sheets_summary,
     }
+
+
+async def _validate_target_restaurant(db, restaurant_id):
+    """Validate restaurant_id exists."""
+    restaurant_doc = await db.restaurants.find_one(
+        {
+            "$or": [
+                {"id": restaurant_id},
+                {"_id": ObjectId(restaurant_id) if ObjectId.is_valid(restaurant_id) else None},
+            ]
+        },
+        {"_id": 1},
+    )
+    if not restaurant_doc:
+        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
+
+
+async def _parse_workbook_async(contents, filename, now, restaurant_id):
+    """Run workbook parsing in executor."""
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(
+            _executor, _parse_workbook, contents, filename, now, restaurant_id
+        )
+    except Exception as exc:
+        raise InvalidFileFormatError("Unable to read Excel file") from exc
+
+
+async def _process_sheet_docs(db, kind, docs, skipped, data_from, data_until):
+    """Process documents for a single sheet."""
+    if data_from or data_until:
+        for doc in docs:
+            doc["data_from"] = data_from
+            doc["data_until"] = data_until
+
+    if kind == "guest":
+        await _bulk_upsert_guests(docs, db)
+    elif kind == "bill":
+        await _bulk_upsert_bills(docs, db)
+    else:
+        return {"inserted": 0, "skipped": 0, "note": "unrecognised sheet, skipped"}
+
+    return {"inserted": len(docs), "skipped": skipped}

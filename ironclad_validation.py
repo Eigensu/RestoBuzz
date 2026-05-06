@@ -32,7 +32,7 @@ from app.services.fielia_members_service import (
 )  # noqa: E402  # pylint: disable=wrong-import-position,import-error
 
 
-async def _test_phone_normalization() -> bool:
+def _test_phone_normalization() -> bool:
     """TEST 1: Verify phone normalisation produces consistent 10-digit suffixes."""
     print("--- [1/7] Phone Normalization Test ---")
     test_phones = ["+91 98210 97993", "9821097993", "91-9821097993", " 098210 97993 "]
@@ -63,7 +63,7 @@ async def _test_index_validation(db) -> None:
     print("")
 
 
-async def _test_hierarchy_logic() -> None:
+def _test_hierarchy_logic() -> None:
     """TEST 3: UUID activity must take priority over phone activity."""
     print("--- [3/7] Hierarchy Logic Validation (UUID > Phone) ---")
     now = datetime.now(timezone.utc)
@@ -134,7 +134,7 @@ async def _test_ground_truth() -> list:
     return items
 
 
-async def _test_schema_parity(items: list) -> None:
+def _test_schema_parity(items: list) -> None:
     """TEST 6: All sampled items must pass MemberResponse Pydantic validation."""
     print("--- [6/7] API Schema Parity Validation ---")
     if not items:
@@ -148,7 +148,7 @@ async def _test_schema_parity(items: list) -> None:
         print(f"  FAIL: Schema mismatch detected!\n{exc}\n")
 
 
-async def _test_edge_cases(activity_map: dict) -> None:
+def _test_edge_cases(activity_map: dict) -> None:
     """TEST 7: Edge cases — null/short/unknown phone and UUID inputs."""
     print("--- [7/7] Edge Case Validation ---")
     edge_cases = [
@@ -174,13 +174,13 @@ async def run_validation() -> None:
     client = AsyncIOMotorClient(settings.mongodb_url)
     db = client.restobuzz
 
-    await _test_phone_normalization()
+    _test_phone_normalization()
     await _test_index_validation(db)
-    await _test_hierarchy_logic()
+    _test_hierarchy_logic()
     activity_map = await _test_performance(db)
     items = await _test_ground_truth()
-    await _test_schema_parity(items)
-    await _test_edge_cases(activity_map)
+    _test_schema_parity(items)
+    _test_edge_cases(activity_map)
 
     print("VALIDATION COMPLETE")
 

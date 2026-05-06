@@ -52,6 +52,7 @@ export function BillingTab({
     by_category?.length > 0
       ? by_category.reduce((prev, curr) =>
           prev.spend > curr.spend ? prev : curr,
+          by_category[0]
         ).category
       : "N/A";
 

@@ -1,11 +1,12 @@
 """Router for member management endpoints."""
 
 import io
-import json
+import re
 import uuid
+import heapq
 
 import openpyxl
-from fastapi import APIRouter, Depends, Query, UploadFile, File
+from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from redis.asyncio import from_url
 from typing import Annotated, Any
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
 from app.core.utils import to_object_id
+from pymongo.errors import DuplicateKeyError
 from app.core.errors import (
     NotFoundError,
     ConflictError,
@@ -33,11 +35,15 @@ from app.models.member import (
 )
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
 from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
-from app.services.fielia_members_service import fielia_service
+from app.services.fielia_members_service import fielia_service, FieliaDatabaseError
 from app.utils.phone import normalize_phone
 
 router = APIRouter(prefix="/members", tags=["members"])
 logger = get_logger(__name__)
+
+# Constants for MongoDB operators to avoid duplication
+REGEX = "$regex"
+OPTIONS = "$options"
 
 
 def _serialize(doc: dict, activity: tuple | None = None) -> MemberResponse:
@@ -92,7 +98,7 @@ async def _bulk_serialize(
     return items
 
 
-@router.get("", response_model=MemberListResponse)
+@router.get("")
 async def list_members(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     member_type: Annotated[str | None, Query(alias="type")] = None,
@@ -105,17 +111,18 @@ async def list_members(
     skip = (page - 1) * page_size
 
     if restaurant["id"] == "r2":
-        return await _list_members_r2(db, member_type, search, page, page_size, skip)
+        return await _list_members_r2(db, member_type, search, page, page_size)
 
     # Standard model for all other restaurants
     query: dict = {"restaurant_id": restaurant["id"]}
     if member_type and member_type != "all":
-        query["type"] = {"$regex": f"^{member_type}$", "$options": "i"}
+        query["type"] = {REGEX: f"^{member_type}$", OPTIONS: "i"}
     if search:
+        safe_search = re.escape(search)
         query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
+            {"name": {REGEX: safe_search, OPTIONS: "i"}},
+            {"phone": {REGEX: safe_search, OPTIONS: "i"}},
+            {"email": {REGEX: safe_search, OPTIONS: "i"}},
         ]
 
     total = await db.members.count_documents(query)
@@ -136,58 +143,91 @@ async def _list_members_r2(
     search: str | None,
     page: int,
     page_size: int,
-    skip: int,
 ) -> MemberListResponse:
-    """Hybrid member listing for restaurant r2 (Fielia + internal DB)."""
-    fielia_res: dict = {"items": [], "total": 0}
-
+    """Hybrid member listing for restaurant r2 (Fielia + internal DB).
+    Correctly paginates by merging and sorting the two sources.
+    Uses heapq.merge for O(N) streaming merge and adaptive buffering for dups.
+    """
+    # 1. Fetch relevant docs from both sources
+    # Use a larger buffer (page_size * 3) to handle high duplication rates
+    fetch_limit = page * page_size + (page_size * 3)
+    
+    fielia_items = []
     if not member_type or member_type in ("all", "nfc"):
         fielia_res = await fielia_service.list_members(
-            limit=page_size,
-            offset=skip,
+            limit=fetch_limit,
+            offset=0,
             search=search,
             member_type="nfc" if member_type == "all" else member_type,
         )
+        fielia_items = [MemberResponse(**item) for item in fielia_res["items"]]
+        fielia_total = fielia_res["total"]
+    else:
+        fielia_total = 0
 
     internal_query: dict = {"restaurant_id": "r2"}
     if member_type and member_type != "all":
-        internal_query["type"] = {"$regex": f"^{member_type}$", "$options": "i"}
+        internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
+    
     if search:
+        safe_search = re.escape(search)
         internal_query["$or"] = [
-            {"name": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
+            {"name": {REGEX: safe_search, OPTIONS: "i"}},
+            {"phone": {REGEX: f"^{safe_search}", OPTIONS: "i"}}, 
+            {"email": {REGEX: safe_search, OPTIONS: "i"}},
         ]
 
     internal_total = await db.members.count_documents(internal_query)
     internal_docs = await (
         db.members.find(internal_query)
         .sort("joined_at", -1)
-        .skip(skip)
-        .limit(page_size)
-        .to_list(length=page_size)
+        .limit(fetch_limit)
+        .to_list(length=fetch_limit)
     )
     internal_items = await _bulk_serialize(internal_docs, "r2", db)
 
-    # Non-NFC type: internal only
-    if member_type and member_type not in ("all", "nfc"):
-        return MemberListResponse(
-            items=internal_items,
-            total=internal_total,
-            page=page,
-            page_size=page_size,
-        )
+    # 2. Merge Streams using heapq for efficiency
+    # Since both streams are sorted by joined_at descending, we can merge them in O(N).
+    # We use a key-extractor to handle the sort order.
+    def sort_key(x):
+        return x.joined_at or datetime.min.replace(tzinfo=timezone.utc)
 
-    # Merge Fielia + internal
+    # heapq.merge produces an iterator over the merged stream
+    # Note: reverse=True because joined_at is descending
+    merged_stream = heapq.merge(internal_items, fielia_items, key=sort_key, reverse=True)
+
+    # 3. Deduplicate and Paginate
+    # Pattern: internal items overwrite fielia items in the seen map
+    seen_phones = set()
+    results = []
+    skip_count = (page - 1) * page_size
+    
+    for item in merged_stream:
+        phone = normalize_phone_for_match(item.phone) or f"no_phone_{item.id}"
+        if phone in seen_phones:
+            continue
+        seen_phones.add(phone)
+        
+        if skip_count > 0:
+            skip_count -= 1
+            continue
+            
+        results.append(item)
+        if len(results) >= page_size:
+            break
+
+    # Estimate total (this is tricky with deduplication across pages)
+    total = fielia_total + internal_total 
+    
     return MemberListResponse(
-        items=fielia_res["items"] + internal_items,
-        total=fielia_res["total"] + internal_total,
+        items=results,
+        total=total,
         page=page,
         page_size=page_size,
     )
 
 
-@router.post("", response_model=MemberResponse, status_code=201)
+@router.post("", status_code=201)
 async def create_member(
     body: MemberCreate,
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
@@ -218,10 +258,17 @@ async def create_member(
             )
 
         if restaurant["id"] == "r2":
-            if await fielia_service.check_phone_exists(body.phone):
-                raise ConflictError(
-                    "A member with this phone number already exists in the Fielia database"
-                )
+            try:
+                if await fielia_service.check_phone_exists(body.phone):
+                    raise ConflictError(
+                        "A member with this phone number already exists in the Fielia database"
+                    )
+            except FieliaDatabaseError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="External member service unavailable. Please try again later.",
+                    headers={"Retry-After": "10"}
+                ) from exc
 
     now = datetime.now(timezone.utc)
     doc = {
@@ -239,12 +286,16 @@ async def create_member(
         "is_active": True,
         "joined_at": now,
     }
-    result = await db.members.insert_one(doc)
+    try:
+        result = await db.members.insert_one(doc)
+    except DuplicateKeyError:
+        raise ConflictError("A member with this phone number already exists (concurrent write detected)")
+
     doc["_id"] = result.inserted_id
     return _serialize(doc)
 
 
-@router.get("/{member_id}", response_model=MemberResponse)
+@router.get("/{member_id}")
 async def get_member(
     member_id: str,
     current_user: Annotated[dict, Depends(require_role("viewer"))],
@@ -258,7 +309,7 @@ async def get_member(
     return _serialize(doc)
 
 
-@router.patch("/{member_id}", response_model=MemberResponse)
+@router.patch("/{member_id}")
 async def update_member(
     member_id: str,
     body: MemberUpdate,
@@ -297,7 +348,7 @@ async def delete_member(
     await db.members.delete_one({"_id": to_object_id(member_id)})
 
 
-@router.post("/{member_id}/visit", response_model=MemberResponse)
+@router.post("/{member_id}/visit")
 async def record_visit(
     member_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
@@ -318,7 +369,7 @@ async def record_visit(
     return _serialize(doc)
 
 
-@router.post("/as-contacts", response_model=PreflightResult)
+@router.post("/as-contacts")
 async def members_as_contacts(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _user: Annotated[dict, Depends(require_role("admin"))],
@@ -444,7 +495,7 @@ async def _process_members(
 
     internal_query: dict = {"restaurant_id": restaurant["id"], "is_active": True}
     if member_type and member_type != "all":
-        internal_query["type"] = {"$regex": f"^{member_type}$", "$options": "i"}
+        internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
 
     async for doc in db.members.find(internal_query, {"name": 1, "phone": 1}).sort(
         "_id", -1

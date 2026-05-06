@@ -50,7 +50,7 @@ export function MemberModal({
         phone: form.phone,
         email: form.email || null,
         // NFC → card_uid, ecard → ecard_code, custom → card_uid as reference
-        card_uid: !isEcard ? form.card_uid || null : null,
+        card_uid: isEcard ? null : form.card_uid || null,
         ecard_code: isEcard ? form.ecard_code || null : null,
         notes: form.notes || null,
         // Preserve existing tags on edit; default to empty array on create

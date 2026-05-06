@@ -19,7 +19,7 @@ const BADGE_CONFIG = {
 } as const;
 
 export function DormancyBadge({ status, source }: Readonly<DormancyBadgeProps>) {
-  const key = (status ?? "unknown") as keyof typeof BADGE_CONFIG;
+  const key = status ?? "unknown";
   const config = BADGE_CONFIG[key] ?? BADGE_CONFIG.unknown;
 
   const tooltip = source

@@ -1,19 +1,42 @@
 import asyncio
 import os
+
+from pathlib import Path
 import sys
 
-# Add the app directory to sys.path so we can import config
-sys.path.append(os.path.join(os.path.dirname(__file__), "app"))
+# Standard root-relative import bootstrap
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT / "app"))
 
 from config import settings
 from motor.motor_asyncio import AsyncIOMotorClient
 
+async def check_job_exists(db, job_id_str):
+    """Check if a job exists in campaign_jobs and print its status."""
+    from bson.objectid import ObjectId
+    try:
+        job_oid = ObjectId(job_id_str)
+        job = await db.campaign_jobs.find_one({"_id": job_oid})
+        if job:
+            print(f"Job {job_id_str} EXISTS in campaign_jobs and belongs to restaurant_id: {job.get('restaurant_id')}")
+            return True
+    except Exception:
+        pass
+
+    # maybe it's string
+    job = await db.campaign_jobs.find_one({"_id": job_id_str})
+    if job:
+        print(f"Job {job_id_str} EXISTS in campaign_jobs and belongs to restaurant_id: {job.get('restaurant_id')}")
+        return True
+    
+    print(f"Job {job_id_str} NOT FOUND in campaign_jobs")
+    return False
+
+
 async def investigate_unknowns():
     client = AsyncIOMotorClient(settings.mongodb_url)
     db_name = settings.mongodb_db_name or settings.mongodb_url.split("/")[-1].split("?")[0]
-    if not db_name:
-        db_name = "dishpatch"
-    db = client[db_name]
+    db = client[db_name or "dishpatch"]
     
     print("Investigating 11366 'Unknown' billing events...")
     
@@ -32,22 +55,7 @@ async def investigate_unknowns():
             {"$limit": 5}
         ]
         async for doc in db.meta_billing_events.aggregate(pipeline):
-            job_id_str = str(doc["_id"])
-            from bson.objectid import ObjectId
-            try:
-                job_oid = ObjectId(job_id_str)
-                job = await db.campaign_jobs.find_one({"_id": job_oid})
-                if job:
-                    print(f"Job {job_id_str} EXISTS in campaign_jobs and belongs to restaurant_id: {job.get('restaurant_id')}")
-                else:
-                    print(f"Job {job_id_str} NOT FOUND in campaign_jobs")
-            except Exception as e:
-                # maybe it's string
-                job = await db.campaign_jobs.find_one({"_id": job_id_str})
-                if job:
-                    print(f"Job {job_id_str} EXISTS in campaign_jobs and belongs to restaurant_id: {job.get('restaurant_id')}")
-                else:
-                    print(f"Job {job_id_str} NOT FOUND in campaign_jobs")
+            await check_job_exists(db, str(doc["_id"]))
                     
     # Also check how many message_logs have restaurant_id vs job_id
     total_ml = await db.message_logs.count_documents({})

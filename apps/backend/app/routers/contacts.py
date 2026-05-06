@@ -89,7 +89,7 @@ async def download_template(
     )
 
 
-@router.post("/upload", response_model=PreflightResult)
+@router.post("/upload")
 async def upload_contacts(
     file: UploadFile = File(...),
     phone_column: str | None = None,
@@ -97,7 +97,7 @@ async def upload_contacts(
     name_column: str | None = None,
     current_user: Annotated[dict, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
-):
+) -> PreflightResult:
     if not file.filename.endswith((".xlsx", ".csv")):
         raise InvalidFileFormatError("Only .xlsx and .csv files are supported")
 
@@ -186,12 +186,12 @@ async def delete_contact_file(
         raise NotFoundError(f"Contact file '{file_ref}' not found")
 
 
-@router.post("/files/{file_ref}/use", response_model=PreflightResult)
+@router.post("/files/{file_ref}/use")
 async def reuse_contact_file(
     file_ref: str,
     current_user: Annotated[dict, Depends(require_role("admin"))] = None,
     db: Annotated[Any, Depends(get_db)] = None,
-):
+) -> PreflightResult:
     uploader_id = str(current_user["_id"])
     doc = await db.contact_files.find_one(
         {RESULT_FILE_REF_KEY: file_ref, "uploaded_by": uploader_id}

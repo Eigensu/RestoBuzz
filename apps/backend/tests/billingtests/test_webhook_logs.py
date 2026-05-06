@@ -1,9 +1,12 @@
 import asyncio
 import os
+
+from pathlib import Path
 import sys
 
-# Add the app directory to sys.path so we can import config
-sys.path.append(os.path.join(os.path.dirname(__file__), "app"))
+# Standard root-relative import bootstrap
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.append(str(ROOT / "app"))
 
 from config import settings
 from motor.motor_asyncio import AsyncIOMotorClient

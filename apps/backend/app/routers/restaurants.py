@@ -18,12 +18,12 @@ from app.core.utils import to_object_id
 router = APIRouter(prefix="/restaurants", tags=["restaurants"])
 
 
-@router.get("", response_model=list[RestaurantResponse])
+@router.get("")
 async def list_restaurants(
     current_user: Annotated[dict, Depends(get_current_user)],
     allowed_ids: Annotated[set[str], Depends(get_user_restaurant_ids)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> list[RestaurantResponse]:
     """Returns only the restaurants the authenticated user has access to.
     super_admin gets all restaurants in the system."""
     if current_user.get("role") == "super_admin":
@@ -110,12 +110,12 @@ async def unassign_user(
     return {"status": "unassigned"}
 
 
-@router.get("/{restaurant_id}/users", response_model=list[UserRestaurantRole])
+@router.get("/{restaurant_id}/users")
 async def list_restaurant_users(
     restaurant_id: Annotated[str, Path()],
     current_user: Annotated[dict, Depends(require_role("super_admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> list[UserRestaurantRole]:
     """super_admin lists all users assigned to a restaurant."""
     cursor = db.user_restaurant_roles.find({"restaurant_id": restaurant_id})
     return [
@@ -128,14 +128,14 @@ async def list_restaurant_users(
     ]
 
 
-@router.put("/{restaurant_id}/categories", response_model=RestaurantResponse)
+@router.put("/{restaurant_id}/categories")
 async def update_categories(
     restaurant_id: Annotated[str, Path()],
     body: Annotated[UpdateCategoriesRequest, Body()],
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-):
+) -> RestaurantResponse:
     """Updates the member category list for a restaurant.
     Requires admin access to the specific restaurant."""
     # Normalise: strip whitespace, lowercase, remove blanks, deduplicate preserving order

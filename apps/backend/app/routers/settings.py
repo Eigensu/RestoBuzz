@@ -37,12 +37,12 @@ async def list_suppression(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-@router.post("/suppression", response_model=SuppressionResponse, status_code=201)
+@router.post("/suppression", status_code=201)
 async def add_suppression(
     body: SuppressionCreate,
     current_user: dict = Depends(require_role("admin")),
     db=Depends(get_db),
-):
+) -> SuppressionResponse:
     try:
         parsed = phonenumbers.parse(body.phone, None)
         phone = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)

@@ -621,38 +621,33 @@ async def member_export(
     rid = restaurant["id"]
 
     if rid == "r2":
-        rows = await fielia_service.get_export_rows(from_dt, to_dt)
-        # Apply category filter post-retrieval (Fielia only has "nfc" type)
-        if category and category.lower() != "nfc":
-            rows = []
-        headers = [
-            "Name",
-            "Phone",
-            "Email",
-            "Type",
-            "Joined Date",
-            "Visit Count",
-            "Last Visit",
-            "Is Active",
-            "Card UID",
-            "eCard Code",
-            "Tags",
-            "Notes",
-        ]
-        filename = f"fielia_member_report_{from_dt.date()}_{to_dt.date()}"
-        await _audit_export(
-            db,
-            current_user,
-            rid,
-            "members",
-            format,
-            {
-                "from": str(from_dt.date()),
-                "to": str(to_dt.date()),
-                "category": category or "fielia_nfc",
-            },
-        )
-        return _export_response(rows, headers, filename, format)
+        return await _export_fielia_members(db, current_user, rid, from_dt, to_dt, category, format)
+
+    return await _export_internal_members(db, current_user, restaurant, from_dt, to_dt, category, format)
+
+
+async def _export_fielia_members(db, user, rid, from_dt, to_dt, category, fmt):
+    """Handle member export for Fielia (r2) restaurant."""
+    rows = await fielia_service.get_export_rows(from_dt, to_dt)
+    if category and category.lower() != "nfc":
+        rows = []
+
+    headers = [
+        "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
+        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes"
+    ]
+    filename = f"fielia_member_report_{from_dt.date()}_{to_dt.date()}"
+    await _audit_export(db, user, rid, "members", fmt, {
+        "from": str(from_dt.date()),
+        "to": str(to_dt.date()),
+        "category": category or "fielia_nfc",
+    })
+    return _export_response(rows, headers, filename, fmt)
+
+
+async def _export_internal_members(db, user, restaurant, from_dt, to_dt, category, fmt):
+    """Handle member export for internal database restaurants."""
+    rid = restaurant["id"]
     rid_oid = str(restaurant.get("_id"))
     rids = list({rid, rid_oid} - {None})
 
@@ -663,53 +658,34 @@ async def member_export(
     if category:
         query["type"] = category
 
-    headers = [
-        "Name",
-        "Phone",
-        "Email",
-        "Type",
-        "Joined Date",
-        "Visit Count",
-        "Last Visit",
-        "Is Active",
-        "Card UID",
-        "eCard Code",
-        "Tags",
-        "Notes",
-    ]
     rows = []
     async for doc in db.members.find(query).sort("joined_at", -1):
-        rows.append(
-            [
-                doc.get("name", ""),
-                doc.get("phone", ""),
-                doc.get("email", "") or "",
-                doc.get("type", ""),
-                doc["joined_at"].strftime("%Y-%m-%d") if doc.get("joined_at") else "",
-                doc.get("visit_count", 0),
-                doc["last_visit"].strftime("%Y-%m-%d") if doc.get("last_visit") else "",
-                "Yes" if doc.get("is_active") else "No",
-                doc.get("card_uid", "") or "",
-                doc.get("ecard_code", "") or "",
-                ", ".join(doc.get("tags", [])),
-                doc.get("notes", "") or "",
-            ]
-        )
+        rows.append([
+            doc.get("name", ""),
+            doc.get("phone", ""),
+            doc.get("email", "") or "",
+            doc.get("type", ""),
+            doc["joined_at"].strftime("%Y-%m-%d") if doc.get("joined_at") else "",
+            doc.get("visit_count", 0),
+            doc["last_visit"].strftime("%Y-%m-%d") if doc.get("last_visit") else "",
+            "Yes" if doc.get("is_active") else "No",
+            doc.get("card_uid", "") or "",
+            doc.get("ecard_code", "") or "",
+            ", ".join(doc.get("tags", [])),
+            doc.get("notes", "") or "",
+        ])
 
+    headers = [
+        "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
+        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes"
+    ]
     filename = f"member_report_{from_dt.date()}_{to_dt.date()}"
-    await _audit_export(
-        db,
-        current_user,
-        rid,
-        "members",
-        format,
-        {
-            "from": str(from_dt.date()),
-            "to": str(to_dt.date()),
-            "category": category,
-        },
-    )
-    return _export_response(rows, headers, filename, format)
+    await _audit_export(db, user, rid, "members", fmt, {
+        "from": str(from_dt.date()),
+        "to": str(to_dt.date()),
+        "category": category,
+    })
+    return _export_response(rows, headers, filename, fmt)
 
 
 async def _get_wa_logs(db, rids, from_dt, to_dt, status, search, after_id, page_size):
@@ -719,6 +695,8 @@ async def _get_wa_logs(db, rids, from_dt, to_dt, status, search, after_id, page_
     }
     if status:
         wa_q["status"] = status
+    if member_type and member_type != "all":
+        internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
     if search:
         wa_q["to_phone"] = {_MONGO_REGEX: search, _MONGO_OPTIONS: "i"}
     if after_id:
@@ -1422,26 +1400,38 @@ async def billing_debug(
 
 @router.post("/billing/backfill-prices")
 async def backfill_billing_prices(
-    current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    restaurant_id: Annotated[str | None, Query()] = None,
 ):
     """
-    TODO: If _build_billing_data and billing_export are updated to compute from
-    settings.meta_inr_rates directly, this endpoint can be removed.
-    One-time fix: update all meta_billing_events that have price=0 (or missing)
-    by applying the INR rate table based on category.
-    Safe to run multiple times — only touches records with price == 0.
+    One-time fix: update meta_billing_events that have price=0.
+    If restaurant_id is provided, updates only that restaurant (Admin role enough).
+    If no restaurant_id provided, updates ALL restaurants (Super Admin required).
     """
+    query: dict = {"price": {"$in": [0, 0.0, None]}}
+    
+    if restaurant_id:
+        # Scope to specific restaurant
+        query["restaurant_id"] = restaurant_id
+    else:
+        # Global backfill requires super_admin
+        if "super_admin" not in current_user.get("roles", []):
+            raise ForbiddenError("Global backfill requires super_admin privileges")
+
     updated = 0
     for category, rate in settings.meta_inr_rates.items():
-        # Match both lowercase and uppercase variants stored by old code
+        cat_query = query.copy()
+        cat_query["category"] = {"$in": [category, category.upper()]}
+        
         result = await db.meta_billing_events.update_many(
-            {
-                "category": {"$in": [category, category.upper()]},
-                "price": {"$in": [0, 0.0, None]},
-            },
+            cat_query,
             {"$set": {"price": rate, "currency": settings.default_currency}},
         )
         updated += result.modified_count
 
-    return {"updated": updated, "rates_applied": settings.meta_inr_rates}
+    return {
+        "updated": updated, 
+        "scope": restaurant_id or "global",
+        "rates_applied": settings.meta_inr_rates
+    }

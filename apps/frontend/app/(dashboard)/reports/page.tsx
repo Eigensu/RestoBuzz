@@ -16,11 +16,6 @@ import {
   FileSpreadsheet,
   Store,
   IndianRupee as RupeeIcon,
-  Banknote,
-  Receipt,
-  CalendarDays,
-  Phone,
-  Mail,
 } from "lucide-react";
 
 import { CampaignTab } from "@/components/reports/molecules/CampaignTab";

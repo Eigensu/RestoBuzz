@@ -1,74 +1,77 @@
 import asyncio
 import os
 import sys
-
-# We don't strictly need config.py if we just hardcode the test URI for diagnostic purposes,
-# but we can use motor.
-from motor.motor_asyncio import AsyncIOMotorClient
 import json
 from datetime import datetime
+from motor.motor_asyncio import AsyncIOMotorClient
 
-URI = "mongodb+srv://workeigensu_db_user:WlHeR6RNCgubUikl@fielia.8qgkoam.mongodb.net/?appName=Fielia"
+# Rely on environment variable for security
+URI = os.getenv("FIELIA_MONGO_URI")
 DB_NAME = "test"
 COLLECTION_NAME = "cards"
 
-async def inspect():
-    print(f"Connecting to {URI}...")
-    client = AsyncIOMotorClient(URI, serverSelectionTimeoutMS=5000)
-    db = client[DB_NAME]
-    collection = db[COLLECTION_NAME]
 
-    # 1. Record Volume
+async def analyze_record_volume(collection):
+    """Analyze and print record volume."""
     total_count = await collection.count_documents({})
-    print(f"\n--- RECORD VOLUME ---")
+    print("\n--- RECORD VOLUME ---")
     print(f"Total Documents in test.cards: {total_count}")
+    return total_count
 
-    if total_count == 0:
-        print("Collection is empty!")
-        return
 
-    # 2. Sample Documents
-    print(f"\n--- SAMPLE DOCUMENTS (First 5) ---")
-    cursor = collection.find().limit(5)
-    samples = await cursor.to_list(length=5)
-    
+async def sample_documents(collection, limit=5):
+    """Sample and print documents."""
+    print(f"\n--- SAMPLE DOCUMENTS (First {limit}) ---")
+    cursor = collection.find().limit(limit)
+    samples = await cursor.to_list(length=limit)
+
     for i, doc in enumerate(samples):
-        # Clean up types for printing
-        clean_doc = {}
-        for k, v in doc.items():
-            if isinstance(v, datetime):
-                clean_doc[k] = v.isoformat()
-            else:
-                clean_doc[k] = str(v)
+        clean_doc = {
+            k: (v.isoformat() if isinstance(v, datetime) else str(v))
+            for k, v in doc.items()
+        }
         print(f"\nDocument {i+1}:")
         print(json.dumps(clean_doc, indent=2))
+    return samples
 
-    # 3. Field Analysis
-    print(f"\n--- FIELD ANALYSIS ---")
-    # Sample up to 1000 docs for field frequency
-    cursor = collection.find().limit(1000)
-    docs = await cursor.to_list(length=1000)
-    
+
+async def field_analysis(collection, limit=1000):
+    """Perform field presence and type analysis."""
+    print("\n--- FIELD ANALYSIS ---")
+    cursor = collection.find().limit(limit)
+    docs = await cursor.to_list(length=limit)
+
     field_counts = {}
     total_sampled = len(docs)
-    
     tenant_fields = set()
-    
-    for doc in docs:
-        for key, value in doc.items():
-            if key not in field_counts:
-                field_counts[key] = {"present": 0, "null": 0, "types": set()}
-            
-            field_counts[key]["present"] += 1
-            if value is None or value == "":
-                field_counts[key]["null"] += 1
-            else:
-                field_counts[key]["types"].add(type(value).__name__)
-                
-            # Check for multi-tenancy hints
-            if "restaurant" in key.lower() or "tenant" in key.lower() or "store" in key.lower() or "branch" in key.lower():
-                tenant_fields.add(key)
 
+    for doc in docs:
+        _analyze_doc_fields(doc, field_counts, tenant_fields)
+
+    _print_field_stats(field_counts, total_sampled)
+    return tenant_fields
+
+
+def _analyze_doc_fields(doc: dict, field_counts: dict, tenant_fields: set):
+    """Helper to update field stats for a single document."""
+    for key, value in doc.items():
+        if key not in field_counts:
+            field_counts[key] = {"present": 0, "null": 0, "types": set()}
+        
+        stats = field_counts[key]
+        stats["present"] += 1
+        
+        if value is None or value == "":
+            stats["null"] += 1
+        else:
+            stats["types"].add(type(value).__name__)
+        
+        if any(hint in key.lower() for hint in ["restaurant", "tenant", "store", "branch"]):
+            tenant_fields.add(key)
+
+
+def _print_field_stats(field_counts: dict, total_sampled: int):
+    """Helper to print the field statistics table."""
     print(f"Sampled {total_sampled} documents for analysis.\n")
     print(f"{'Field':<25} | {'Present %':<10} | {'Null/Empty %':<12} | {'Data Types'}")
     print("-" * 75)
@@ -78,17 +81,39 @@ async def inspect():
         types_str = ", ".join(stats["types"])
         print(f"{key:<25} | {present_pct:>8.1f}% | {null_pct:>10.1f}% | {types_str}")
 
-    # Multi-tenancy check
-    print(f"\n--- MULTI-TENANCY CHECK ---")
-    if tenant_fields:
-        print(f"Found potential tenant fields: {tenant_fields}")
-        for field in tenant_fields:
-            distinct_vals = await collection.distinct(field)
-            print(f"Distinct values for '{field}': {distinct_vals[:10]} (showing up to 10)")
-    else:
-        print("No obvious restaurant_id or tenant fields found. Data might be single-tenant or implicit.")
+
+async def multi_tenancy_check(collection, tenant_fields):
+    """Check for distinct values in potential tenant fields."""
+    print("\n--- MULTI-TENANCY CHECK ---")
+    if not tenant_fields:
+        print("No obvious restaurant_id or tenant fields found.")
+        return
+
+    print(f"Found potential tenant fields: {tenant_fields}")
+    for field in tenant_fields:
+        distinct_vals = await collection.distinct(field)
+        print(f"Distinct values for '{field}': {distinct_vals[:10]} (showing up to 10)")
+
+
+async def inspect():
+    """Main inspection workflow."""
+    if not URI:
+        print("Error: FIELIA_MONGO_URI environment variable is not set.")
+        sys.exit(1)
+
+    print(f"Connecting to MongoDB...")
+    client = AsyncIOMotorClient(URI, serverSelectionTimeoutMS=5000)
+    db = client[DB_NAME]
+    collection = db[COLLECTION_NAME]
+
+    total_count = await analyze_record_volume(collection)
+    if total_count > 0:
+        await sample_documents(collection)
+        tenant_fields = await field_analysis(collection)
+        await multi_tenancy_check(collection, tenant_fields)
 
     client.close()
+
 
 if __name__ == "__main__":
     asyncio.run(inspect())
