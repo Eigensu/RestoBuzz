@@ -15,6 +15,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal
@@ -25,8 +26,9 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.core.errors import ValidationError
+from app.core.errors import ValidationError, ForbiddenError
 from app.core.logging import get_logger
+from app.core.time import now_utc, date_range_to_utc, ist_month_start_utc
 from app.services.fielia_members_service import fielia_service
 from app.database import get_db
 from app.dependencies import get_active_restaurant, require_role
@@ -92,9 +94,11 @@ def _resolve_dates(
         if current_user.get("role") == "super_admin"
         else _DEFAULT_MAX_DAYS
     )
-    today = date.today()
-    to_date = to_date or today
-    from_date = from_date or (today - timedelta(days=30))
+    # Use today in IST so the default range is correct for Indian users
+    from app.core.time import now_ist
+    today_ist = now_ist().date()
+    to_date = to_date or today_ist
+    from_date = from_date or (today_ist - timedelta(days=30))
 
     if (to_date - from_date).days > max_days:
         raise ValidationError(
@@ -102,10 +106,9 @@ def _resolve_dates(
             f"Use a narrower range or contact support for extended access."
         )
 
-    from_dt = datetime.combine(from_date, datetime.min.time()).replace(
-        tzinfo=timezone.utc
-    )
-    to_dt = datetime.combine(to_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+    # Convert IST calendar dates to UTC bounds for MongoDB queries.
+    # date_range_to_utc treats from_date as IST 00:00 and to_date as IST 23:59:59.
+    from_dt, to_dt = date_range_to_utc(from_date, to_date)
     return from_dt, to_dt
 
 
@@ -178,7 +181,7 @@ async def _audit_export(
                 "action": f"export_{report_type}",
                 "restaurant_id": restaurant_id,
                 "metadata": {"format": export_format, "filters": filters},
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": now_utc(),
             }
         )
     except Exception as e:
@@ -496,9 +499,9 @@ async def member_summary(
     if cached:
         return cached
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     dormant_cutoff = now - timedelta(days=30)
-    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    month_start = ist_month_start_utc()
 
     # Monthly growth trend
     growth_raw = await db.members.aggregate(
@@ -695,8 +698,6 @@ async def _get_wa_logs(db, rids, from_dt, to_dt, status, search, after_id, page_
     }
     if status:
         wa_q["status"] = status
-    if member_type and member_type != "all":
-        internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
     if search:
         wa_q["to_phone"] = {_MONGO_REGEX: search, _MONGO_OPTIONS: "i"}
     if after_id:

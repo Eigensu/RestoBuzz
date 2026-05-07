@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Request, Response, Query
+from fastapi import APIRouter, Depends, Request, Response, Query, BackgroundTasks
 from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
@@ -10,6 +10,7 @@ from app.core.errors import WebhookSignatureError
 from app.services.message_types import normalize_message_type
 from app.services.meta_api import send_text_message
 from app.services.email_suppression import add_email_suppression
+from app.services.alert_service import alert_service
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -44,7 +45,7 @@ async def verify_webhook(
 
 
 @router.post("/meta", status_code=200)
-async def receive_webhook(request: Request, db=Depends(get_db)):
+async def receive_webhook(request: Request, background_tasks: BackgroundTasks, db=Depends(get_db)):
     body = await request.body()
     sig = request.headers.get("X-Hub-Signature-256", "")
 
@@ -69,7 +70,7 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
     logger.info("webhook_received", entry_count=len(payload.get("entry", [])))
 
     try:
-        await _process_payload(db, payload)
+        await _process_payload(db, payload, background_tasks)
     except Exception as e:
         logger.error("webhook_process_error", error=str(e))
         await db.webhook_errors.insert_one(
@@ -140,10 +141,29 @@ async def _send_benefits_reply(
         logger.error("benefits_reply_failed", to=to, error=str(e))
 
 
-async def _process_payload(db, payload: dict) -> None:
+async def _process_payload(db, payload: dict, background_tasks: BackgroundTasks) -> None:
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
+            
+            # --- 1. Template Status Updates ---
+            if value.get("event") == "message_template_status_update":
+                template_name = value.get("message_template_name")
+                new_status = value.get("event") # e.g. APPROVED, REJECTED
+                # Meta usually puts the status in 'event' but sometimes in 'status'
+                actual_status = value.get("status", "").upper()
+                
+                # Fetch all restaurants (Templates are global in this setup)
+                # In the future, scope by WABA ID if needed.
+                cursor = db.restaurants.find({}, {"_id": 1, "name": 1, "email": 1, "notification_emails": 1})
+                async for rest in cursor:
+                    if actual_status == "APPROVED":
+                        background_tasks.add_task(alert_service.send_template_approved_alert, db, rest, template_name)
+                    elif actual_status == "REJECTED":
+                        rejection_reason = value.get("reason", "No reason provided.")
+                        background_tasks.add_task(alert_service.send_template_rejected_alert, db, rest, template_name, rejection_reason)
+                continue
+
             metadata = value.get("metadata", {})
             # This is the Meta Phone Number ID that received the message
             recipient_id = (
@@ -278,17 +298,8 @@ async def _process_payload(db, payload: dict) -> None:
                         restaurants_to_check.add(restaurant_id)
 
             # Dispatch one unread-alert task per unique restaurant.
-            # This prevents N identical DB+email round-trips (one per message)
-            # and keeps the webhook handler non-blocking.
             for rid in restaurants_to_check:
-                try:
-                    from app.workers.alert_tasks import send_unread_threshold_alert_task
-
-                    send_unread_threshold_alert_task.delay(rid)
-                except Exception as e:
-                    logger.error(
-                        "unread_alert_dispatch_failed", restaurant_id=rid, error=str(e)
-                    )
+                background_tasks.add_task(alert_service.check_unread_threshold_alert, db, rid)
 
             # Handle status updates (delivered, read, failed)
             statuses = value.get("statuses", [])

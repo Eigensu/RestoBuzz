@@ -10,7 +10,10 @@ import openpyxl
 from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from redis.asyncio import from_url
 from typing import Annotated, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+from app.core.time import now_utc, normalize_external_dt
+from app.services.member_match_service import member_match_service
 
 from app.config import settings
 from app.database import get_db
@@ -35,7 +38,7 @@ from app.models.member import (
     MemberListResponse,
 )
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
-from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
+from app.services.dormancy_service import dormancy_service, normalize_phone_for_match, DORMANCY_DAYS
 from app.services.fielia_members_service import fielia_service, FieliaDatabaseError
 from app.utils.phone import normalize_phone
 
@@ -63,10 +66,10 @@ def _serialize(doc: dict, activity: tuple | None = None) -> MemberResponse:
 
     return MemberResponse(
         id=str(doc["_id"]),
-        restaurant_id=doc["restaurant_id"],
-        type=doc["type"],
-        name=doc["name"],
-        phone=doc["phone"],
+        restaurant_id=doc.get("restaurant_id", "external"),
+        type=doc.get("type", "nfc"),
+        name=doc.get("name") or doc.get("guest_name") or "Unknown",
+        phone=doc.get("phone") or doc.get("guest_number") or "Unknown",
         email=doc.get("email"),
         card_uid=doc.get("card_uid"),
         ecard_code=doc.get("ecard_code"),
@@ -75,9 +78,12 @@ def _serialize(doc: dict, activity: tuple | None = None) -> MemberResponse:
         visit_count=doc.get("visit_count", 0),
         last_visit=last_visit_date or last_visit,
         is_active=doc.get("is_active", True),
+        normalized_phone=doc.get("normalized_phone"),
+        dormancy_tier=doc.get("dormancy_tier", "UNKNOWN"),
+        last_synced_at=doc.get("last_synced_at"),
         activity_status=status,
         activity_source=source or fallback_source,
-        joined_at=doc["joined_at"],
+        joined_at=doc.get("joined_at") or doc.get("created_at") or datetime.now(timezone.utc),
     )
 
 
@@ -108,33 +114,58 @@ async def list_members(
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     db: Annotated[Any, Depends(get_db)] = None,
 ) -> MemberListResponse:
-    """List members for the active restaurant, with optional type filter and search."""
+    rid = restaurant["id"]
     skip = (page - 1) * page_size
 
-    if restaurant["id"] == "r2":
+    if rid == "r2":
         return await _list_members_r2(db, member_type, search, page, page_size)
-
-    # Standard model for all other restaurants
-    query: dict = {"restaurant_id": restaurant["id"]}
-    if member_type and member_type != "all":
-        query["type"] = {REGEX: f"^{member_type}$", OPTIONS: "i"}
+    
+    # 1. Resolve DB and Collection (handles all other restaurants)
+    m_db, m_coll, m_filter = await member_match_service.get_member_db_context(rid)
+    
+    # 2. Build Query
+    query = {**m_filter}
+    
+    # Tier mapping for filters
+    tier_map = {
+        "active": "ACTIVE",
+        "at_risk": "AT_RISK",
+        "dormant": "DORMANT",
+        "lost": "LOST"
+    }
+    
+    target_type = member_type.lower() if member_type else "all"
+    
+    if target_type == "inactive":
+        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]}
+    elif target_type in tier_map:
+        query["dormancy_tier"] = tier_map[target_type]
+    elif target_type in ["nfc", "ecard"]:
+        query["type"] = {REGEX: f"^{re.escape(target_type)}$", OPTIONS: "i"}
+    # if 'all', we don't add additional filters
+    
     if search:
         safe_search = re.escape(search)
-        query["$or"] = [
+        search_clause = [
             {"name": {REGEX: safe_search, OPTIONS: "i"}},
             {"phone": {REGEX: safe_search, OPTIONS: "i"}},
             {"email": {REGEX: safe_search, OPTIONS: "i"}},
         ]
+        query["$or"] = search_clause
 
-    total = await db.members.count_documents(query)
+    total = await m_db[m_coll].count_documents(query)
     docs = await (
-        db.members.find(query)
+        m_db[m_coll].find(query)
         .sort("joined_at", -1)
         .skip(skip)
         .limit(page_size)
         .to_list(length=page_size)
     )
-    items = await _bulk_serialize(docs, restaurant["id"], db)
+    
+    # 3. Serialize
+    # We still use _bulk_serialize for legacy support/activity source info
+    items = await _bulk_serialize(docs, rid, db)
+    
     return MemberListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -150,16 +181,22 @@ async def _list_members_r2(
     Uses heapq.merge for O(N) streaming merge and adaptive buffering for dups.
     """
     # 1. Fetch relevant docs from both sources
-    # Use a larger buffer (page_size * 3) to handle high duplication rates
-    fetch_limit = page * page_size + (page_size * 3)
+    # If filtering for behavioral segments, we MUST fetch a larger pool to ensure accuracy.
+    # Otherwise, we use a rolling window (buffer) for performance.
+    fetch_limit = 10000 if member_type in ("dormant", "inactive", "at_risk", "lost") else (page * page_size + (page_size * 3))
     
     fielia_items = []
-    if not member_type or member_type in ("all", "nfc"):
+    if not member_type or member_type in ("all", "nfc", "dormant", "inactive", "at_risk", "lost"):
+        # For behavioral filters, fetch all Fielia NFC members unfiltered — check
+        # is applied post-merge in the loop below.
+        fielia_fetch_type = None if member_type in ("dormant", "inactive", "at_risk", "lost") else (
+            "nfc" if member_type == "all" else member_type
+        )
         fielia_res = await fielia_service.list_members(
             limit=fetch_limit,
             offset=0,
             search=search,
-            member_type="nfc" if member_type == "all" else member_type,
+            member_type=fielia_fetch_type,
         )
         fielia_items = [MemberResponse(**item) for item in fielia_res["items"]]
         fielia_total = fielia_res["total"]
@@ -167,7 +204,14 @@ async def _list_members_r2(
         fielia_total = 0
 
     internal_query: dict = {"restaurant_id": "r2"}
-    if member_type and member_type != "all":
+    if member_type == "dormant":
+        # Only members who HAVE visited but > 30 days ago (not Unknown)
+        cutoff = now_utc() - timedelta(days=DORMANCY_DAYS)
+        internal_query["last_visit"] = {"$exists": True, "$ne": None, "$lt": cutoff}
+    elif member_type == "inactive":
+        # At-Risk, Dormant, or Lost (or Unknown if we want to follow the new definition)
+        internal_query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]}
+    elif member_type and member_type != "all":
         internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
     
     if search:
@@ -191,28 +235,50 @@ async def _list_members_r2(
     # Since both streams are sorted by joined_at descending, we can merge them in O(N).
     # We use a key-extractor to handle the sort order.
     def sort_key(x):
-        return x.joined_at or datetime.min.replace(tzinfo=timezone.utc)
+        dt = x.joined_at or datetime.min
+        # Normalize to UTC-aware so heapq can compare naive (Fielia) and
+        # aware (internal MongoDB) datetimes without a TypeError.
+        return normalize_external_dt(dt) if dt != datetime.min else datetime.min.replace(tzinfo=timezone.utc)
+
+    # Compute cutoff ONCE before any loop.
+    merge_cutoff = (now_utc() - timedelta(days=DORMANCY_DAYS)) if member_type == "dormant" else None
+    inactive_tiers = ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"] if member_type == "inactive" else None
 
     # heapq.merge produces an iterator over the merged stream
     # Note: reverse=True because joined_at is descending
     merged_stream = heapq.merge(internal_items, fielia_items, key=sort_key, reverse=True)
 
-    # 3. Deduplicate and Paginate
-    # Pattern: internal items overwrite fielia items in the seen map
+    # 3. Deduplicate, filter, and Paginate
+    # CORRECT ORDER (FIX #5): dedupe → dormant filter → skip_count → collect
     seen_phones = set()
     results = []
     skip_count = (page - 1) * page_size
     
     for item in merged_stream:
+        # Step 1: Deduplicate
         phone = normalize_phone_for_match(item.phone) or f"no_phone_{item.id}"
         if phone in seen_phones:
             continue
         seen_phones.add(phone)
-        
+
+        # Step 2: Apply filters post-merge
+        if member_type == "dormant":
+            lv = normalize_external_dt(item.last_visit) if item.last_visit else None
+            if lv is None or lv >= merge_cutoff:
+                continue
+        elif member_type == "inactive":
+            if item.dormancy_tier not in inactive_tiers:
+                continue
+        elif member_type in ["at_risk", "lost"]:
+             if item.dormancy_tier != member_type.upper():
+                continue
+
+        # Step 3: Pagination skip
         if skip_count > 0:
             skip_count -= 1
             continue
-            
+
+        # Step 4: Collect
         results.append(item)
         if len(results) >= page_size:
             break
@@ -271,7 +337,7 @@ async def create_member(
                     headers={"Retry-After": "10"}
                 ) from exc
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     doc = {
         "restaurant_id": restaurant["id"],
         "type": body.type,
@@ -361,7 +427,7 @@ async def record_visit(
         raise NotFoundError(f"Member '{member_id}' not found")
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     doc = await db.members.find_one_and_update(
         {"_id": to_object_id(member_id)},
         {"$inc": {"visit_count": 1}, "$set": {"last_visit": now}},
@@ -487,20 +553,45 @@ async def _process_members(
     process_row: Any,
     valid_rows: list,
 ) -> None:
-    """Stream Fielia (r2 only) then internal DB members into the contact processor."""
-    if restaurant["id"] == "r2" and (not member_type or member_type in ("all", "nfc")):
-        async for doc in fielia_service.stream_all_members(member_type=member_type):
-            if limit and len(valid_rows) >= limit:
-                return
-            process_row(doc.get("name", ""), doc.get("phone"))
+    """Stream members into the contact processor using the new dormancy_tier logic."""
+    rid = restaurant["id"]
+    
+    if rid == "r2":
+        # Specialized streaming for Fielia
+        fielia_res = await fielia_service.list_members(limit=10000, offset=0, member_type="nfc")
+        for m in fielia_res["items"]:
+            # Apply 'inactive' filter if requested
+            if member_type == "inactive":
+                 if m.get("dormancy_tier") not in ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]:
+                     continue
+            process_row(m.get("name", "Unknown"), m.get("phone"))
+        return
 
-    internal_query: dict = {"restaurant_id": restaurant["id"], "is_active": True}
-    if member_type and member_type != "all":
-        internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
-
-    async for doc in db.members.find(internal_query, {"name": 1, "phone": 1}).sort(
-        "_id", -1
-    ):
+    # 1. Resolve DB and Collection (handles all other restaurants)
+    m_db, m_coll, m_filter = await member_match_service.get_member_db_context(rid)
+    
+    # 2. Build Query
+    query = {**m_filter, "is_active": True}
+    
+    # Map lowercase 'dormant' from frontend to uppercase 'DORMANT'
+    tier_map = {
+        "active": "ACTIVE",
+        "at_risk": "AT_RISK",
+        "dormant": "DORMANT",
+        "lost": "LOST"
+    }
+    
+    target_type = member_type.lower() if member_type else "all"
+    
+    if target_type == "inactive":
+        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]}
+    elif target_type in tier_map:
+        query["dormancy_tier"] = tier_map[target_type]
+    elif target_type in ["nfc", "ecard"]:
+        query["type"] = {REGEX: f"^{re.escape(target_type)}$", OPTIONS: "i"}
+    # if 'all', we don't add additional filters
+        
+    async for doc in m_db[m_coll].find(query, {"name": 1, "phone": 1}).sort("_id", -1):
         if limit and len(valid_rows) >= limit:
             return
         process_row(doc.get("name", ""), doc.get("phone"))
@@ -566,7 +657,7 @@ async def import_members(
     if name_idx is None:
         raise InvalidFileFormatError("Excel must have a 'Name' column")
 
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     inserted = skipped = 0
 
     for row in ws.iter_rows(min_row=2, values_only=True):

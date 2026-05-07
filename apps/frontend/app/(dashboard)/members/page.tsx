@@ -18,6 +18,7 @@ import {
   Users,
   Settings,
   X,
+  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MemberModal } from "@/components/members/molecules/MemberModal";
@@ -366,24 +367,55 @@ export default function MembersPage() {
             All Members
           </button>
 
-          {(restaurant?.member_categories || ["nfc", "ecard"]).map((cat) => (
-            <button
-              key={cat}
-              onClick={() => {
-                setTab(cat);
-                setPage(1);
-              }}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
-                tab === cat
-                  ? "text-white shadow-sm"
-                  : "text-[#24422e]/60 hover:text-[#24422e]",
-              )}
-              style={tab === cat ? { background: BRAND_GRADIENT } : undefined}
-            >
-              {cat}
-            </button>
-          ))}
+          <button
+            onClick={() => {
+              setTab("nfc");
+              setPage(1);
+            }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
+              tab === "nfc"
+                ? "text-white shadow-sm"
+                : "text-[#24422e]/60 hover:text-[#24422e]",
+            )}
+            style={tab === "nfc" ? { background: BRAND_GRADIENT } : undefined}
+          >
+            NFC
+          </button>
+
+          <button
+            onClick={() => {
+              setTab("ecard");
+              setPage(1);
+            }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
+              tab === "ecard"
+                ? "text-white shadow-sm"
+                : "text-[#24422e]/60 hover:text-[#24422e]",
+            )}
+            style={tab === "ecard" ? { background: BRAND_GRADIENT } : undefined}
+          >
+            E-Card
+          </button>
+
+          {/* Inactive — clubs At-Risk, Dormant, and Lost */}
+          <button
+            onClick={() => {
+              setTab("inactive");
+              setPage(1);
+            }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
+              tab === "inactive"
+                ? "bg-amber-500 text-white shadow-sm"
+                : "text-amber-700/70 hover:text-amber-700 hover:bg-amber-50",
+            )}
+          >
+            <Moon className="w-3.5 h-3.5" />
+            Inactive
+          </button>
+
           {(user?.role === "super_admin" || user?.role === "admin") && (
             <button
               onClick={() => setCatModal(true)}

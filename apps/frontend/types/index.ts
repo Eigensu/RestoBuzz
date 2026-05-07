@@ -133,8 +133,11 @@ export interface Member {
   visit_count: number;
   last_visit: string | null;
   is_active: boolean;
+  normalized_phone: string | null;
+  dormancy_tier: "ACTIVE" | "AT_RISK" | "DORMANT" | "LOST" | "UNKNOWN";
+  last_synced_at: string | null;
   /** Backend-computed dormancy status. Optional so older API responses don't crash. */
-  activity_status?: "active" | "dormant" | "unknown" | null;
+  activity_status?: "active" | "dormant" | "unknown" | "at_risk" | "lost" | null;
   /** Provenance of the activity match (uuid_match, phone_match, fallback_internal). */
   activity_source?: string | null;
   joined_at: string;

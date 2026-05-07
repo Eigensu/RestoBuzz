@@ -2,59 +2,77 @@
   "folders": [
     {
       "name": "Dishpatch",
-      "path": ".",
+      "path": "."
     },
     {
       "name": "Frontend (Next.js)",
-      "path": "apps/frontend",
+      "path": "apps/frontend"
     },
     {
       "name": "Backend (FastAPI)",
-      "path": "apps/backend",
-    },
+      "path": "apps/backend"
+    }
   ],
   "settings": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.tabSize": 2,
+
     "files.exclude": {
       "**/__pycache__": true,
       "**/.pytest_cache": true,
       "**/*.pyc": true,
       "**/node_modules": true,
-      "**/.next": true,
+      "**/.next": true
     },
+
     "search.exclude": {
       "**/node_modules": true,
       "**/.next": true,
       "**/.venv": true,
-      "**/__pycache__": true,
+      "**/__pycache__": true
     },
-    // Python (backend)
-    "python.defaultInterpreterPath": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
+
+    "python.defaultInterpreterPath": "${workspaceFolder:Backend (FastAPI)}\\.venv\\Scripts\\python.exe",
+
     "python.analysis.typeCheckingMode": "basic",
+
+    "python.analysis.extraPaths": [
+      "${workspaceFolder:Backend (FastAPI)}"
+    ],
+
+    "python.analysis.autoSearchPaths": true,
+
     "[python]": {
       "editor.defaultFormatter": "ms-python.black-formatter",
-      "editor.tabSize": 4,
+      "editor.tabSize": 4
     },
-    // TypeScript (frontend)
+
     "typescript.tsdk": "apps/frontend/node_modules/typescript/lib",
+
     "[typescript]": {
-      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
+
     "[typescriptreact]": {
-      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
-    // Tailwind
+
     "tailwindCSS.experimental.classRegex": [
-      ["cn\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+      [
+        "cn\\(([^)]*)\\)",
+        "[\"'`]([^\"'`]*).*?[\"'`]"
+      ]
     ],
+
     "tailwindCSS.includeLanguages": {
       "typescript": "javascript",
-      "typescriptreact": "javascript",
+      "typescriptreact": "javascript"
     },
-    "typescript.autoClosingTags": false,
+
+    "typescript.autoClosingTags": false
   },
+
   "extensions": {
     "recommendations": [
       "esbenp.prettier-vscode",
@@ -67,9 +85,10 @@
       "ms-vscode.vscode-typescript-next",
       "christian-kohler.path-intellisense",
       "mikestead.dotenv",
-      "redhat.vscode-yaml",
-    ],
+      "redhat.vscode-yaml"
+    ]
   },
+
   "launch": {
     "version": "0.2.0",
     "configurations": [
@@ -78,13 +97,18 @@
         "type": "debugpy",
         "request": "launch",
         "module": "uvicorn",
-        "args": ["app.main:app", "--reload", "--port", "8000"],
+        "args": [
+          "app.main:app",
+          "--reload",
+          "--port",
+          "8000"
+        ],
         "cwd": "${workspaceFolder:Backend (FastAPI)}",
-        "python": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
+        "python": "${workspaceFolder:Backend (FastAPI)}\\.venv\\Scripts\\python.exe",
         "env": {
-          "PYTHONPATH": "${workspaceFolder:Backend (FastAPI)}",
+          "PYTHONPATH": "${workspaceFolder:Backend (FastAPI)}"
         },
-        "console": "integratedTerminal",
+        "console": "integratedTerminal"
       },
       {
         "name": "Celery Worker",
@@ -97,14 +121,15 @@
           "worker",
           "--loglevel=info",
           "-Q",
-          "utility,marketing",
+          "utility,marketing"
         ],
         "cwd": "${workspaceFolder:Backend (FastAPI)}",
-        "python": "${workspaceFolder:Backend (FastAPI)}/.venv/bin/python",
-        "console": "integratedTerminal",
-      },
-    ],
+        "python": "${workspaceFolder:Backend (FastAPI)}\\.venv\\Scripts\\python.exe",
+        "console": "integratedTerminal"
+      }
+    ]
   },
+
   "tasks": {
     "version": "2.0.0",
     "tasks": [
@@ -113,65 +138,106 @@
         "type": "shell",
         "command": "pnpm install",
         "group": "build",
-        "presentation": { "reveal": "always", "panel": "shared" },
+        "presentation": {
+          "reveal": "always",
+          "panel": "shared"
+        }
       },
       {
         "label": "Setup Backend Venv",
         "type": "shell",
-        "command": "python -m venv .venv && .venv/bin/pip install -r requirements.txt",
-        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "command": "python -m venv .venv && .venv\\Scripts\\pip.exe install -r requirements.txt",
+        "options": {
+          "cwd": "${workspaceFolder:Backend (FastAPI)}"
+        },
         "group": "build",
-        "presentation": { "reveal": "always", "panel": "shared" },
+        "presentation": {
+          "reveal": "always",
+          "panel": "shared"
+        }
       },
       {
         "label": "Init DB",
         "type": "shell",
-        "command": ".venv/bin/python scripts/init_db.py",
-        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
-        "presentation": { "reveal": "always", "panel": "shared" },
+        "command": ".venv\\Scripts\\python.exe scripts/init_db.py",
+        "options": {
+          "cwd": "${workspaceFolder:Backend (FastAPI)}"
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "shared"
+        }
       },
       {
         "label": "Run Frontend Dev",
         "type": "shell",
         "command": "pnpm dev",
-        "options": { "cwd": "${workspaceFolder:Frontend (Next.js)}" },
+        "options": {
+          "cwd": "${workspaceFolder:Frontend (Next.js)}"
+        },
         "group": "test",
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        }
       },
       {
         "label": "Run Backend Dev",
         "type": "shell",
-        "command": ".venv/bin/uvicorn app.main:app --reload --port 8000",
-        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "command": ".venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port 8000",
+        "options": {
+          "cwd": "${workspaceFolder:Backend (FastAPI)}"
+        },
         "group": "test",
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        }
       },
       {
         "label": "Run Celery Worker",
         "type": "shell",
-        "command": ".venv/bin/celery -A app.workers.celery_app worker --loglevel=info -Q utility,marketing",
-        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "command": ".venv\\Scripts\\python.exe -m celery -A app.workers.celery_app worker --loglevel=info -Q utility,marketing",
+        "options": {
+          "cwd": "${workspaceFolder:Backend (FastAPI)}"
+        },
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        }
       },
       {
         "label": "Run Flower",
         "type": "shell",
-        "command": ".venv/bin/celery -A app.workers.celery_app flower --port=5555",
-        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
+        "command": ".venv\\Scripts\\python.exe -m celery -A app.workers.celery_app flower --port=5555",
+        "options": {
+          "cwd": "${workspaceFolder:Backend (FastAPI)}"
+        },
         "isBackground": true,
-        "presentation": { "reveal": "always", "panel": "dedicated" },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        }
       },
       {
         "label": "Run Unit Tests",
         "type": "shell",
-        "command": ".venv/bin/pytest tests/unit -v",
-        "options": { "cwd": "${workspaceFolder:Backend (FastAPI)}" },
-        "group": { "kind": "test", "isDefault": true },
-        "presentation": { "reveal": "always", "panel": "shared" },
-      },
-    ],
-  },
+        "command": ".venv\\Scripts\\python.exe -m pytest tests/unit -v",
+        "options": {
+          "cwd": "${workspaceFolder:Backend (FastAPI)}"
+        },
+        "group": {
+          "kind": "test",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "shared"
+        }
+      }
+    ]
+  }
 }

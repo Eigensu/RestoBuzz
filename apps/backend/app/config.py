@@ -91,7 +91,7 @@ class Settings(BaseSettings):
 
     # Frontend Dashboard URL (used for email alert links)
     dashboard_url: str = Field(
-        default="http://localhost:3000",
+        default="http://restobuzz.eigensu.in",
         validation_alias=AliasChoices("DASHBOARD_URL", "NEXT_PUBLIC_APP_URL"),
     )
 
@@ -109,10 +109,26 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("FIELIA_MONGO_URI")
     )
 
-    # Alert thresholds
     unread_alert_threshold: int = Field(
         default=9, validation_alias=AliasChoices("UNREAD_ALERT_THRESHOLD")
     )
+    unread_alert_cooldown_hours: int = Field(
+        default=4, validation_alias=AliasChoices("UNREAD_ALERT_COOLDOWN_HOURS")
+    )
+    alert_recipients: str = Field(
+        default="", validation_alias=AliasChoices("ALERT_RECIPIENTS")
+    )
+    max_alert_recipients: int = 20
+    dashboard_base_url: str = Field(
+        default="http://restobuzz.eigensu.in", validation_alias=AliasChoices("DASHBOARD_BASE_URL")
+    )
+
+    @property
+    def parsed_alert_recipients(self) -> list[str]:
+        if not self.alert_recipients:
+            return []
+        # Strip quotes and whitespace to handle Railway env injection quirks
+        return [r.strip().strip('"').strip("'") for r in self.alert_recipients.split(",") if r.strip()]
 
     @property
     def cors_origins_list(self) -> list[str]:

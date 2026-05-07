@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 import re
@@ -13,7 +13,7 @@ from app.services.meta_api import (
     MetaAPIError,
     create_media_handle_from_url,
 )
-from app.workers.alert_tasks import send_template_approval_alert_task
+from app.services.alert_service import alert_service
 from app.core.errors import NotFoundError, ValidationError
 from app.config import settings
 from app.core.logging import get_logger
@@ -269,6 +269,7 @@ async def edit_existing_template(
 
 @router.post("/sync", status_code=200)
 async def sync_templates(
+    background_tasks: BackgroundTasks,
     _current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
@@ -283,7 +284,7 @@ async def sync_templates(
 
     keys: list[dict[str, str]] = []
     for t in templates:
-        key = await _sync_single_template(db, t)
+        key = await _sync_single_template(db, t, background_tasks)
         keys.append(key)
 
     # Remove templates that no longer exist in Meta for this workspace.
@@ -295,7 +296,7 @@ async def sync_templates(
     return {"synced": len(templates), "pruned": True}
 
 
-async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict) -> dict[str, str]:
+async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict, background_tasks: BackgroundTasks) -> dict[str, str]:
     """Upsert one template and fire an approval alert if it just became APPROVED."""
     lang = t.get("language")
     key: dict[str, str] = {"name": t["name"]}
@@ -312,29 +313,17 @@ async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict) -> dict[str, 
     await db.templates.update_one(key, {"$set": update_fields}, upsert=True)
 
     if not was_approved and is_approved and not already_alerted:
-        success = _enqueue_approval_alert(t)
-        if success:
-            await db.templates.update_one(
-                key, 
-                {"$set": {"alert_sent": True, "synced_at": datetime.now(timezone.utc)}}
-            )
+        # Templates are global, notify all relevant restaurants
+        cursor = db.restaurants.find({}, {"_id": 1, "name": 1, "email": 1, "notification_emails": 1})
+        async for rest in cursor:
+            background_tasks.add_task(alert_service.send_template_approved_alert, db, rest, t["name"])
+        
+        await db.templates.update_one(
+            key, 
+            {"$set": {"alert_sent": True, "synced_at": datetime.now(timezone.utc)}}
+        )
 
     return key
 
 
-def _enqueue_approval_alert(t: dict) -> bool:
-    """Fire-and-forget Celery task for template approval email."""
-    try:
-        send_template_approval_alert_task.delay(
-            t["name"],
-            t.get("language", "en_US"),
-            t.get("category", "MARKETING"),
-        )
-        return True
-    except Exception:
-        logger.exception(
-            "template_alert_failed",
-            name=t["name"],
-            lang=t.get("language"),
-        )
-        return False
+    return key

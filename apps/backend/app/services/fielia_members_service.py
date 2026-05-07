@@ -5,6 +5,8 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator, List, Dict, Tuple, Any
 
+from app.core.time import now_utc, normalize_external_dt, ist_month_start_utc
+
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo.errors import ServerSelectionTimeoutError, AutoReconnect, PyMongoError
 
@@ -94,6 +96,7 @@ class FieliaMembersService:
                 "is_active": True,
                 "activity_status": status,
                 "activity_source": source or fallback_source,
+                "dormancy_tier": dormancy_service.get_tier(last_visit),
                 "tags": [],
                 "notes": doc.get("address", ""),
             }
@@ -102,8 +105,9 @@ class FieliaMembersService:
             return None
 
     def _normalize_dt(self, dt: Any) -> datetime | None:
+        """Normalize an externally sourced Fielia datetime to UTC-aware."""
         if isinstance(dt, datetime):
-            return dt.replace(tzinfo=timezone.utc)
+            return normalize_external_dt(dt)
         return None
 
     def _resolve_name(self, doc: dict) -> str:
@@ -259,8 +263,8 @@ class FieliaMembersService:
                 for r in raw]
 
     async def _get_scalar_counts(self, collection: Any) -> Dict:
-        now = datetime.now(timezone.utc)
-        month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+        now = now_utc()
+        month_start = ist_month_start_utc()
         dormant_cutoff = now - timedelta(days=30)
 
         total = await collection.count_documents({})

@@ -1,0 +1,27 @@
+RESTOBUZZ: DORMANT MEMBER SEGMENTATION RECAP
+==========================================
+
+1. OBJECTIVE
+------------
+To automatically segment the restaurant's member base into lifecycle tiers based on their last visit date. This allows for targeted automated marketing (e.g., sending a coupon specifically to "Dormant" members).
+
+2. THE THREE TIERS (PROPOSED)
+-----------------------------
+- AT-RISK: Member has not visited in 30 - 60 days.
+- DORMANT: Member has not visited in 60 - 90 days.
+- LOST:    Member has not visited in 90+ days.
+
+3. CURRENT PROGRESS (DONE)
+--------------------------
+- DATABASE INDEXING: A high-performance compound index has been added to the 'members' collection to ensure these segment counts load instantly even with 10,000+ members.
+  Index: [(restaurant_id, 1), (is_active, 1), (last_visit, 1)]
+
+4. PENDING IMPLEMENTATION (PROPOSED)
+------------------------------------
+- DORMANCY SERVICE: A new backend service to calculate these aggregates using MongoDB aggregation pipelines.
+- API ENDPOINT: A new route 'GET /members/segments/dormancy' that returns the counts and member lists for each tier.
+- CAMPAIGN INTEGRATION: Adding dynamic "Target Segment" buttons in the Campaign Wizard (Step 1) so admins can select "Dormant" or "At-Risk" members with one click instead of manual filtering.
+
+5. FINAL STATE OF PROJECT
+-------------------------
+The data foundation is 100% ready. The next step is to write the logic that interprets the visit dates into these specific tiers and connects them to the Campaign UI.

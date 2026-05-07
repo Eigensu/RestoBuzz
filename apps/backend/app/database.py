@@ -40,6 +40,17 @@ def get_fresh_db() -> AsyncIOMotorDatabase:
     return client.get_database(_resolve_db_name())
 
 
+def get_fielia_db() -> AsyncIOMotorDatabase | None:
+    """Connect to the external Fielia database if configured."""
+    if not settings.fielia_mongo_uri:
+        return None
+    client = AsyncIOMotorClient(settings.fielia_mongo_uri)
+    # The Fielia DB name is usually in the URI or we can fallback to 'fielia'
+    parsed = urlparse(settings.fielia_mongo_uri)
+    db_name = parsed.path.lstrip("/").strip() or "fielia"
+    return client.get_database(db_name)
+
+
 async def init_indexes() -> None:
     db = get_db()
 
@@ -114,7 +125,11 @@ async def init_indexes() -> None:
             IndexModel(
                 [("restaurant_id", ASCENDING), ("phone", ASCENDING)], unique=True
             ),
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("normalized_phone", ASCENDING)], unique=True
+            ),
             IndexModel([("restaurant_id", ASCENDING), ("type", ASCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING), ("last_visit", DESCENDING)]),
             IndexModel([("restaurant_id", ASCENDING), ("joined_at", DESCENDING)]),
             IndexModel([("card_uid", ASCENDING)], sparse=True),
             IndexModel([("ecard_code", ASCENDING)], sparse=True),
@@ -190,6 +205,18 @@ async def init_indexes() -> None:
         ]
     )
 
+    # email_alert_logs — Operational/System alerts
+    await db.email_alert_logs.create_indexes(
+        [
+            IndexModel([("created_at", DESCENDING)]),
+            IndexModel([("restaurant_id", ASCENDING), ("created_at", DESCENDING)]),
+            IndexModel([("alert_type", ASCENDING), ("context.template_name", ASCENDING), ("created_at", DESCENDING)]),
+            IndexModel([("status", ASCENDING)]),
+            # 90-day retention for operational logs
+            IndexModel([("created_at", ASCENDING)], expireAfterSeconds=60 * 60 * 24 * 90),
+        ]
+    )
+
     # email_templates
     await db.email_templates.create_indexes(
         [
@@ -222,6 +249,8 @@ async def init_indexes() -> None:
     await db.reservego_uploads.create_indexes(
         [
             IndexModel([("phone", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel([("normalized_phone", ASCENDING), ("restaurant_id", ASCENDING)]),
+            IndexModel([("uploaded_at", ASCENDING)]),
             IndexModel([("uuid", ASCENDING)], sparse=True),
             IndexModel(
                 [
@@ -258,6 +287,13 @@ async def init_indexes() -> None:
             IndexModel([("wa_message_id", ASCENDING)], unique=True),
             IndexModel([("restaurant_id", ASCENDING), ("recorded_at", DESCENDING)]),
             IndexModel([("restaurant_id", ASCENDING), ("category", ASCENDING)]),
+        ]
+    )
+
+    # sync_metadata (tracking synchronization checkpoints)
+    await db.sync_metadata.create_indexes(
+        [
+            IndexModel([("sync_name", ASCENDING)], unique=True),
         ]
     )
 

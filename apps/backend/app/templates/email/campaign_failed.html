@@ -1,0 +1,13 @@
+{% extends "email/base.html" %}
+
+{% block title %}Campaign Job Failed{% endblock %}
+
+{% block content %}
+Your campaign <strong>{{ campaign_name }}</strong> has stopped due to an error.
+<div class="details-box">
+    Reason: {{ failure_reason }}
+</div>
+Please check your campaign logs for more details and retry the job if necessary.
+{% endblock %}
+
+{% block cta_text %}View Campaign Logs{% endblock %}

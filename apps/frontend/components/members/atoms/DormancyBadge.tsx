@@ -1,22 +1,42 @@
 interface DormancyBadgeProps {
-  status?: "active" | "dormant" | "unknown" | null;
+  status?: "ACTIVE" | "AT_RISK" | "DORMANT" | "LOST" | "UNKNOWN" | "active" | "dormant" | "unknown" | null;
   source?: string | null;
 }
 
-const BADGE_CONFIG = {
+const BADGE_CONFIG: Record<string, { className: string; label: string }> = {
+  ACTIVE: {
+    className: "bg-green-100 text-green-700",
+    label: "ACTIVE",
+  },
   active: {
     className: "bg-green-100 text-green-700",
     label: "ACTIVE",
+  },
+  AT_RISK: {
+    className: "bg-yellow-100 text-yellow-700",
+    label: "AT-RISK",
+  },
+  DORMANT: {
+    className: "bg-orange-100 text-orange-700",
+    label: "DORMANT",
   },
   dormant: {
     className: "bg-red-100 text-red-700",
     label: "DORMANT",
   },
+  LOST: {
+    className: "bg-red-100 text-red-700",
+    label: "LOST",
+  },
+  UNKNOWN: {
+    className: "bg-gray-100 text-gray-500 border border-gray-200",
+    label: "UNKNOWN",
+  },
   unknown: {
     className: "bg-gray-100 text-gray-500 border border-gray-200",
     label: "UNKNOWN",
   },
-} as const;
+};
 
 export function DormancyBadge({ status, source }: Readonly<DormancyBadgeProps>) {
   const key = status ?? "unknown";
