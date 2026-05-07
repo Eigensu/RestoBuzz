@@ -1,3 +1,4 @@
+"""Campaign management routes: CRUD, lifecycle control, analytics, and message logs."""
 import csv
 import io
 import json
@@ -7,11 +8,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from redis.asyncio import from_url as redis_from_url
+from redis.exceptions import RedisError as RedisClientError
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import (
     require_role,
-    require_restaurant_access,
     validate_restaurant_access,
     get_active_restaurant,
 )
@@ -34,6 +37,7 @@ from app.models.message import (
     StatusHistoryEntry,
 )
 from app.services.meta_api import send_template_message, MetaAPIError
+from app.workers.send_task import dispatch_campaign_task
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 logger = get_logger(__name__)
@@ -116,6 +120,7 @@ async def list_campaigns(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> CampaignListResponse:
+    """Return a paginated list of campaigns for the active restaurant."""
     skip = (page - 1) * page_size
     query = {"restaurant_id": restaurant["id"]}
     total = await db.campaign_jobs.count_documents(query)
@@ -134,17 +139,15 @@ async def create_campaign(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> CampaignResponse:
-    # Validate access manually since it's in the body
-    await get_active_restaurant(body.restaurant_id, current_user, db)
-    from redis.asyncio import from_url
-    from redis.exceptions import RedisError as RedisClientError
-    from app.config import settings
+    """Create a new campaign and immediately queue or schedule it."""
+    # Validate access manually since restaurant_id is in the body (not a path/query param)
+    await validate_restaurant_access(current_user, body.restaurant_id, db)
 
     raw = None
+    redis = None
     try:
-        redis = from_url(settings.redis_url, decode_responses=True)
+        redis = redis_from_url(settings.redis_url, decode_responses=True)
         raw = await redis.get(f"file_ref:{body.contact_file_ref}")
-        await redis.aclose()
     except (RedisClientError, OSError) as e:
         logger.warning(
             "campaign_create_cache_unavailable",
@@ -152,6 +155,9 @@ async def create_campaign(
             file_ref=body.contact_file_ref,
         )
         # Proceed to fallback
+    finally:
+        if redis is not None:
+            await redis.aclose()
 
     if not raw:
         # FALLBACK: Check MongoDB directly if Redis is down or cache expired
@@ -252,8 +258,6 @@ async def create_campaign(
         await db.campaign_jobs.update_one(
             {"_id": job_id}, {"$set": {"status": "queued"}}
         )
-        from app.workers.send_task import dispatch_campaign_task
-
         dispatch_campaign_task.delay(str(job_id))
         job_doc["status"] = "queued"
         logger.info("campaign_dispatched_immediately", campaign_id=str(job_id))
@@ -275,6 +279,7 @@ async def send_test_message(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> CampaignTestMessageResponse:
+    """Send a single test WhatsApp message using the specified template."""
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
     # Reuse the template's configured language when available.
@@ -640,6 +645,7 @@ async def get_campaign(
     current_user: Annotated[dict, Depends(require_role("viewer"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> CampaignResponse:
+    """Fetch a single campaign by ID."""
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
@@ -654,6 +660,7 @@ async def start_campaign(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> CampaignResponse:
+    """Transition a draft or paused campaign to queued and dispatch the Celery task."""
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
@@ -667,8 +674,6 @@ async def start_campaign(
         {"_id": to_object_id(campaign_id)}, {"$set": {"status": "queued"}}
     )
 
-    from app.workers.send_task import dispatch_campaign_task
-
     dispatch_campaign_task.delay(campaign_id)
 
     doc["status"] = "queued"
@@ -681,6 +686,7 @@ async def pause_campaign(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> CampaignResponse:
+    """Pause a currently running campaign."""
     # Fetch first to check ownership/access
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
@@ -704,6 +710,7 @@ async def cancel_campaign(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> CampaignResponse:
+    """Cancel a campaign and mark all queued/sending messages as cancelled."""
     # Fetch first to check ownership/access
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
@@ -756,6 +763,7 @@ async def list_messages(
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     status: Annotated[str | None, Query()] = None,
 ) -> MessageLogListResponse:
+    """Return paginated message logs for a campaign, optionally filtered by status."""
     # Fetch job to verify access
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not job:
@@ -807,6 +815,7 @@ async def failure_breakdown(
     current_user: Annotated[dict, Depends(require_role("viewer"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
+    """Return the top-10 failure reasons for a campaign's message logs."""
     # Fetch job to verify access
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not job:
@@ -832,6 +841,7 @@ async def retry_failed(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ) -> CampaignResponse:
+    """Create a child retry campaign for all failed messages in the given campaign."""
     campaign_oid = to_object_id(campaign_id)
     original = await db.campaign_jobs.find_one({"_id": campaign_oid})
     if not original:
@@ -937,8 +947,6 @@ async def retry_failed(
         )
         raise ServerError("Failed to create retry message logs") from exc
 
-    from app.workers.send_task import dispatch_campaign_task
-
     dispatch_campaign_task.delay(str(job_id))
 
     job_doc["_id"] = job_id
@@ -951,6 +959,7 @@ async def delete_campaign(
     current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
+    """Delete a campaign and all its associated message logs."""
     doc = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not doc:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
@@ -969,6 +978,7 @@ async def export_failed(
     current_user: Annotated[dict, Depends(require_role("viewer"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
+    """Stream a CSV of all failed messages for a campaign."""
     # Fetch job to verify access
     job = await db.campaign_jobs.find_one({"_id": to_object_id(campaign_id)})
     if not job:
