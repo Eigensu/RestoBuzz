@@ -144,10 +144,10 @@ async def create_campaign(
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
     raw = None
+    redis = None
     try:
         redis = redis_from_url(settings.redis_url, decode_responses=True)
         raw = await redis.get(f"file_ref:{body.contact_file_ref}")
-        await redis.aclose()
     except (RedisClientError, OSError) as e:
         logger.warning(
             "campaign_create_cache_unavailable",
@@ -155,6 +155,9 @@ async def create_campaign(
             file_ref=body.contact_file_ref,
         )
         # Proceed to fallback
+    finally:
+        if redis is not None:
+            await redis.aclose()
 
     if not raw:
         # FALLBACK: Check MongoDB directly if Redis is down or cache expired
