@@ -62,7 +62,7 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("RESEND_WEBHOOK_SECRET")
     )
     resend_from_email: str = Field(
-        default="RestoBuzz <noreply@restobuzz.com>",
+        default="noreply@restobuzz.com",
         validation_alias=AliasChoices("RESEND_FROM_EMAIL"),
     )
     resend_rate_limit: int = 5  # Resend default: 5 req/s

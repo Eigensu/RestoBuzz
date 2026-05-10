@@ -188,10 +188,11 @@ async def test_alert_email(
     """Diagnostic route to verify Resend delivery, templating, and recipient resolution."""
     # 1. Resolve restaurant
     from bson.objectid import ObjectId
+    from bson.errors import InvalidId
     try:
         rid_oid = ObjectId(body.restaurant_id) if isinstance(body.restaurant_id, str) else body.restaurant_id
         restaurant = await db.restaurants.find_one({"_id": rid_oid})
-    except:
+    except InvalidId:
         restaurant = await db.restaurants.find_one({"id": body.restaurant_id})
 
     if not restaurant:
@@ -203,7 +204,7 @@ async def test_alert_email(
     elif body.alert_type == AlertType.TEMPLATE_REJECTED:
         await alert_service.send_template_rejected_alert(db, restaurant, body.template_name, body.rejection_reason)
     elif body.alert_type == AlertType.UNREAD_THRESHOLD:
-        await alert_service.send_unread_threshold_alert(db, restaurant, body.unread_count)
+        await alert_service.check_unread_threshold_alert(db, body.restaurant_id)
     elif body.alert_type == AlertType.WABA_DISCONNECTED:
         await alert_service.send_waba_disconnected_alert(db, restaurant)
     elif body.alert_type == AlertType.CAMPAIGN_FAILED:

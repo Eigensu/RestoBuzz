@@ -13,7 +13,7 @@ async def check():
     client = AsyncIOMotorClient(uri)
     db = client.get_database("test")
     
-    print(f"--- Inspecting Fielia [test] Database ---")
+    print("--- Inspecting Fielia [test] Database ---")
     
     # 1. Check cards (Members)
     m_count = await db.cards.count_documents({})

@@ -2,8 +2,12 @@ import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timezone, timedelta
 
+import os
+
 async def count_active_inactive():
-    uri = "mongodb+srv://workeigensu_db_user:WlHeR6RNCgubUikl@fielia.8qgkoam.mongodb.net/?appName=Fielia"
+    uri = os.environ.get("FIELIA_MONGO_URI")
+    if not uri:
+        raise RuntimeError("FIELIA_MONGO_URI is not set")
     client = AsyncIOMotorClient(uri)
     db = client["test"]
     col = db["cards"]

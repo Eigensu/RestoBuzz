@@ -33,7 +33,6 @@
       "**/__pycache__": true
     },
 
-    "python.defaultInterpreterPath": "${workspaceFolder:Backend (FastAPI)}\\.venv\\Scripts\\python.exe",
 
     "python.analysis.typeCheckingMode": "basic",
 

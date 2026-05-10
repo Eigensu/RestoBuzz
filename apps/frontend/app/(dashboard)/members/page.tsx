@@ -367,37 +367,24 @@ export default function MembersPage() {
             All Members
           </button>
 
-          <button
-            onClick={() => {
-              setTab("nfc");
-              setPage(1);
-            }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
-              tab === "nfc"
-                ? "text-white shadow-sm"
-                : "text-[#24422e]/60 hover:text-[#24422e]",
-            )}
-            style={tab === "nfc" ? { background: BRAND_GRADIENT } : undefined}
-          >
-            NFC
-          </button>
-
-          <button
-            onClick={() => {
-              setTab("ecard");
-              setPage(1);
-            }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
-              tab === "ecard"
-                ? "text-white shadow-sm"
-                : "text-[#24422e]/60 hover:text-[#24422e]",
-            )}
-            style={tab === "ecard" ? { background: BRAND_GRADIENT } : undefined}
-          >
-            E-Card
-          </button>
+          {(restaurant?.member_categories || ["nfc", "ecard"]).map((c) => (
+            <button
+              key={c}
+              onClick={() => {
+                setTab(c);
+                setPage(1);
+              }}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
+                tab === c
+                  ? "text-white shadow-sm"
+                  : "text-[#24422e]/60 hover:text-[#24422e]",
+              )}
+              style={tab === c ? { background: BRAND_GRADIENT } : undefined}
+            >
+              {c.replace("-", " ")}
+            </button>
+          ))}
 
           {/* Inactive — clubs At-Risk, Dormant, and Lost */}
           <button

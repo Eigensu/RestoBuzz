@@ -14,7 +14,7 @@ async def scan():
         print("FIELIA_MONGO_URI is empty.")
         return
         
-    print(f"Connecting to Fielia Cluster...")
+    print("Connecting to Fielia Cluster...")
     client = AsyncIOMotorClient(uri)
     
     try:

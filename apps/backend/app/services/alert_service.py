@@ -91,7 +91,7 @@ class AlertService:
             return response
         except asyncio.TimeoutError:
             logger.error("resend_timeout", timeout=15.0)
-            raise Exception("Resend API request timed out")
+            raise TimeoutError("Resend API request timed out")
         except Exception as e:
             logger.error("resend_execution_failed", error=str(e))
             raise e
@@ -150,11 +150,12 @@ class AlertService:
 
         # Prepare context
         rid = str(restaurant.get("_id") or restaurant.get("id"))
+        full_subject = f"[Dishpatch Alert] {subject}"
         email_context = {
-            "subject": subject,
+            "subject": full_subject,
             "restaurant_name": restaurant.get("name", "Your Restaurant"),
-            "dashboard_url": settings.dashboard_base_url,
-            "cta_url": f"{settings.dashboard_base_url}/restaurants/{rid}/inbox",
+            "dashboard_url": "https://restobuzz.eigensu.in",
+            "cta_url": "https://restobuzz.eigensu.in",
             "now": AlertService._get_now_utc(),
             **context
         }
@@ -164,7 +165,7 @@ class AlertService:
             template = templates_env.get_template(f"email/{template_name}")
             rendered_html = template.render(**email_context)
             # Simple plain text fallback
-            rendered_text = f"RestoBuzz Alert: {subject}\n\nRestaurant: {restaurant.get('name')}\n\nPlease check your dashboard for details: {email_context['cta_url']}"
+            rendered_text = f"Dishpatch Alert: {subject}\n\nRestaurant: {restaurant.get('name')}\n\nPlease check your dashboard for details: {email_context['cta_url']}"
         except Exception as e:
             logger.error("template_rendering_failed", template=template_name, error=str(e))
             await AlertService._log_alert(db, alert_type, restaurant, recipients, subject, "FAILED", context=context, error=f"Template error: {str(e)}")
@@ -172,9 +173,9 @@ class AlertService:
 
         # Send via Resend
         params = {
-            "from": settings.resend_from_email,
+            "from": f"Team Dishpatch <{settings.resend_from_email}>",
             "to": recipients,
-            "subject": f"[RestoBuzz Alert] {subject}",
+            "subject": full_subject,
             "html": rendered_html,
             "text": rendered_text
         }
@@ -268,10 +269,11 @@ class AlertService:
 
         # Get restaurant data to check last alert state
         from bson.objectid import ObjectId
+        from bson.errors import InvalidId
         try:
             rid_oid = ObjectId(restaurant_id) if isinstance(restaurant_id, str) else restaurant_id
             restaurant = await db.restaurants.find_one({"_id": rid_oid})
-        except:
+        except InvalidId:
             restaurant = await db.restaurants.find_one({"id": restaurant_id})
 
         if not restaurant:

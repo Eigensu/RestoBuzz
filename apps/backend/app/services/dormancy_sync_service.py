@@ -35,7 +35,7 @@ class DormancySyncService:
         
         # 1. Fetch Sync State (Resumability)
         # We track the last processed '_id' of the uploads to ensure we never skip/reprocess
-        state = await db.sync_state.find_one({"restaurant_id": rid, "source": "reservego_uploads"})
+        state = await db.sync_metadata.find_one({"restaurant_id": rid, "source": "reservego_uploads"})
         last_id = state.get("last_processed_id") if state else None
         
         query = {"restaurant_id": rid, "last_visited_date": {"$ne": None}}
@@ -106,7 +106,7 @@ class DormancySyncService:
 
         # 4. Update Sync State (Checkpoint)
         if stats["latest_id"]:
-            await db.sync_state.update_one(
+            await db.sync_metadata.update_one(
                 {"restaurant_id": rid, "source": "reservego_uploads"},
                 {
                     "$set": {

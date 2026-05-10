@@ -326,4 +326,3 @@ async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict, background_ta
     return key
 
 
-    return key

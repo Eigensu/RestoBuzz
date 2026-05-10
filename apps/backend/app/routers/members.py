@@ -137,7 +137,7 @@ async def list_members(
     target_type = member_type.lower() if member_type else "all"
     
     if target_type == "inactive":
-        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]}
+        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
     elif target_type in tier_map:
         query["dormancy_tier"] = tier_map[target_type]
     elif target_type in ["nfc", "ecard"]:
@@ -189,9 +189,12 @@ async def _list_members_r2(
     if not member_type or member_type in ("all", "nfc", "dormant", "inactive", "at_risk", "lost"):
         # For behavioral filters, fetch all Fielia NFC members unfiltered — check
         # is applied post-merge in the loop below.
-        fielia_fetch_type = None if member_type in ("dormant", "inactive", "at_risk", "lost") else (
-            "nfc" if member_type == "all" else member_type
-        )
+        if member_type in ("dormant", "inactive", "at_risk", "lost"):
+            fielia_fetch_type = None
+        elif member_type == "all":
+            fielia_fetch_type = "nfc"
+        else:
+            fielia_fetch_type = member_type
         fielia_res = await fielia_service.list_members(
             limit=fetch_limit,
             offset=0,
@@ -209,8 +212,8 @@ async def _list_members_r2(
         cutoff = now_utc() - timedelta(days=DORMANCY_DAYS)
         internal_query["last_visit"] = {"$exists": True, "$ne": None, "$lt": cutoff}
     elif member_type == "inactive":
-        # At-Risk, Dormant, or Lost (or Unknown if we want to follow the new definition)
-        internal_query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]}
+        # At-Risk, Dormant, or Lost
+        internal_query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
     elif member_type and member_type != "all":
         internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
     
@@ -242,7 +245,7 @@ async def _list_members_r2(
 
     # Compute cutoff ONCE before any loop.
     merge_cutoff = (now_utc() - timedelta(days=DORMANCY_DAYS)) if member_type == "dormant" else None
-    inactive_tiers = ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"] if member_type == "inactive" else None
+    inactive_tiers = ["AT_RISK", "DORMANT", "LOST"] if member_type == "inactive" else None
 
     # heapq.merge produces an iterator over the merged stream
     # Note: reverse=True because joined_at is descending
@@ -270,7 +273,7 @@ async def _list_members_r2(
             if item.dormancy_tier not in inactive_tiers:
                 continue
         elif member_type in ["at_risk", "lost"]:
-             if item.dormancy_tier != member_type.upper():
+            if item.dormancy_tier != member_type.upper():
                 continue
 
         # Step 3: Pagination skip
@@ -499,7 +502,7 @@ async def members_as_contacts(
         await _process_reservego(db, restaurant["id"], limit, process_row, valid_rows)
     else:
         await _process_members(
-            db, restaurant, member_type, limit, process_row, valid_rows
+            restaurant, member_type, limit, process_row, valid_rows
         )
 
     file_ref = str(uuid.uuid4())
@@ -545,8 +548,14 @@ async def _process_reservego(
         process_row(doc.get("guest_name", ""), doc.get("guest_number"))
 
 
+async def _process_fielia_members(member_type: str | None, process_row: Any) -> None:
+    fielia_res = await fielia_service.list_members(limit=10000, offset=0, member_type="nfc")
+    for m in fielia_res["items"]:
+        if member_type == "inactive" and m.get("dormancy_tier") not in ["AT_RISK", "DORMANT", "LOST"]:
+            continue
+        process_row(m.get("name", "Unknown"), m.get("phone"))
+
 async def _process_members(
-    db: Any,
     restaurant: dict,
     member_type: str | None,
     limit: int | None,
@@ -557,14 +566,7 @@ async def _process_members(
     rid = restaurant["id"]
     
     if rid == "r2":
-        # Specialized streaming for Fielia
-        fielia_res = await fielia_service.list_members(limit=10000, offset=0, member_type="nfc")
-        for m in fielia_res["items"]:
-            # Apply 'inactive' filter if requested
-            if member_type == "inactive":
-                 if m.get("dormancy_tier") not in ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]:
-                     continue
-            process_row(m.get("name", "Unknown"), m.get("phone"))
+        await _process_fielia_members(member_type, process_row)
         return
 
     # 1. Resolve DB and Collection (handles all other restaurants)
@@ -584,7 +586,7 @@ async def _process_members(
     target_type = member_type.lower() if member_type else "all"
     
     if target_type == "inactive":
-        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST", "UNKNOWN"]}
+        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
     elif target_type in tier_map:
         query["dormancy_tier"] = tier_map[target_type]
     elif target_type in ["nfc", "ecard"]:

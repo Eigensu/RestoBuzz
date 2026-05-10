@@ -13,48 +13,19 @@ from app.config import settings
 from app.database import get_fielia_db
 from app.utils.phone import normalize_phone
 
-async def sync_restaurant(rid: str):
-    start_time = time.time()
-    client = AsyncIOMotorClient(settings.mongodb_url)
-    db = client.get_database(settings.mongodb_db_name or "restobuzz")
-    
-    # Get restaurant name
-    rest = await db.restaurants.find_one({"id": rid})
-    name = rest.get("name", "Unknown") if rest else "Unknown"
-    
-    print(f"\n[SYNC START] Restaurant: {name} ({rid})")
-    
-    # 1. Determine Member Database/Collection
-    m_db = db
-    m_coll_name = "members"
-    m_query = {"restaurant_id": rid}
-    
-    if rid == "r2":
-        f_db = get_fielia_db()
-        if f_db is not None:
-            # For Fielia, we use their 'test' database and 'cards' collection
-            # Note: We use the client from f_db but switch to 'test' DB as found in scan
-            m_db = f_db.client.get_database("test")
-            m_coll_name = "cards"
-            m_query = {} # Fielia cluster is dedicated to r2
-            print("[INFO] Using Fielia External DB [test.cards] for members.")
-        else:
-            print("[WARNING] Fielia External DB URI found but connection failed. Falling back to local.")
-
-    # 2. Normalize Members
+async def _normalize_members(m_db, m_coll_name, m_query):
     m_cursor = m_db[m_coll_name].find({**m_query, "normalized_phone": {"$exists": False}})
     m_ops = []
     async for m in m_cursor:
         norm = normalize_phone(m.get("phone"))
         if norm:
             m_ops.append(UpdateOne({"_id": m["_id"]}, {"$set": {"normalized_phone": norm}}))
-    
     if m_ops:
         print(f"[INFO] Normalizing {len(m_ops)} members in {m_coll_name}...")
         await m_db[m_coll_name].bulk_write(m_ops, ordered=False)
 
-    # 3. Normalize Local Uploads
-    print(f"[INFO] Scanning for unnormalized uploads...")
+async def _normalize_uploads(db, rid):
+    print("[INFO] Scanning for unnormalized uploads...")
     u_cursor = db.reservego_uploads.find({"restaurant_id": rid, "normalized_phone": {"$exists": False}})
     u_ops = []
     processed_count = 0
@@ -62,19 +33,17 @@ async def sync_restaurant(rid: str):
         norm = normalize_phone(u.get("phone") or u.get("guest_number"))
         if norm:
             u_ops.append(UpdateOne({"_id": u["_id"]}, {"$set": {"normalized_phone": norm}}))
-            
         if len(u_ops) >= 1000:
             await db.reservego_uploads.bulk_write(u_ops, ordered=False)
             processed_count += len(u_ops)
             print(f"   [INFO] Normalized {processed_count} uploads...")
             u_ops = []
-            
     if u_ops:
         await db.reservego_uploads.bulk_write(u_ops, ordered=False)
         processed_count += len(u_ops)
         print(f"   [INFO] Normalized {processed_count} uploads total.")
-    
-    # 4. Sync Visits
+
+async def _sync_visits(db, m_db, m_coll_name, m_query, rid):
     print("[INFO] Syncing visit history...")
     total_uploads = await db.reservego_uploads.count_documents({"restaurant_id": rid})
     visit_records = await db.reservego_uploads.count_documents({"restaurant_id": rid, "last_visited_date": {"$ne": None}})
@@ -86,7 +55,7 @@ async def sync_restaurant(rid: str):
         visit_date = v.get("last_visited_date")
         if norm and visit_date:
             v_ops.append(UpdateOne(
-                {"normalized_phone": norm},
+                {**m_query, "normalized_phone": norm},
                 {"$max": {"last_visit": visit_date}}
             ))
             
@@ -98,27 +67,54 @@ async def sync_restaurant(rid: str):
             matched_members += result.modified_count
             if i % 5000 == 0 and i > 0:
                 print(f"   [INFO] Progress: {i}/{len(v_ops)} updates applied...")
+    return total_uploads, visit_records, matched_members
 
-    # 5. Final Validation Counts
+async def _print_final_validation(m_db, m_coll_name, m_query, rid, total_uploads, visit_records, matched_members, execution_time):
     now = datetime.now(timezone.utc)
-    # We query the member DB
     active = await m_db[m_coll_name].count_documents({**m_query, "last_visit": {"$gte": now - timedelta(days=30)}})
     at_risk = await m_db[m_coll_name].count_documents({**m_query, "last_visit": {"$gte": now - timedelta(days=60), "$lt": now - timedelta(days=30)}})
     dormant = await m_db[m_coll_name].count_documents({**m_query, "last_visit": {"$gte": now - timedelta(days=90), "$lt": now - timedelta(days=60)}})
     lost = await m_db[m_coll_name].count_documents({**m_query, "last_visit": {"$lt": now - timedelta(days=90)}})
     
-    execution_time = round(time.time() - start_time, 2)
     print(f"[INFO] Uploads Found: {total_uploads}")
     print(f"[INFO] Visit Records: {visit_records}")
     print(f"[INFO] Matched Members Updated: {matched_members}")
-    
     print(f"\n[DORMANCY STATE] {rid}")
     print(f"   - Active (<30d): {active}")
     print(f"   - At-Risk (30-60d): {at_risk}")
     print(f"   - Dormant (60-90d): {dormant}")
     print(f"   - Lost (90d+):    {lost}")
-    
     print(f"[SYNC COMPLETE] Execution Time: {execution_time}s")
+
+async def sync_restaurant(rid: str):
+    start_time = time.time()
+    client = AsyncIOMotorClient(settings.mongodb_url)
+    db = client.get_database(settings.mongodb_db_name or "restobuzz")
+    
+    rest = await db.restaurants.find_one({"id": rid})
+    name = rest.get("name", "Unknown") if rest else "Unknown"
+    print(f"\n[SYNC START] Restaurant: {name} ({rid})")
+    
+    m_db = db
+    m_coll_name = "members"
+    m_query = {"restaurant_id": rid}
+    
+    if rid == "r2":
+        f_db = get_fielia_db()
+        if f_db is not None:
+            m_db = f_db.client.get_database("test")
+            m_coll_name = "cards"
+            m_query = {} 
+            print("[INFO] Using Fielia External DB [test.cards] for members.")
+        else:
+            print("[WARNING] Fielia External DB URI found but connection failed. Falling back to local.")
+
+    await _normalize_members(m_db, m_coll_name, m_query)
+    await _normalize_uploads(db, rid)
+    t_uploads, v_records, m_members = await _sync_visits(db, m_db, m_coll_name, m_query, rid)
+    
+    execution_time = round(time.time() - start_time, 2)
+    await _print_final_validation(m_db, m_coll_name, m_query, rid, t_uploads, v_records, m_members, execution_time)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
