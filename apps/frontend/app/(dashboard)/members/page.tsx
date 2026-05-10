@@ -85,7 +85,7 @@ export default function MembersPage() {
 
       setCatModal(false);
       setNewCat("");
-      if (!res.data.member_categories.includes(tab) && tab !== "all") {
+      if (!res.data.member_categories.includes(tab) && tab !== "all" && tab !== "inactive") {
         setTab("all");
       }
     },
@@ -382,7 +382,7 @@ export default function MembersPage() {
               )}
               style={tab === c ? { background: BRAND_GRADIENT } : undefined}
             >
-              {c.replace("-", " ")}
+              {c.replaceAll("-", " ").toUpperCase()}
             </button>
           ))}
 

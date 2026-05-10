@@ -10,6 +10,19 @@ logger = logging.getLogger(__name__)
 MONGO_TYPE_STRING = "$type"
 
 _client: AsyncIOMotorClient | None = None
+_fielia_client: AsyncIOMotorClient | None = None
+
+
+async def close_db() -> None:
+    """Gracefully close all global database connections."""
+    global _client, _fielia_client
+    if _client:
+        _client.close()
+        _client = None
+    if _fielia_client:
+        _fielia_client.close()
+        _fielia_client = None
+    logger.info("Database connections closed.")
 
 
 def _resolve_db_name() -> str:
@@ -47,14 +60,17 @@ def get_fresh_db() -> AsyncIOMotorDatabase:
 
 
 def get_fielia_db() -> AsyncIOMotorDatabase | None:
-    """Connect to the external Fielia database if configured."""
+    """Connect to the external Fielia database if configured (singleton)."""
+    global _fielia_client
     if not settings.fielia_mongo_uri:
         return None
-    client = AsyncIOMotorClient(settings.fielia_mongo_uri)
-    # The Fielia DB name is usually in the URI or we can fallback to 'fielia'
+        
+    if _fielia_client is None:
+        _fielia_client = AsyncIOMotorClient(settings.fielia_mongo_uri)
+        
     parsed = urlparse(settings.fielia_mongo_uri)
     db_name = parsed.path.lstrip("/").strip() or "fielia"
-    return client.get_database(db_name)
+    return _fielia_client.get_database(db_name)
 
 
 
@@ -73,10 +89,13 @@ async def _validate_unique_constraint(collection, index: IndexModel, idx_name: s
     if not index.document.get("unique"):
         return True
         
+    # Map index keys to field paths for grouping (e.g. {"email": 1} -> {"email": "$email"})
+    group_id = {k: f"${k}" for k in index.document["key"].keys()}
     partial_filter = index.document.get("partialFilterExpression", {})
+    
     pipeline = [
         {"$match": partial_filter},
-        {"$group": {"_id": index.document["key"], "count": {"$sum": 1}}},
+        {"$group": {"_id": group_id, "count": {"$sum": 1}}},
         {"$match": {"count": {"$gt": 1}}},
         {"$limit": 1}
     ]
@@ -307,7 +326,7 @@ async def init_indexes() -> None:
             IndexModel(
                 [("resend_email_id", ASCENDING)],
                 unique=True,
-                partialFilterExpression={"resend_email_id": {"$type": "string"}},
+                partialFilterExpression={"resend_email_id": {MONGO_TYPE_STRING: "string"}},
             ),
             IndexModel([("campaign_id", ASCENDING), ("created_at", DESCENDING)]),
         ]
@@ -316,7 +335,7 @@ async def init_indexes() -> None:
     # email_alert_logs — Operational/System alerts
     await safe_create_indexes(db.email_alert_logs, 
         [
-            IndexModel([("created_at", DESCENDING)]),
+            # Redundant created_at descending index removed (handled by TTL index reverse traversal)
             IndexModel([("restaurant_id", ASCENDING), ("created_at", DESCENDING)]),
             IndexModel([("alert_type", ASCENDING), ("context.template_name", ASCENDING), ("created_at", DESCENDING)]),
             IndexModel([("status", ASCENDING)]),
@@ -406,8 +425,4 @@ async def init_indexes() -> None:
     )
 
 
-async def close_db() -> None:
-    global _client
-    if _client:
-        _client.close()
-        _client = None
+

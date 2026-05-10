@@ -7,6 +7,7 @@ Checks:
 """
 import asyncio
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 from motor.motor_asyncio import AsyncIOMotorClient
 import sys
 import os
@@ -15,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.config import settings
 from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
 from app.services.fielia_members_service import fielia_service
+from app.core.time import normalize_external_dt
 
 DORMANCY_DAYS = 30
 
@@ -26,9 +28,9 @@ def _process_member(m, activity_map, cutoff):
     raw_lv = m.get("last_visit")
     if raw_lv:
         if isinstance(raw_lv, str):
-            try: raw_lv = datetime.fromisoformat(raw_lv.replace("Z", "+00:00"))
-            except ValueError: raw_lv = None
-        if raw_lv: lv_candidates.append(raw_lv)
+            raw_lv = normalize_external_dt(raw_lv)
+        if raw_lv:
+            lv_candidates.append(raw_lv)
 
     # External log match
     norm_phone = normalize_phone_for_match(m.get("phone"))
@@ -41,8 +43,6 @@ def _process_member(m, activity_map, cutoff):
         return "unknown"
     
     final_lv = max(lv_candidates)
-    if final_lv.tzinfo is None:
-        final_lv = final_lv.replace(tzinfo=timezone.utc)
     
     if final_lv >= cutoff:
         return "active"
@@ -52,36 +52,21 @@ async def _process_restaurant(db, rest, cutoff):
     rid = rest.get("id") or str(rest["_id"])
     name = rest.get("name", rid)
 
-    # 1. Collect all members (Internal + Fielia External)
-    members = await db.members.find({"restaurant_id": rid}).to_list(None)
-    
-    # If r2, fetch from Fielia DB too
-    if rid == "r2":
-        try:
-            # Use the stream to get all Fielia members
-            async for f_member in fielia_service.stream_all_members():
-                members.append(f_member)
-        except Exception as e:
-            print("  ! Error fetching Fielia members: %s" % e)
-
-    if not members:
-        return
-
-    total_members = len(members)
     active_count = 0
     dormant_count = 0
     unknown_count = 0
+    total_processed = 0
 
-    # Process batches
-    batch_size = 100
-    for i in range(0, len(members), batch_size):
-        batch = members[i : i + batch_size]
+    async def _handle_batch(batch):
+        nonlocal active_count, dormant_count, unknown_count, total_processed
+        if not batch: return
+        
         phones = [m.get("phone") for m in batch]
         uuids = [m.get("card_uid") for m in batch]
-
         activity_map = await dormancy_service.get_bulk_activity(db, rid, phones, uuids)
 
         for m in batch:
+            total_processed += 1
             status = _process_member(m, activity_map, cutoff)
             if status == "unknown":
                 unknown_count += 1
@@ -90,35 +75,69 @@ async def _process_restaurant(db, rest, cutoff):
             else:
                 dormant_count += 1
 
-    print("  Restaurant : %s (%s)" % (name, rid))
-    print("  Total Pool : %d  (Internal + External)" % total_members)
-    print("  Active     : %d" % active_count)
-    print("  DORMANT    : %d  <-- Matching UI" % dormant_count)
-    print("  Unknown    : %d" % unknown_count)
+    # 1. Process Internal members in batches
+    batch = []
+    async for m in db.members.find({"restaurant_id": rid}):
+        batch.append(m)
+        if len(batch) >= 100:
+            await _handle_batch(batch)
+            batch = []
+    await _handle_batch(batch)
+
+    # 2. Process Fielia External members in batches (r2 only)
+    if rid == "r2":
+        batch = []
+        try:
+            async for f_member in fielia_service.stream_all_members():
+                batch.append(f_member)
+                if len(batch) >= 100:
+                    await _handle_batch(batch)
+                    batch = []
+            await _handle_batch(batch)
+        except (ConnectionError, asyncio.TimeoutError) as e:
+            print(f"  ! Network error fetching Fielia members: {e}")
+        except Exception as e:
+            print(f"  ! Unexpected error fetching Fielia members: {e}")
+
+    if total_processed == 0:
+        return
+
+    print(f"  Restaurant : {name} ({rid})")
+    print(f"  Total Pool : {total_processed}  (Internal + External)")
+    print(f"  Active     : {active_count}")
+    print(f"  DORMANT    : {dormant_count}")
+    print(f"  Unknown    : {unknown_count}")
     print("")
 
 async def main():
     client = AsyncIOMotorClient(settings.mongodb_url)
-    db_name = settings.mongodb_db_name or settings.mongodb_url.rsplit("/", 1)[-1].split("?")[0]
-    db = client[db_name]
+    try:
+        # Robust URI parsing for database name
+        if settings.mongodb_db_name:
+            db_name = settings.mongodb_db_name
+        else:
+            parsed = urlparse(settings.mongodb_url)
+            db_name = parsed.path.lstrip("/") or "restobuzz"
+            
+        db = client[db_name]
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=DORMANCY_DAYS)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=DORMANCY_DAYS)
 
-    print("")
-    print("=" * 70)
-    print("  ABSOLUTE DEEP DORMANCY AUDIT (Internal + Fielia External + Logs)")
-    print("  Cutoff: %s UTC" % cutoff.strftime("%Y-%m-%d %H:%M"))
-    print("=" * 70)
-    print("")
+        print("")
+        print("=" * 70)
+        print("  ABSOLUTE DEEP DORMANCY AUDIT (Internal + Fielia External + Logs)")
+        print(f"  Cutoff: {cutoff.strftime('%Y-%m-%d %H:%M')} UTC")
+        print("=" * 70)
+        print("")
 
-    restaurants = await db.restaurants.find({}, {"id": 1, "name": 1}).to_list(None)
+        restaurants = await db.restaurants.find({}, {"id": 1, "name": 1}).to_list(None)
 
-    for rest in restaurants:
-        await _process_restaurant(db, rest, cutoff)
+        for rest in restaurants:
+            await _process_restaurant(db, rest, cutoff)
 
-
-    print("=" * 70)
-    client.close()
+        print("=" * 70)
+    finally:
+        client.close()
 
 
 if __name__ == "__main__":

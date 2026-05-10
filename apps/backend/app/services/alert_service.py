@@ -150,11 +150,13 @@ class AlertService:
 
         # Prepare context
         full_subject = f"[Dishpatch Alert] {subject}"
+        # Compose URLs from dashboard_base_url
+        base_url = (settings.dashboard_base_url or "https://restobuzz.eigensu.in").rstrip("/")
         email_context = {
             "subject": full_subject,
             "restaurant_name": restaurant.get("name", "Your Restaurant"),
-            "dashboard_url": "https://restobuzz.eigensu.in",
-            "cta_url": "https://restobuzz.eigensu.in",
+            "dashboard_url": base_url,
+            "cta_url": base_url,
             "now": AlertService._get_now_utc(),
             **context
         }
@@ -191,12 +193,11 @@ class AlertService:
     # --- Public API Functions ---
 
     @staticmethod
-    async def is_idempotent_template_alert(db: AsyncIOMotorDatabase, template_name: str, alert_type: AlertType) -> bool:
-        """
-        Ensures we don't send duplicate template alerts within a 5-minute window.
-        """
+    async def is_idempotent_template_alert(db: AsyncIOMotorDatabase, restaurant_id: str, template_name: str, alert_type: AlertType) -> bool:
+        """Ensures we don't send duplicate template alerts within a 5-minute window for a specific restaurant."""
         five_minutes_ago = AlertService._get_now_utc() - timedelta(minutes=5)
         count = await db.email_alert_logs.count_documents({
+            "restaurant_id": restaurant_id,
             "alert_type": alert_type.value,
             "context.template_name": template_name,
             "created_at": {"$gte": five_minutes_ago},
@@ -206,8 +207,9 @@ class AlertService:
 
     @staticmethod
     async def send_template_approved_alert(db: AsyncIOMotorDatabase, restaurant: dict, template_name: str):
-        if not await AlertService.is_idempotent_template_alert(db, template_name, AlertType.TEMPLATE_APPROVED):
-            logger.info("template_alert_suppressed_idempotency", template_name=template_name)
+        rid = str(restaurant.get("_id") or restaurant.get("id"))
+        if not await AlertService.is_idempotent_template_alert(db, rid, template_name, AlertType.TEMPLATE_APPROVED):
+            logger.info("template_alert_suppressed_idempotency", template_name=template_name, restaurant_id=rid)
             return
 
         await AlertService.send_alert_email(
@@ -221,8 +223,9 @@ class AlertService:
 
     @staticmethod
     async def send_template_rejected_alert(db: AsyncIOMotorDatabase, restaurant: dict, template_name: str, rejection_reason: Optional[str] = None):
-        if not await AlertService.is_idempotent_template_alert(db, template_name, AlertType.TEMPLATE_REJECTED):
-            logger.info("template_alert_suppressed_idempotency", template_name=template_name)
+        rid = str(restaurant.get("_id") or restaurant.get("id"))
+        if not await AlertService.is_idempotent_template_alert(db, rid, template_name, AlertType.TEMPLATE_REJECTED):
+            logger.info("template_alert_suppressed_idempotency", template_name=template_name, restaurant_id=rid)
             return
 
         await AlertService.send_alert_email(
@@ -250,15 +253,15 @@ class AlertService:
             "is_read": False,
         })
 
-        # 2. Check Fielia external unread count if it's an R2 tenant
-        if restaurant_id == "r2":
+        # 2. Check Fielia external unread count if feature flag is set
+        if restaurant.get("settings", {}).get("uses_fielia_inbox") or restaurant.get("uses_fielia_inbox"):
             try:
                 f_db = get_fielia_db()
                 if f_db is not None:
                     f_unread = await f_db.inbound_messages.count_documents({"is_read": False})
                     unread_count += f_unread
             except Exception as e:
-                logger.error("fielia_count_check_failed", error=str(e))
+                logger.error("fielia_count_check_failed", error=str(e), restaurant_id=restaurant_id)
 
         if unread_count < threshold:
             return
@@ -287,9 +290,18 @@ class AlertService:
             if unread_count < (last_alert_count + 10):
                 return
 
-        # Atomically update to prevent race conditions
+        # Atomically update to prevent race conditions (Compare-And-Swap)
+        # Only send if last_unread_alert_at is still what we read (or never existed)
+        cas_filter = {
+            "_id": restaurant["_id"],
+            "$or": [
+                {"last_unread_alert_at": last_alert_at},
+                {"last_unread_alert_at": {"$exists": False}}
+            ]
+        }
+        
         update_result = await db.restaurants.update_one(
-            {"_id": restaurant["_id"]},
+            cas_filter,
             {
                 "$set": {
                     "last_unread_alert_at": now,
@@ -297,7 +309,7 @@ class AlertService:
                 }
             }
         )
-
+        
         if update_result.modified_count > 0:
             await AlertService.send_alert_email(
                 db,

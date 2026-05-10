@@ -1,4 +1,4 @@
-import asyncio
+from typing import Any, List, Optional
 from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import UpdateOne, ASCENDING
@@ -8,6 +8,8 @@ from app.core.logging import get_logger
 from app.database import get_db
 
 logger = get_logger(__name__)
+
+SYNC_NAME = "dormancy_sync"
 
 class DormancySyncService:
     @staticmethod
@@ -27,15 +29,15 @@ class DormancySyncService:
         return "LOST"
 
     @staticmethod
-    async def sync_restaurant(rid: str, db: AsyncIOMotorDatabase = None):
+    async def sync_restaurant(rid: str, db: Optional[AsyncIOMotorDatabase] = None):
         if not db:
             db = get_db()
             
         start_time = datetime.now(timezone.utc)
         
         # 1. Fetch Sync State (Resumability)
-        # We track the last processed '_id' of the uploads to ensure we never skip/reprocess
-        state = await db.sync_metadata.find_one({"restaurant_id": rid, "source": "reservego_uploads"})
+        # We track the last processed '_id' using sync_name for indexing consistency
+        state = await db.sync_metadata.find_one({"restaurant_id": rid, "sync_name": SYNC_NAME})
         last_id = state.get("last_processed_id") if state else None
         
         query = {"restaurant_id": rid, "last_visited_date": {"$ne": None}}
@@ -107,12 +109,13 @@ class DormancySyncService:
         # 4. Update Sync State (Checkpoint)
         if stats["latest_id"]:
             await db.sync_metadata.update_one(
-                {"restaurant_id": rid, "source": "reservego_uploads"},
+                {"restaurant_id": rid, "sync_name": SYNC_NAME},
                 {
                     "$set": {
                         "last_processed_id": stats["latest_id"],
                         "last_sync_time": datetime.now(timezone.utc),
-                        "status": "SUCCESS"
+                        "status": "SUCCESS",
+                        "source": "reservego_uploads"
                     }
                 },
                 upsert=True

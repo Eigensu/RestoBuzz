@@ -89,17 +89,6 @@ async def receive_webhook(
             }
         )
 
-    try:
-        from app.workers.webhook_task import process_webhook_task
-
-        process_webhook_task.delay(payload)
-    except Exception as e:
-        logger.exception(
-            "webhook_dispatch_error",
-            error=str(e),
-            task="process_webhook_task",
-        )
-
     return {"status": "ok"}
 
 
