@@ -76,28 +76,11 @@ async def _process_restaurant(db, rest, cutoff):
                 dormant_count += 1
 
     # 1. Process Internal members in batches
-    batch = []
-    async for m in db.members.find({"restaurant_id": rid}):
-        batch.append(m)
-        if len(batch) >= 100:
-            await _handle_batch(batch)
-            batch = []
-    await _handle_batch(batch)
+    await _process_internal_members(db, rid, _handle_batch)
 
     # 2. Process Fielia External members in batches (r2 only)
     if rid == "r2":
-        batch = []
-        try:
-            async for f_member in fielia_service.stream_all_members():
-                batch.append(f_member)
-                if len(batch) >= 100:
-                    await _handle_batch(batch)
-                    batch = []
-            await _handle_batch(batch)
-        except (ConnectionError, asyncio.TimeoutError) as e:
-            print(f"  ! Network error fetching Fielia members: {e}")
-        except Exception as e:
-            print(f"  ! Unexpected error fetching Fielia members: {e}")
+        await _process_external_members(_handle_batch)
 
     if total_processed == 0:
         return
@@ -108,6 +91,29 @@ async def _process_restaurant(db, rest, cutoff):
     print(f"  DORMANT    : {dormant_count}")
     print(f"  Unknown    : {unknown_count}")
     print("")
+
+async def _process_internal_members(db, rid, batch_handler):
+    batch = []
+    async for m in db.members.find({"restaurant_id": rid}):
+        batch.append(m)
+        if len(batch) >= 100:
+            await batch_handler(batch)
+            batch = []
+    await batch_handler(batch)
+
+async def _process_external_members(batch_handler):
+    batch = []
+    try:
+        async for f_member in fielia_service.stream_all_members():
+            batch.append(f_member)
+            if len(batch) >= 100:
+                await batch_handler(batch)
+                batch = []
+        await batch_handler(batch)
+    except (ConnectionError, asyncio.TimeoutError) as e:
+        print(f"  ! Network error fetching Fielia members: {e}")
+    except Exception as e:
+        print(f"  ! Unexpected error fetching Fielia members: {e}")
 
 async def main():
     client = AsyncIOMotorClient(settings.mongodb_url)

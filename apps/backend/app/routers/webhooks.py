@@ -251,24 +251,27 @@ async def _handle_message_status_update(db, status: dict):
     if result.modified_count > 0:
         logger.info("outbound_status_updated", wa_id=wa_id, status=wa_status)
 
+async def _handle_webhook_change(db, change: dict, background_tasks: BackgroundTasks) -> None:
+    value = change.get("value", {})
+    if value.get("event") == "message_template_status_update":
+        await _handle_template_status(db, value, background_tasks)
+        return
+
+    metadata = value.get("metadata", {})
+    recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
+    restaurant_id = await _resolve_restaurant_id(db, value)
+
+    await _handle_incoming_messages(db, value, restaurant_id, recipient_id)
+    if restaurant_id and value.get("messages", []):
+        background_tasks.add_task(alert_service.check_unread_threshold_alert, db, restaurant_id)
+
+    for status in value.get("statuses", []):
+        await _handle_message_status_update(db, status)
+
 async def _process_payload(db, payload: dict, background_tasks: BackgroundTasks) -> None:
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
-            value = change.get("value", {})
-            if value.get("event") == "message_template_status_update":
-                await _handle_template_status(db, value, background_tasks)
-                continue
-
-            metadata = value.get("metadata", {})
-            recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
-            restaurant_id = await _resolve_restaurant_id(db, value)
-
-            await _handle_incoming_messages(db, value, restaurant_id, recipient_id)
-            if restaurant_id and value.get("messages", []):
-                background_tasks.add_task(alert_service.check_unread_threshold_alert, db, restaurant_id)
-
-            for status in value.get("statuses", []):
-                await _handle_message_status_update(db, status)
+            await _handle_webhook_change(db, change, background_tasks)
 
 
 # ── Resend Webhooks ───────────────────────────────────────────────────────────

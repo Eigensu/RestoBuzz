@@ -4,6 +4,19 @@ from datetime import datetime, timezone, timedelta
 
 import os
 
+def _normalize_fielia_phone(phone: any) -> str | None:
+    if not phone:
+        return None
+    clean = "".join(filter(str.isdigit, str(phone)))
+    return clean[-10:] if len(clean) >= 10 else None
+
+def _normalize_visit_time(dt: any) -> datetime:
+    if not isinstance(dt, datetime):
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
 async def count_active_inactive():
     uri = os.environ.get("FIELIA_MONGO_URI")
     if not uri:
@@ -21,29 +34,12 @@ async def count_active_inactive():
         latest_visits = {}
         
         async for doc in col.find({}, {"phone": 1, "updatedAt": 1}):
-            phone = doc.get("phone")
-            if not phone:
+            norm = _normalize_fielia_phone(doc.get("phone"))
+            if not norm:
                 continue
-                
-            clean = "".join(filter(str.isdigit, str(phone)))
-            if len(clean) < 10:
-                continue
-            norm = clean[-10:]
             
-            updated_at = doc.get("updatedAt")
-            if not isinstance(updated_at, datetime):
-                # Ensure we at least track the phone if updatedAt is missing/invalid
-                if norm not in latest_visits:
-                    latest_visits[norm] = datetime.min.replace(tzinfo=timezone.utc)
-                continue
+            updated_at = _normalize_visit_time(doc.get("updatedAt"))
 
-            # Normalize to UTC
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
-            else:
-                updated_at = updated_at.astimezone(timezone.utc)
-
-            # Keep the most recent visit per phone
             if norm not in latest_visits or updated_at > latest_visits[norm]:
                 latest_visits[norm] = updated_at
                 

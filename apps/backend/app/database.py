@@ -74,7 +74,7 @@ def get_fielia_db() -> AsyncIOMotorDatabase | None:
 
 
 
-async def _get_conflict_name(idx_name: str, index: IndexModel, existing_indexes: dict) -> str | None:
+def _get_conflict_name(idx_name: str, index: IndexModel, existing_indexes: dict) -> str | None:
     if idx_name in existing_indexes:
         return idx_name
     
@@ -140,6 +140,23 @@ async def _migrate_index_additive(collection, index: IndexModel, idx_name: str, 
             "Original index preserved. Startup proceeding in degraded state."
         )
 
+async def _reconcile_conflicts(collection, indexes: list[IndexModel], existing_indexes: dict) -> None:
+    """Internal helper to iterate and resolve conflicting indexes one-by-one."""
+    for index in indexes:
+        idx_name = index.document.get("name") or "_".join([f"{k}_{v}" for k, v in index.document["key"].items()])
+        try:
+            await collection.create_indexes([index])
+        except OperationFailure as inner_e:
+            if inner_e.code not in (85, 86):
+                raise inner_e
+
+            conflict_name = _get_conflict_name(idx_name, index, existing_indexes)
+            if not conflict_name or conflict_name == "_id_":
+                continue
+            
+            if await _validate_unique_constraint(collection, index, idx_name):
+                await _migrate_index_additive(collection, index, idx_name, conflict_name)
+
 async def safe_create_indexes(collection, indexes: list[IndexModel]) -> None:
     """Enterprise-safe index reconciliation for Motor/PyMongo."""
     start_time = time.perf_counter()
@@ -147,35 +164,16 @@ async def safe_create_indexes(collection, indexes: list[IndexModel]) -> None:
 
     try:
         await collection.create_indexes(indexes)
-        duration = time.perf_counter() - start_time
-        logger.info(f"Indexing complete: '{collection.name}' in {duration:.3f}s")
     except OperationFailure as e:
         if e.code not in (85, 86):
             raise e
 
         logger.warning(f"Index conflict in '{collection.name}'. Initiating reconciliation...")
         existing_indexes = await collection.index_information()
-        
-        for index in indexes:
-            idx_name = index.document.get("name") or "_".join([f"{k}_{v}" for k, v in index.document["key"].items()])
-            try:
-                await collection.create_indexes([index])
-            except OperationFailure as inner_e:
-                if inner_e.code not in (85, 86):
-                    raise inner_e
+        await _reconcile_conflicts(collection, indexes, existing_indexes)
 
-                conflict_name = await _get_conflict_name(idx_name, index, existing_indexes)
-                if not conflict_name or conflict_name == "_id_":
-                    continue
-                
-                if await _validate_unique_constraint(collection, index, idx_name):
-                    await _migrate_index_additive(collection, index, idx_name, conflict_name)
-
-    final_duration = time.perf_counter() - start_time
-    logger.info(f"Indexing complete: '{collection.name}' total time {final_duration:.3f}s")
-
-    final_duration = time.perf_counter() - start_time
-    logger.info(f"Indexing complete: '{collection.name}' total reconciliation time {final_duration:.3f}s")
+    duration = time.perf_counter() - start_time
+    logger.info(f"Indexing complete: '{collection.name}' in {duration:.3f}s")
 
 async def init_indexes() -> None:
     db = get_db()
