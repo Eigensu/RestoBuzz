@@ -106,7 +106,7 @@ export function NewCampaignWizard() {
     }
   };
 
-  const useMembersAsContacts = async (type: "all" | "nfc" | "ecard" | "reservego", limit?: number) => {
+  const useMembersAsContacts = async (type: "all" | "nfc" | "ecard" | "reservego" | "at_risk" | "dormant" | "lost" | "inactive", limit?: number) => {
     setLoadingMembers(true);
     try {
       const params = new URLSearchParams({ restaurant_id: restaurant!.id });

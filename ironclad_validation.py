@@ -14,23 +14,22 @@ from pydantic import ValidationError
 # Must come before any app.* imports so the backend package is on the path
 sys.path.append(os.path.join(os.getcwd(), "apps", "backend"))
 
-from app.config import (
+from app.config import (  # type: ignore[import]
     settings,
 )  # noqa: E402  # pylint: disable=wrong-import-position,import-error
-from app.database import (
+from app.database import (  # type: ignore[import]
     init_indexes,
 )  # noqa: E402  # pylint: disable=wrong-import-position,import-error
-from app.models.member import (
+from app.models.member import (  # type: ignore[import]
     MemberResponse,
 )  # noqa: E402  # pylint: disable=wrong-import-position,import-error
-from app.services.dormancy_service import (  # noqa: E402  # pylint: disable=wrong-import-position,import-error
+from app.services.dormancy_service import (  # type: ignore[import]  # noqa: E402  # pylint: disable=wrong-import-position,import-error
     dormancy_service,
     normalize_phone_for_match,
 )
-from app.services.fielia_members_service import (
+from app.services.fielia_members_service import (  # type: ignore[import]  # noqa: E402  # pylint: disable=wrong-import-position,import-error
     fielia_service,
-)  # noqa: E402  # pylint: disable=wrong-import-position,import-error
-
+)
 
 def _test_phone_normalization() -> bool:
     """TEST 1: Verify phone normalisation produces consistent 10-digit suffixes."""

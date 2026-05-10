@@ -2,11 +2,15 @@ from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import Dict, List, Tuple, Any
 from app.core.logging import get_logger
+from app.core.time import now_utc, now_ist
 
 logger = get_logger(__name__)
 
-# IST is UTC + 5:30
-IST_OFFSET = timedelta(hours=5, minutes=30)
+# Single source of truth for dormancy threshold.
+# Changing this constant instantly affects all member listing, filtering,
+# campaign audience selection, and the members page Dormant tab.
+DORMANCY_DAYS = 30
+
 REGEX = "$regex"
 
 
@@ -25,7 +29,7 @@ def normalize_phone_for_match(phone: str | None) -> str | None:
 class DormancyService:
     @staticmethod
     def get_ist_now() -> datetime:
-        return datetime.now(timezone.utc) + IST_OFFSET
+        return now_ist()
 
     async def get_bulk_activity(
         self,
@@ -113,7 +117,7 @@ class DormancyService:
         self, last_visit: datetime | None, internal_last_visit: datetime | None = None
     ) -> Tuple[str, str | None]:
         """Determine status and source."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = now_utc().replace(tzinfo=None)
 
         if last_visit:
             status = self._get_status_for_date(last_visit, now)
@@ -130,6 +134,23 @@ class DormancyService:
         naive_dt = dt.replace(tzinfo=None)
         days_ago = (now - naive_dt).days
         return "active" if days_ago <= 30 else "dormant"
+
+    def get_tier(self, last_visit: datetime | None) -> str:
+        """Categorize member into ACTIVE, AT_RISK, DORMANT, LOST, or UNKNOWN."""
+        if not last_visit:
+            return "UNKNOWN"
+            
+        now = now_utc().replace(tzinfo=None)
+        naive_dt = last_visit.replace(tzinfo=None)
+        days_ago = (now - naive_dt).days
+        
+        if days_ago <= 30:
+            return "ACTIVE"
+        if days_ago <= 60:
+            return "AT_RISK"
+        if days_ago <= 90:
+            return "DORMANT"
+        return "LOST"
 
 
 dormancy_service = DormancyService()

@@ -1,4 +1,5 @@
 import { MessageSquare, TrendingUp, Users } from "lucide-react";
+import { absoluteIST } from "@/lib/date";
 import { EmptyState } from "../atoms/EmptyState";
 import { SectionCard } from "../atoms/SectionCard";
 import { StatCard } from "../atoms/StatCard";
@@ -96,7 +97,7 @@ export function InboxTab({
                     {c.message_count.toLocaleString()}
                   </td>
                   <td className="py-3 pr-4 text-gray-400 text-xs">
-                    {c.last_received_at.slice(0, 16).replace("T", " ")}
+                    {absoluteIST(c.last_received_at)}
                   </td>
                 </tr>
               ))}

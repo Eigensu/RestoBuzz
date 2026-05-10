@@ -1,0 +1,13 @@
+{% extends "email/base.html" %}
+
+{% block title %}WhatsApp Template Rejected{% endblock %}
+
+{% block content %}
+Your WhatsApp message template <strong>{{ template_name }}</strong> was not approved by Meta.
+<div class="details-box">
+    Reason: {{ rejection_reason or "No specific reason provided by Meta." }}
+</div>
+Please review the template guidelines and resubmit or edit the template in the Meta Business Suite.
+{% endblock %}
+
+{% block cta_text %}Review Template{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "email/base.html" %}
+
+{% block title %}WhatsApp Account Disconnected{% endblock %}
+
+{% block content %}
+<span style="color: #ef4444; font-weight: 700;">CRITICAL:</span> Your WhatsApp Business Account (WABA) has been disconnected or its token has expired.
+<br><br>
+Until this is resolved, you will not be able to send or receive any messages or run campaigns.
+{% endblock %}
+
+{% block cta_text %}Reconnect Account{% endblock %}

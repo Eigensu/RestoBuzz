@@ -10,6 +10,7 @@ import {
   Download,
   Trash2,
   Database,
+  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GradientButton } from "@/components/ui/GradientButton";
@@ -38,15 +39,16 @@ interface Step1UploadProps {
   reusingFile: boolean;
   reuseFile: (ref: string) => void;
   loadingMembers: boolean;
-  onSelectMembers: (type: "all" | "nfc" | "ecard" | "reservego", limit?: number) => void;
+  onSelectMembers: (type: "all" | "nfc" | "ecard" | "reservego" | "at_risk" | "dormant" | "lost" | "inactive", limit?: number) => void;
   onDeleteFile: (ref: string) => void;
   reservegoCount: number;
 }
 
 const MEMBER_TYPES: {
-  key: "all" | "nfc" | "ecard";
+  key: "all" | "nfc" | "ecard" | "at_risk" | "dormant" | "lost" | "inactive";
   label: string;
   desc: string;
+  icon?: "moon" | "alert" | "lost";
 }[] = [
   {
     key: "all",
@@ -55,6 +57,11 @@ const MEMBER_TYPES: {
   },
   { key: "nfc", label: "NFC Only", desc: "Members with a physical NFC card" },
   { key: "ecard", label: "E-Card Only", desc: "Members with a digital e-card" },
+  { 
+    key: "inactive", 
+    label: "Inactive Members", 
+    desc: "Re-engage members who haven't visited recently. Includes At-Risk (30-60d), Dormant (60-90d), and Lost (90d+).",
+  },
 ];
 
 export function Step1Upload({
@@ -262,15 +269,23 @@ export function Step1Upload({
               className="w-full text-sm p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#24422e] transition"
             />
           </div>
-          {MEMBER_TYPES.map(({ key, label, desc }) => (
+          {MEMBER_TYPES.map(({ key, label, desc, icon }) => (
             <button
               key={key}
               onClick={() => onSelectMembers(key, limit ? parseInt(limit, 10) : undefined)}
               disabled={loadingMembers}
               className="w-full flex items-center gap-4 p-4 border-2 rounded-xl hover:border-[#24422e] hover:bg-[#24422e]/5 transition text-left disabled:opacity-50 group"
             >
-              <div className="w-10 h-10 rounded-xl bg-[#eff2f0] flex items-center justify-center shrink-0 group-hover:bg-[#24422e]/10">
-                <Users className="w-5 h-5 text-[#24422e]" />
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-opacity-20"
+                style={{ 
+                  background: key === "inactive" ? "#fffbeb" : "#eff2f0" 
+                }}
+              >
+                {key === "inactive" ? (
+                  <Moon className="w-5 h-5 text-amber-500" />
+                ) : (
+                  <Users className="w-5 h-5 text-[#24422e]" />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-gray-900">{label}</p>

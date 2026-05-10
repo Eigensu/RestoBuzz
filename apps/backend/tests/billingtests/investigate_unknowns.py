@@ -6,9 +6,9 @@ import sys
 
 # Standard root-relative import bootstrap
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.append(str(ROOT / "app"))
+sys.path.append(str(ROOT))
 
-from config import settings
+from app.config import settings
 from motor.motor_asyncio import AsyncIOMotorClient
 
 async def check_job_exists(db, job_id_str):

@@ -43,7 +43,7 @@ app = FastAPI(
     title="DishPatch API",
     version="1.0.0",
     lifespan=lifespan,
-    redirect_slashes=False,
+    redirect_slashes=False, # trigger reload
 )
 
 

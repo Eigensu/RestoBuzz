@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import json
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Request, Response, Query
+from fastapi import APIRouter, Depends, Request, Response, Query, BackgroundTasks
 from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
@@ -10,6 +10,7 @@ from app.core.errors import WebhookSignatureError
 from app.services.message_types import normalize_message_type
 from app.services.meta_api import send_text_message
 from app.services.email_suppression import add_email_suppression
+from app.services.alert_service import alert_service
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -43,8 +44,15 @@ async def verify_webhook(
     raise WebhookSignatureError("Webhook verification failed")
 
 
+from typing import Annotated
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
 @router.post("/meta", status_code=200)
-async def receive_webhook(request: Request, db=Depends(get_db)):
+async def receive_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
+):
     body = await request.body()
     sig = request.headers.get("X-Hub-Signature-256", "")
 
@@ -69,7 +77,7 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
     logger.info("webhook_received", entry_count=len(payload.get("entry", [])))
 
     try:
-        await _process_payload(db, payload)
+        await _process_payload(db, payload, background_tasks)
     except Exception as e:
         logger.error("webhook_process_error", error=str(e))
         await db.webhook_errors.insert_one(
@@ -79,17 +87,6 @@ async def receive_webhook(request: Request, db=Depends(get_db)):
                 "error": str(e),
                 "received_at": datetime.now(timezone.utc),
             }
-        )
-
-    try:
-        from app.workers.webhook_task import process_webhook_task
-
-        process_webhook_task.delay(payload)
-    except Exception as e:
-        logger.exception(
-            "webhook_dispatch_error",
-            error=str(e),
-            task="process_webhook_task",
         )
 
     return {"status": "ok"}
@@ -140,192 +137,141 @@ async def _send_benefits_reply(
         logger.error("benefits_reply_failed", to=to, error=str(e))
 
 
-async def _process_payload(db, payload: dict) -> None:
+async def _handle_template_status(db, value: dict, background_tasks: BackgroundTasks) -> None:
+    template_name = value.get("message_template_name")
+    actual_status = value.get("status", "").upper()
+    
+    cursor = db.restaurants.find({}, {"_id": 1, "name": 1, "email": 1, "notification_emails": 1})
+    async for rest in cursor:
+        if actual_status == "APPROVED":
+            background_tasks.add_task(alert_service.send_template_approved_alert, db, rest, template_name)
+        elif actual_status == "REJECTED":
+            rejection_reason = value.get("reason", "No reason provided.")
+            background_tasks.add_task(alert_service.send_template_rejected_alert, db, rest, template_name, rejection_reason)
+
+def _parse_message_content(msg: dict, msg_type: str) -> tuple[str | None, str | None, str | None]:
+    body_text = None
+    media_url = None
+    media_mime = None
+    
+    if msg_type == "text":
+        body_text = msg.get("text", {}).get("body", "")
+    elif msg_type in ("image", "document", "sticker", "audio", "video"):
+        media_obj = msg.get(msg_type, {})
+        media_url = media_obj.get("url") or media_obj.get("link")
+        media_mime = media_obj.get("mime_type")
+        body_text = media_obj.get("caption") or media_obj.get("filename")
+    elif msg_type == "button":
+        body_text = msg.get("button", {}).get("text", "")
+    elif msg_type == "interactive":
+        interactive = msg.get("interactive", {})
+        button_reply = interactive.get("button_reply", {})
+        body_text = button_reply.get("title") or interactive.get("list_reply", {}).get("title") or ""
+        
+    return body_text, media_url, media_mime
+
+async def _handle_auto_replies(db, msg: dict, msg_type: str, from_phone: str, restaurant_id: str, recipient_id: str, body_text: str | None):
+    # Benefits auto-reply
+    is_benefits = False
+    if msg_type == "interactive":
+        if msg.get("interactive", {}).get("button_reply", {}).get("id") == "get_benefits":
+            is_benefits = True
+    elif msg_type == "button":
+        btn_text = (msg.get("button", {}).get("text") or "").strip().lower()
+        btn_payload = (msg.get("button", {}).get("payload") or "").strip().lower()
+        if btn_payload == "get_benefits" or btn_text == "get the benefits":
+            is_benefits = True
+            
+    if is_benefits:
+        await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
+
+    # Opt-out suppression
+    if body_text and body_text.strip().lower() in STOP_KEYWORDS:
+        await db.suppression_list.update_one(
+            {"phone": from_phone},
+            {"$setOnInsert": {"phone": from_phone, "reason": "opt_out", "added_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        logger.info("auto_suppressed", phone=from_phone)
+
+async def _handle_incoming_messages(db, value: dict, restaurant_id: str, recipient_id: str) -> None:
+    messages = value.get("messages", [])
+    contacts = {c["wa_id"]: c.get("profile", {}).get("name") for c in value.get("contacts", [])}
+    
+    for msg in messages:
+        wa_id = msg.get("id")
+        if not wa_id: continue
+
+        from_phone = msg.get("from")
+        sender_name = contacts.get(from_phone)
+        msg_type = normalize_message_type(msg.get("type"))
+        
+        body_text, media_url, media_mime = _parse_message_content(msg, msg_type)
+
+        doc = {
+            "wa_message_id": wa_id, "from_phone": from_phone, "sender_name": sender_name,
+            "message_type": msg_type, "body": body_text, "media_url": media_url,
+            "media_mime_type": media_mime, "location": None, "is_read": False,
+            "received_at": datetime.now(timezone.utc), "raw_payload": msg,
+            "restaurant_id": restaurant_id, "wa_phone_id": recipient_id,
+        }
+
+        result = await db.inbound_messages.update_one(
+            {"wa_message_id": wa_id}, {"$setOnInsert": doc}, upsert=True,
+        )
+
+        if result.upserted_id:
+            logger.info("inbound_message_saved", from_phone=from_phone, type=msg_type, wa_id=wa_id)
+            await _handle_auto_replies(db, msg, msg_type, from_phone, restaurant_id, recipient_id, body_text)
+
+async def _resolve_restaurant_id(db, value: dict) -> str | None:
+    metadata = value.get("metadata", {})
+    recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
+    if not recipient_id:
+        return None
+        
+    rest_doc = await db.restaurants.find_one({"wa_phone_ids": recipient_id})
+    return rest_doc.get("id") or str(rest_doc["_id"]) if rest_doc else None
+
+async def _handle_message_status_update(db, status: dict):
+    wa_id = status.get("id")
+    wa_status = status.get("status")
+    if not wa_id or not wa_status:
+        return
+
+    allowed = {"queued", "sending", "sent", "delivered", "read", "failed", "cancelled"}
+    if wa_status not in allowed:
+        logger.warning("webhook_invalid_status", wa_id=wa_id, status=wa_status)
+        return
+
+    result = await db.outbound_messages.update_one(
+        {"wa_message_id": wa_id},
+        {"$set": {"status": wa_status, "updated_at": datetime.now(timezone.utc)}},
+    )
+    if result.modified_count > 0:
+        logger.info("outbound_status_updated", wa_id=wa_id, status=wa_status)
+
+async def _handle_webhook_change(db, change: dict, background_tasks: BackgroundTasks) -> None:
+    value = change.get("value", {})
+    if value.get("event") == "message_template_status_update":
+        await _handle_template_status(db, value, background_tasks)
+        return
+
+    metadata = value.get("metadata", {})
+    recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
+    restaurant_id = await _resolve_restaurant_id(db, value)
+
+    await _handle_incoming_messages(db, value, restaurant_id, recipient_id)
+    if restaurant_id and value.get("messages", []):
+        background_tasks.add_task(alert_service.check_unread_threshold_alert, db, restaurant_id)
+
+    for status in value.get("statuses", []):
+        await _handle_message_status_update(db, status)
+
+async def _process_payload(db, payload: dict, background_tasks: BackgroundTasks) -> None:
     for entry in payload.get("entry", []):
         for change in entry.get("changes", []):
-            value = change.get("value", {})
-            metadata = value.get("metadata", {})
-            # This is the Meta Phone Number ID that received the message
-            recipient_id = (
-                str(metadata.get("phone_number_id", ""))
-                if metadata.get("phone_number_id")
-                else None
-            )
-
-            # 1. Resolve restaurant_id from recipient_id
-            restaurant_id = None
-            if recipient_id:
-                # Store resolved RID in a local cache for this batch if needed,
-                # but a simple DB fetch is safe.
-                rest_doc = await db.restaurants.find_one({"wa_phone_ids": recipient_id})
-                if rest_doc:
-                    restaurant_id = rest_doc.get("id") or str(rest_doc["_id"])
-
-            messages = value.get("messages", [])
-            contacts = {
-                c["wa_id"]: c.get("profile", {}).get("name")
-                for c in value.get("contacts", [])
-            }
-
-            # Collect restaurants that received new messages; dispatch a single
-            # alert task per unique restaurant after the message loop instead of
-            # awaiting the alert inline on every message.
-            restaurants_to_check: set[str] = set()
-
-            for msg in messages:
-                wa_id = msg.get("id")
-                if not wa_id:
-                    continue
-
-                from_phone = msg.get("from")
-                sender_name = contacts.get(from_phone)
-                msg_type = normalize_message_type(msg.get("type"))
-                body_text = None
-                media_url = None
-                media_mime = None
-                location = None
-
-                if msg_type == "text":
-                    body_text = msg.get("text", {}).get("body", "")
-                elif msg_type in ("image", "document", "sticker", "audio", "video"):
-                    media_obj = msg.get(msg_type, {})
-                    media_url = media_obj.get("url") or media_obj.get("link")
-                    media_mime = media_obj.get("mime_type")
-                    body_text = media_obj.get("caption") or media_obj.get("filename")
-                elif msg_type == "button":
-                    btn = msg.get("button", {})
-                    body_text = btn.get("text", "")
-                elif msg_type == "interactive":
-                    interactive = msg.get("interactive", {})
-                    button_reply = interactive.get("button_reply", {})
-                    body_text = (
-                        button_reply.get("title")
-                        or interactive.get("list_reply", {}).get("title")
-                        or ""
-                    )
-
-                doc = {
-                    "wa_message_id": wa_id,
-                    "from_phone": from_phone,
-                    "sender_name": sender_name,
-                    "message_type": msg_type,
-                    "body": body_text,
-                    "media_url": media_url,
-                    "media_mime_type": media_mime,
-                    "location": location,
-                    "is_read": False,
-                    "received_at": datetime.now(timezone.utc),
-                    "raw_payload": msg,
-                    "restaurant_id": restaurant_id,  # Mandatory for tenant-scoping
-                    "wa_phone_id": recipient_id,
-                    # If restaurant_id is None, it effectively quarantines the message
-                    # from all tenant-scoped APIs.
-                }
-
-                result = await db.inbound_messages.update_one(
-                    {"wa_message_id": wa_id},
-                    {"$setOnInsert": doc},
-                    upsert=True,
-                )
-
-                if result.upserted_id:
-                    logger.info(
-                        "inbound_message_saved",
-                        from_phone=from_phone,
-                        type=msg_type,
-                        wa_id=wa_id,
-                    )
-
-                    # Trigger automated benefits response if button id matches
-                    # (Checked after idempotency to prevent duplicate replies)
-                    if msg_type == "interactive":
-                        interactive = msg.get("interactive", {})
-                        if (
-                            interactive.get("button_reply", {}).get("id")
-                            == "get_benefits"
-                        ):
-                            await _send_benefits_reply(
-                                db, from_phone, restaurant_id, recipient_id
-                            )
-                    elif msg_type == "button":
-                        btn = msg.get("button", {})
-                        btn_payload = (btn.get("payload") or "").strip().lower()
-                        btn_text = (btn.get("text") or "").strip().lower()
-                        if (
-                            btn_payload == "get_benefits"
-                            or btn_text == "get the benefits"
-                        ):
-                            await _send_benefits_reply(
-                                db, from_phone, restaurant_id, recipient_id
-                            )
-
-                    if body_text and body_text.strip().lower() in STOP_KEYWORDS:
-                        await db.suppression_list.update_one(
-                            {"phone": from_phone},
-                            {
-                                "$setOnInsert": {
-                                    "phone": from_phone,
-                                    "reason": "opt_out",
-                                    "added_at": datetime.now(timezone.utc),
-                                }
-                            },
-                            upsert=True,
-                        )
-                        logger.info("auto_suppressed", phone=from_phone)
-
-                    # Accumulate restaurant for post-loop alert dispatch
-                    if restaurant_id:
-                        restaurants_to_check.add(restaurant_id)
-
-            # Dispatch one unread-alert task per unique restaurant.
-            # This prevents N identical DB+email round-trips (one per message)
-            # and keeps the webhook handler non-blocking.
-            for rid in restaurants_to_check:
-                try:
-                    from app.workers.alert_tasks import send_unread_threshold_alert_task
-
-                    send_unread_threshold_alert_task.delay(rid)
-                except Exception as e:
-                    logger.error(
-                        "unread_alert_dispatch_failed", restaurant_id=rid, error=str(e)
-                    )
-
-            # Handle status updates (delivered, read, failed)
-            statuses = value.get("statuses", [])
-            for status in statuses:
-                wa_id = status.get("id")
-                wa_status = status.get("status")
-                if not wa_id or not wa_status:
-                    continue
-
-                if wa_status not in {
-                    "queued",
-                    "sending",
-                    "sent",
-                    "delivered",
-                    "read",
-                    "failed",
-                    "cancelled",
-                }:
-                    logger.warning(
-                        "webhook_invalid_status", wa_id=wa_id, status=wa_status
-                    )
-                    continue
-
-                # Update outbound_messages (inbox replies) in real time;
-                result = await db.outbound_messages.update_one(
-                    {"wa_message_id": wa_id},
-                    {
-                        "$set": {
-                            "status": wa_status,
-                            "updated_at": datetime.now(timezone.utc),
-                        }
-                    },
-                )
-                if result.modified_count > 0:
-                    logger.info(
-                        "outbound_status_updated", wa_id=wa_id, status=wa_status
-                    )
+            await _handle_webhook_change(db, change, background_tasks)
 
 
 # ── Resend Webhooks ───────────────────────────────────────────────────────────
