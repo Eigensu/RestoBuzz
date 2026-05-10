@@ -52,68 +52,82 @@ async def _process_restaurant(db, rest, cutoff):
     rid = rest.get("id") or str(rest["_id"])
     name = rest.get("name", rid)
 
-    active_count = 0
-    dormant_count = 0
-    unknown_count = 0
-    total_processed = 0
+    stats = {"active": 0, "dormant": 0, "unknown": 0, "total": 0}
 
     async def _handle_batch(batch):
-        nonlocal active_count, dormant_count, unknown_count, total_processed
-        if not batch: return
+        if not batch: return {"active": 0, "dormant": 0, "unknown": 0, "total": 0}
         
         phones = [m.get("phone") for m in batch]
         uuids = [m.get("card_uid") for m in batch]
         activity_map = await dormancy_service.get_bulk_activity(db, rid, phones, uuids)
 
+        batch_stats = {"active": 0, "dormant": 0, "unknown": 0, "total": 0}
         for m in batch:
-            total_processed += 1
+            batch_stats["total"] += 1
             status = _process_member(m, activity_map, cutoff)
             if status == "unknown":
-                unknown_count += 1
+                batch_stats["unknown"] += 1
             elif status == "active":
-                active_count += 1
+                batch_stats["active"] += 1
             else:
-                dormant_count += 1
+                batch_stats["dormant"] += 1
+        return batch_stats
 
-    # 1. Process Internal members in batches
-    await _process_internal_members(db, rid, _handle_batch)
+    def _merge_stats(target, source):
+        for k in target:
+            target[k] += source[k]
 
-    # 2. Process Fielia External members in batches (r2 only)
+    # 1. Process Internal members
+    internal_res = await _process_internal_members(db, rid, _handle_batch)
+    _merge_stats(stats, internal_res)
+
+    # 2. Process Fielia External members
     if rid == "r2":
-        await _process_external_members(_handle_batch)
+        external_res = await _process_external_members(_handle_batch)
+        _merge_stats(stats, external_res)
 
-    if total_processed == 0:
+    if stats["total"] == 0:
         return
 
     print(f"  Restaurant : {name} ({rid})")
-    print(f"  Total Pool : {total_processed}  (Internal + External)")
-    print(f"  Active     : {active_count}")
-    print(f"  DORMANT    : {dormant_count}")
-    print(f"  Unknown    : {unknown_count}")
+    print(f"  Total Pool : {stats['total']}  (Internal + External)")
+    print(f"  Active     : {stats['active']}")
+    print(f"  DORMANT    : {stats['dormant']}")
+    print(f"  Unknown    : {stats['unknown']}")
     print("")
 
 async def _process_internal_members(db, rid, batch_handler):
+    acc = {"active": 0, "dormant": 0, "unknown": 0, "total": 0}
     batch = []
     async for m in db.members.find({"restaurant_id": rid}):
         batch.append(m)
         if len(batch) >= 100:
-            await batch_handler(batch)
+            res = await batch_handler(batch)
+            for k in acc: acc[k] += res[k]
             batch = []
-    await batch_handler(batch)
+    if batch:
+        res = await batch_handler(batch)
+        for k in acc: acc[k] += res[k]
+    return acc
 
 async def _process_external_members(batch_handler):
+    acc = {"active": 0, "dormant": 0, "unknown": 0, "total": 0}
     batch = []
     try:
         async for f_member in fielia_service.stream_all_members():
             batch.append(f_member)
             if len(batch) >= 100:
-                await batch_handler(batch)
+                res = await batch_handler(batch)
+                for k in acc: acc[k] += res[k]
                 batch = []
-        await batch_handler(batch)
+        if batch:
+            res = await batch_handler(batch)
+            for k in acc: acc[k] += res[k]
     except (ConnectionError, asyncio.TimeoutError) as e:
         print(f"  ! Network error fetching Fielia members: {e}")
     except Exception as e:
         print(f"  ! Unexpected error fetching Fielia members: {e}")
+    return acc
 
 async def main():
     client = AsyncIOMotorClient(settings.mongodb_url)

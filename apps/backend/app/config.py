@@ -91,7 +91,7 @@ class Settings(BaseSettings):
 
     # Frontend Dashboard URL (used for email alert links)
     dashboard_url: str = Field(
-        default="http://restobuzz.eigensu.in",
+        default="https://restobuzz.eigensu.in",
         validation_alias=AliasChoices("DASHBOARD_URL", "NEXT_PUBLIC_APP_URL"),
     )
 
@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     )
     max_alert_recipients: int = 20
     dashboard_base_url: str = Field(
-        default="http://restobuzz.eigensu.in", validation_alias=AliasChoices("DASHBOARD_BASE_URL")
+        default="https://restobuzz.eigensu.in", validation_alias=AliasChoices("DASHBOARD_BASE_URL")
     )
 
     @property
