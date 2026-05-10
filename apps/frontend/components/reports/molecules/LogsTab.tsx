@@ -1,4 +1,5 @@
 import { ChevronRight, Inbox, Search } from "lucide-react";
+import { absoluteIST } from "@/lib/date";
 import { EmptyState } from "../atoms/EmptyState";
 import { SectionCard } from "../atoms/SectionCard";
 import { StatusBadge } from "../atoms/StatusBadge";
@@ -133,7 +134,7 @@ export function LogsTab({
                       {row.retry_count}
                     </td>
                     <td className="py-3 pr-4 text-xs text-gray-400 whitespace-nowrap">
-                      {row.created_at.slice(0, 16).replace("T", " ")}
+                      {absoluteIST(row.created_at)}
                     </td>
                   </tr>
                 ))}

@@ -1,0 +1,11 @@
+{% extends "email/base.html" %}
+
+{% block title %}{{ unread_count }} Unread Messages{% endblock %}
+
+{% block content %}
+Your restaurant has <strong>{{ unread_count }}</strong> unread messages waiting in the WhatsApp Inbox.
+<br><br>
+Prompt responses improve customer satisfaction and increase your conversion rates. Please attend to these messages as soon as possible.
+{% endblock %}
+
+{% block cta_text %}Open Inbox{% endblock %}

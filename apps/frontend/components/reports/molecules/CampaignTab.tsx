@@ -1,5 +1,6 @@
 import { Activity, AlertTriangle, CheckCircle2, TrendingUp, XCircle } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { absoluteIST } from "@/lib/date";
 import { EmptyState } from "../atoms/EmptyState";
 import { SectionCard } from "../atoms/SectionCard";
 import { StatCard } from "../atoms/StatCard";
@@ -177,7 +178,7 @@ export function CampaignTab({
                     {c.name}
                   </td>
                   <td className="py-3 pr-4 text-gray-500 text-xs">
-                    {c.created_at.slice(0, 10)}
+                    {absoluteIST(c.created_at)}
                   </td>
                   <td className="py-3 pr-4">
                     <StatusBadge status={c.status} />

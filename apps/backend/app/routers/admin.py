@@ -11,6 +11,9 @@ from app.core.security import hash_password
 from app.database import get_db
 from app.dependencies import require_role
 from app.models.user import UserResponse
+from app.services.alert_service import alert_service
+from app.constants.alert_types import AlertType
+from app.core.errors import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -165,4 +168,47 @@ async def get_access_report(
         )
     
     return report
+
+# --- Diagnostic / Testing Routes ---
+
+class TestAlertRequest(BaseModel):
+    restaurant_id: str
+    alert_type: AlertType
+    template_name: str | None = "test_template"
+    rejection_reason: str | None = "Manual test rejection reason."
+    unread_count: int | None = 12
+    campaign_name: str | None = "Test Blast"
+
+@router.post("/test-alert-email", status_code=200)
+async def test_alert_email(
+    body: Annotated[TestAlertRequest, Body()],
+    _current_user: Annotated[dict, Depends(require_role("super_admin"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """Diagnostic route to verify Resend delivery, templating, and recipient resolution."""
+    # 1. Resolve restaurant
+    from bson.objectid import ObjectId
+    from bson.errors import InvalidId
+    try:
+        rid_oid = ObjectId(body.restaurant_id) if isinstance(body.restaurant_id, str) else body.restaurant_id
+        restaurant = await db.restaurants.find_one({"_id": rid_oid})
+    except InvalidId:
+        restaurant = await db.restaurants.find_one({"id": body.restaurant_id})
+
+    if not restaurant:
+        raise NotFoundError(f"Restaurant {body.restaurant_id} not found")
+
+    # 2. Trigger the requested alert type
+    if body.alert_type == AlertType.TEMPLATE_APPROVED:
+        await alert_service.send_template_approved_alert(db, restaurant, body.template_name)
+    elif body.alert_type == AlertType.TEMPLATE_REJECTED:
+        await alert_service.send_template_rejected_alert(db, restaurant, body.template_name, body.rejection_reason)
+    elif body.alert_type == AlertType.UNREAD_THRESHOLD:
+        await alert_service.check_unread_threshold_alert(db, body.restaurant_id)
+    elif body.alert_type == AlertType.WABA_DISCONNECTED:
+        await alert_service.send_waba_disconnected_alert(db, restaurant)
+    elif body.alert_type == AlertType.CAMPAIGN_FAILED:
+        await alert_service.send_campaign_failed_alert(db, restaurant, body.campaign_name, "Manual test failure reason.")
+    
+    return {"status": "dispatched", "type": body.alert_type, "restaurant": restaurant.get("name")}
 

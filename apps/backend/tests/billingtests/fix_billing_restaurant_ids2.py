@@ -7,9 +7,9 @@ import sys
 
 # Standard root-relative import bootstrap
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.append(str(ROOT / "app"))
+sys.path.append(str(ROOT))
 
-from config import settings
+from app.config import settings
 from motor.motor_asyncio import AsyncIOMotorClient
 
 async def resolve_restaurant_id(db, job_id, job_cache):

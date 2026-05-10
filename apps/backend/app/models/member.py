@@ -42,7 +42,10 @@ class MemberResponse(BaseModel):
     visit_count: int
     last_visit: datetime | None
     is_active: bool
-    activity_status: Literal["active", "dormant", "unknown"] = "unknown"
+    normalized_phone: str | None = None
+    dormancy_tier: Literal["ACTIVE", "AT_RISK", "DORMANT", "LOST", "UNKNOWN"] = "UNKNOWN"
+    last_synced_at: datetime | None = None
+    activity_status: Literal["active", "dormant", "unknown", "at_risk", "lost"] = "unknown"
     activity_source: str | None = None
     joined_at: datetime
 

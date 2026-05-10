@@ -47,7 +47,7 @@ export function MemberRow({
       {/* Dormancy Status — rendered 100% from backend value, no frontend logic */}
       <td className="px-6 py-4">
         <DormancyBadge
-          status={m.activity_status ?? "unknown"}
+          status={m.dormancy_tier ?? m.activity_status ?? "UNKNOWN"}
           source={m.activity_source}
         />
       </td>

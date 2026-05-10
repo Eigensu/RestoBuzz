@@ -1,30 +1,35 @@
-import phonenumbers
+import re
 
-def normalize_phone(raw: str, default_region: str = "IN") -> str | None:
-    if raw is None:
+def normalize_phone(raw_phone: str) -> str | None:
+    """
+    Normalizes phone numbers to canonical E.164-like format: +919876543210
+    
+    Rules:
+    - remove spaces, hyphens, brackets
+    - remove ".0" (Excel artifacts)
+    - remove duplicate "+"
+    - prepend "+" if missing
+    - handle basic validation
+    """
+    if not raw_phone:
         return None
-    raw = str(raw).strip()
-    # Strip common non-digit prefixes like leading apostrophe from Excel
-    raw = raw.lstrip("'")
-    # Excel stores numeric cells as floats — strip trailing .0
-    if raw.endswith(".0") and raw[:-2].isdigit():
-        raw = raw[:-2]
-    try:
-        parsed = phonenumbers.parse(raw, default_region)
-        if phonenumbers.is_valid_number(parsed):
-            return phonenumbers.format_number(
-                parsed, phonenumbers.PhoneNumberFormat.E164
-            )
-    except (phonenumbers.NumberParseException, TypeError, ValueError):
-        pass
-    # Try prepending + if it looks like a full number without it
-    if raw.isdigit() and len(raw) >= 10:
-        try:
-            parsed = phonenumbers.parse(f"+{raw}", None)
-            if phonenumbers.is_valid_number(parsed):
-                return phonenumbers.format_number(
-                    parsed, phonenumbers.PhoneNumberFormat.E164
-                )
-        except (phonenumbers.NumberParseException, TypeError, ValueError):
-            pass
-    return None
+        
+    # Convert to string and handle Excel .0 artifact
+    clean = str(raw_phone).replace(".0", "").strip()
+    
+    # Remove all non-digit characters except +
+    clean = re.sub(r"[^0-9+]", "", clean)
+    
+    # Handle duplicate +
+    clean = re.sub(r"\++", "+", clean)
+    
+    # Prepend + if missing
+    if clean and not clean.startswith("+"):
+        clean = "+" + clean
+        
+    # Validation: Minimum length for a valid phone with country code is around 8 chars
+    # Max length is usually 15-16
+    if len(clean) < 8 or len(clean) > 17:
+        return None
+        
+    return clean
