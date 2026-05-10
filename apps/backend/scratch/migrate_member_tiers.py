@@ -12,7 +12,7 @@ from app.services.dormancy_sync_service import dormancy_sync_service
 from app.services.member_match_service import member_match_service
 from app.services.phone_normalizer import phone_normalizer
 
-async def _migrate_restaurant(rest, db):
+async def _migrate_restaurant(rest):
     rid = rest.get("id") or str(rest["_id"])
     print(f"Migrating tiers for {rest.get('name')} ({rid})...")
     
@@ -57,7 +57,7 @@ async def migrate():
     restaurants = await db.restaurants.find().to_list(100)
     
     for rest in restaurants:
-        await _migrate_restaurant(rest, db)
+        await _migrate_restaurant(rest)
             
     print("\n--- Migration Complete ---")
 

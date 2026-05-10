@@ -149,7 +149,6 @@ class AlertService:
             return
 
         # Prepare context
-        rid = str(restaurant.get("_id") or restaurant.get("id"))
         full_subject = f"[Dishpatch Alert] {subject}"
         email_context = {
             "subject": full_subject,
