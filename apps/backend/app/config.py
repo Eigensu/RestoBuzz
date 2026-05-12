@@ -115,6 +115,9 @@ class Settings(BaseSettings):
     unread_alert_cooldown_hours: int = Field(
         default=4, validation_alias=AliasChoices("UNREAD_ALERT_COOLDOWN_HOURS")
     )
+    unread_alert_growth_threshold: int = Field(
+        default=10, validation_alias=AliasChoices("UNREAD_ALERT_GROWTH_THRESHOLD")
+    )
     alert_recipients: str = Field(
         default="", validation_alias=AliasChoices("ALERT_RECIPIENTS")
     )
