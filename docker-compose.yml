@@ -21,6 +21,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    command: redis-server --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     ports:
@@ -67,7 +68,7 @@ services:
       - app_network
     volumes:
       - ./apps/backend:/app
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-4} -Q utility,marketing,email
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-4} -Q utility,marketing,email,webhooks
 
   beat:
     build:
