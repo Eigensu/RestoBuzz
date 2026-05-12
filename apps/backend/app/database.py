@@ -199,6 +199,7 @@ async def init_indexes() -> None:
         [
             IndexModel([("job_id", ASCENDING), ("status", ASCENDING)]),
             IndexModel(
+                [("wa_message_id", ASCENDING)],
                 unique=True,
                 partialFilterExpression={"wa_message_id": {MONGO_TYPE_STRING: "string"}},
             ),

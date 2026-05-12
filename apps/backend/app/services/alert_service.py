@@ -246,14 +246,29 @@ class AlertService:
         3. Check count growth (only re-alert if count increased by +10 since last alert)
         """
         threshold = settings.unread_alert_threshold
-        
-        # 1. Check local unread count
+        now = AlertService._get_now_utc()
+        cooldown_cutoff = now - timedelta(hours=settings.unread_alert_cooldown_hours)
+
+        # 1. Resolve restaurant first to get settings and last alert state
+        from bson.objectid import ObjectId
+        from bson.errors import InvalidId
+        try:
+            rid_oid = ObjectId(restaurant_id) if isinstance(restaurant_id, str) else restaurant_id
+            restaurant = await db.restaurants.find_one({"_id": rid_oid})
+        except InvalidId:
+            restaurant = await db.restaurants.find_one({"id": restaurant_id})
+
+        if not restaurant:
+            logger.warning("unread_alert_restaurant_not_found", restaurant_id=restaurant_id)
+            return
+
+        # 2. Check local unread count
         unread_count = await db.inbound_messages.count_documents({
             "restaurant_id": restaurant_id,
             "is_read": False,
         })
 
-        # 2. Check Fielia external unread count if feature flag is set
+        # 3. Check Fielia external unread count if feature flag is set
         if restaurant.get("settings", {}).get("uses_fielia_inbox") or restaurant.get("uses_fielia_inbox"):
             try:
                 f_db = get_fielia_db()
@@ -266,29 +281,20 @@ class AlertService:
         if unread_count < threshold:
             return
 
-        now = AlertService._get_now_utc()
-        cooldown_cutoff = now - timedelta(hours=settings.unread_alert_cooldown_hours)
-
-        # Get restaurant data to check last alert state
-        from bson.objectid import ObjectId
-        from bson.errors import InvalidId
-        try:
-            rid_oid = ObjectId(restaurant_id) if isinstance(restaurant_id, str) else restaurant_id
-            restaurant = await db.restaurants.find_one({"_id": rid_oid})
-        except InvalidId:
-            restaurant = await db.restaurants.find_one({"id": restaurant_id})
-
-        if not restaurant:
-            return
-
         last_alert_at = restaurant.get("last_unread_alert_at")
         last_alert_count = restaurant.get("last_unread_alert_count", 0)
 
+
         # Cooldown check
-        if last_alert_at and last_alert_at >= cooldown_cutoff:
-            # Within cooldown, but check for significant growth (+10 messages)
-            if unread_count < (last_alert_count + 10):
-                return
+        if last_alert_at:
+            if last_alert_at.tzinfo is None:
+                last_alert_at = last_alert_at.replace(tzinfo=timezone.utc)
+            
+            if last_alert_at >= cooldown_cutoff:
+                # Within cooldown, but check for significant growth (+10 messages)
+                if unread_count < (last_alert_count + settings.unread_alert_growth_threshold):
+                    logger.info("unread_alert_suppressed_cooldown", restaurant_id=restaurant_id, current=unread_count, last=last_alert_count)
+                    return
 
         # Atomically update to prevent race conditions (Compare-And-Swap)
         # Only send if last_unread_alert_at is still what we read (or never existed)
