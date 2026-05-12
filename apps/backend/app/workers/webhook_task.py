@@ -285,83 +285,104 @@ async def _handle_messages(
     messages_saved = 0
 
     for msg in messages:
-        wa_id = msg.get("id")
-        if not wa_id:
-            continue
-
-        # Inbound dedup key is just the message id (no status dimension needed)
-        if await is_duplicate(redis, wa_id):
-            logger.debug("webhook_inbound_duplicate_skipped", wa_id=wa_id)
-            continue
-        await mark_seen(redis, wa_id)
-
-        from_phone = msg.get("from")
-        sender_name = contacts.get(from_phone)
-        msg_type = normalize_message_type(msg.get("type"))
-        body, media_url, media_mime, media_id, location = _parse_message_content(
-            msg, msg_type
+        saved = await _process_inbound_message(
+            db, redis, msg, contacts, restaurant_id, phone_number_id
         )
-
-        doc = {
-            "wa_message_id": wa_id,
-            "from_phone": from_phone,
-            "sender_name": sender_name,
-            "message_type": msg_type,
-            "body": body,
-            "media_url": media_url,
-            "media_mime_type": media_mime,
-            "media_id": media_id,  # required for later Media API fetch
-            "location": location,
-            "is_read": False,
-            "received_at": datetime.now(timezone.utc),
-            "raw_payload": msg,
-            "restaurant_id": restaurant_id,
-            "wa_phone_id": phone_number_id,
-        }
-
-        result = await db.inbound_messages.update_one(
-            {"wa_message_id": wa_id},
-            {"$setOnInsert": doc},
-            upsert=True,
-        )
-
-        if result.upserted_id:
+        if saved:
             messages_saved += 1
-            logger.info(
-                "inbound_message_saved",
-                from_phone=from_phone,
-                type=msg_type,
-                wa_id=wa_id,
-                restaurant_id=restaurant_id,
-            )
-
-            # Reply tracking
-            context = msg.get("context", {})
-            replied_to_wa_id = context.get("id")
-            orig_msg = await _find_and_mark_replied(
-                db, replied_to_wa_id, from_phone, doc["received_at"]
-            )
-            if orig_msg and orig_msg.get("job_id"):
-                await db.campaign_jobs.update_one(
-                    {"_id": orig_msg["job_id"]},
-                    {"$inc": {"replies_count": 1}},
-                )
-
-            # STOP keyword → global suppression (covers all brands / restaurants)
-            if body and body.strip().lower() in STOP_KEYWORDS:
-                await add_suppression(db, from_phone, reason="opt_out")
-                logger.info("auto_suppressed", phone=from_phone)
-
-            # Benefits auto-reply
-            await _handle_auto_replies(
-                db, msg, msg_type, from_phone, restaurant_id, phone_number_id
-            )
 
     # Unread threshold alert — fire once per change block, not per message
     if restaurant_id and messages_saved > 0:
         from app.services.alert_service import alert_service
 
         await alert_service.check_unread_threshold_alert(db, restaurant_id)
+
+
+async def _process_inbound_message(
+    db,
+    redis,
+    msg: dict,
+    contacts: dict,
+    restaurant_id: str | None,
+    phone_number_id: str | None,
+) -> bool:
+    """Process a single inbound message. Returns True if newly saved, False otherwise."""
+    wa_id = msg.get("id")
+    if not wa_id:
+        return False
+
+    if await is_duplicate(redis, wa_id):
+        logger.debug("webhook_inbound_duplicate_skipped", wa_id=wa_id)
+        return False
+    await mark_seen(redis, wa_id)
+
+    from_phone = msg.get("from")
+    sender_name = contacts.get(from_phone)
+    msg_type = normalize_message_type(msg.get("type"))
+    body, media_url, media_mime, media_id, location = _parse_message_content(
+        msg, msg_type
+    )
+
+    doc = {
+        "wa_message_id": wa_id,
+        "from_phone": from_phone,
+        "sender_name": sender_name,
+        "message_type": msg_type,
+        "body": body,
+        "media_url": media_url,
+        "media_mime_type": media_mime,
+        "media_id": media_id,  # required for later Media API fetch
+        "location": location,
+        "is_read": False,
+        "received_at": datetime.now(timezone.utc),
+        "raw_payload": msg,
+        "restaurant_id": restaurant_id,
+        "wa_phone_id": phone_number_id,
+    }
+
+    result = await db.inbound_messages.update_one(
+        {"wa_message_id": wa_id},
+        {"$setOnInsert": doc},
+        upsert=True,
+    )
+
+    if not result.upserted_id:
+        return False
+
+    logger.info(
+        "inbound_message_saved",
+        from_phone=from_phone,
+        type=msg_type,
+        wa_id=wa_id,
+        restaurant_id=restaurant_id,
+    )
+
+    await _handle_reply_tracking(db, msg, from_phone, doc["received_at"])
+
+    if body and body.strip().lower() in STOP_KEYWORDS:
+        await add_suppression(db, from_phone, reason="opt_out")
+        logger.info("auto_suppressed", phone=from_phone)
+
+    await _handle_auto_replies(
+        db, msg, msg_type, from_phone, restaurant_id, phone_number_id
+    )
+
+    return True
+
+
+async def _handle_reply_tracking(
+    db, msg: dict, from_phone: str, received_at: datetime
+) -> None:
+    """Mark the original outbound message as replied and increment replies_count."""
+    replied_to_wa_id = msg.get("context", {}).get("id")
+    orig_msg = await _find_and_mark_replied(
+        db, replied_to_wa_id, from_phone, received_at
+    )
+    if orig_msg and orig_msg.get("job_id"):
+        await db.campaign_jobs.update_one(
+            {"_id": orig_msg["job_id"]},
+            {"$inc": {"replies_count": 1}},
+        )
 
 
 def _parse_message_content(
