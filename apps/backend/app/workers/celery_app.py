@@ -30,6 +30,10 @@ celery_app.conf.update(
         "utility": {"exchange": "utility", "routing_key": "utility"},
         "marketing": {"exchange": "marketing", "routing_key": "marketing"},
         "email": {"exchange": "email", "routing_key": "email"},
+        "webhooks": {
+            "exchange": "webhooks",
+            "routing_key": "webhooks",
+        },  # isolated from campaign traffic
     },
     task_default_queue="marketing",
     task_routes={
@@ -38,6 +42,9 @@ celery_app.conf.update(
         },
         "app.workers.send_email_task.send_single_email_task": {
             "queue": "email",
+        },
+        "app.workers.webhook_task.process_webhook_task": {
+            "queue": "webhooks",
         },
     },
     beat_schedule={

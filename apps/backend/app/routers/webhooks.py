@@ -1,19 +1,33 @@
+"""Meta & Resend webhook receivers.
+
+Meta handler: thin receiver — verify HMAC, parse JSON, enqueue Celery task,
+return 200. All processing logic lives in app/workers/webhook_task.py.
+
+Resend handler: unchanged — already well-structured and low-volume.
+"""
+
 import hashlib
 import hmac
 import json
 from datetime import datetime, timezone
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Request, Response, Query, BackgroundTasks
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
 from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
 from app.core.errors import WebhookSignatureError
-from app.services.message_types import normalize_message_type
-from app.services.meta_api import send_text_message
-from app.services.email_suppression import add_email_suppression
 from app.services.alert_service import alert_service
+from app.services.email_suppression import add_email_suppression
+from app.workers.webhook_task import process_webhook_task
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 logger = get_logger(__name__)
+
+
+# ── Signature verification ────────────────────────────────────────────────────
 
 
 def _verify_signature(body: bytes, signature: str) -> bool:
@@ -30,6 +44,9 @@ def _verify_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+# ── Meta webhook — GET (verification challenge) ───────────────────────────────
+
+
 @router.get("/meta")
 async def verify_webhook(
     hub_mode: str = Query(alias="hub.mode"),
@@ -44,14 +61,14 @@ async def verify_webhook(
     raise WebhookSignatureError("Webhook verification failed")
 
 
-from typing import Annotated
-from motor.motor_asyncio import AsyncIOMotorDatabase
+# ── Meta webhook — POST (event receiver) ─────────────────────────────────────
+
 
 @router.post("/meta", status_code=200)
 async def receive_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
-    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)]
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     body = await request.body()
     sig = request.headers.get("X-Hub-Signature-256", "")
@@ -64,217 +81,118 @@ async def receive_webhook(
         payload = json.loads(body)
     except Exception as e:
         logger.error("webhook_json_parse_error", error=str(e))
-        await db.webhook_errors.insert_one(
-            {
-                "raw_body": body.decode("utf-8", errors="replace"),
-                "headers": dict(request.headers),
-                "error": str(e),
-                "received_at": datetime.now(timezone.utc),
-            }
+        # Persist parse errors for debugging — still return 200 so Meta doesn't retry.
+        background_tasks.add_task(
+            _store_parse_error, db, body, dict(request.headers), str(e)
         )
         return {"status": "ok"}
 
     logger.info("webhook_received", entry_count=len(payload.get("entry", [])))
 
+    # Template status updates are low-volume and fire email alerts.
+    # They don't need dedup and are not on the hot path — handle inline.
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            if value.get("event") == "message_template_status_update":
+                background_tasks.add_task(
+                    _handle_template_status, db, value, background_tasks
+                )
+
+    # Enqueue everything else to the Celery webhooks worker.
+    # If Redis is unavailable, apply_async raises — fall back to BackgroundTasks
+    # so the data is never lost and Meta still receives a 200. Processing will be
+    # slower and without dedup, but correct. Alert on-call if this fires.
     try:
-        await _process_payload(db, payload, background_tasks)
+        process_webhook_task.apply_async(args=[payload], queue="webhooks")
     except Exception as e:
-        logger.error("webhook_process_error", error=str(e))
-        await db.webhook_errors.insert_one(
-            {
-                "raw_body": body.decode("utf-8", errors="replace"),
-                "payload": payload,
-                "error": str(e),
-                "received_at": datetime.now(timezone.utc),
-            }
+        logger.error(
+            "webhook_enqueue_failed_falling_back_to_background",
+            error=str(e),
         )
+        background_tasks.add_task(_process_webhook_sync, db, payload)
 
     return {"status": "ok"}
 
 
-STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
+# ── Fallback processor (Redis-down path) ─────────────────────────────────────
 
 
-async def _send_benefits_reply(
-    db, to: str, restaurant_id: str = None, phone_id: str = None
-) -> None:
-    """Send the benefits link as a text reply and persist it to outbound_messages."""
-    link = settings.benefits_link
-    if not link:
-        logger.warning("benefits_link_not_configured", to=to)
-        return
+async def _process_webhook_sync(db, payload: dict) -> None:
+    """Emergency fallback: process the webhook inline when Celery/Redis is down.
 
-    # Use provided phone_id (the recipient_id/bot id) or fallback to primary
-    phone_id = phone_id or settings.meta_primary_phone_id
-    token = settings.meta_primary_access_token
-    if not phone_id or not token:
-        logger.error("meta_primary_credentials_missing", to=to)
-        return
-
+    Mirrors the Celery task logic but runs inside a FastAPI BackgroundTask.
+    No deduplication is applied (Redis is unavailable). This path should never
+    fire in normal operation — the log event is the alert signal.
+    """
     try:
-        body = f"Here's your link: {link}"
-        wa_id = await send_text_message(
-            to=to,
-            body=body,
-            phone_id=phone_id,
-            token=token,
-        )
-        # Persist to database so it shows up in the chat thread
-        outbound_doc = {
-            "wa_message_id": wa_id,
-            "to_phone": to,
-            "body": body,
-            "status": "sent",
-            "sent_at": datetime.now(timezone.utc),
-            "restaurant_id": restaurant_id,
-            "wa_phone_id": phone_id,
-            "sender_name": "System (Auto-Response)",
-            "channel": "whatsapp",
-        }
-        await db.outbound_messages.insert_one(outbound_doc)
-        logger.info("benefits_reply_sent", to=to, wa_id=wa_id)
+        # Reuse the same async core from webhook_task, but pass the FastAPI db
+        # instead of get_fresh_db() since we're already in an async context.
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                if value.get("event") == "message_template_status_update":
+                    continue
+                from app.workers.webhook_task import (
+                    _resolve_restaurant,
+                    _handle_statuses,
+                    _handle_messages,
+                )
+
+                restaurant_id, phone_number_id = await _resolve_restaurant(db, value)
+                # Pass None for redis — _handle_statuses / _handle_messages guard
+                # against None redis by skipping dedup (no-op is safe here).
+                await _handle_statuses(
+                    db, None, value.get("statuses", []), restaurant_id
+                )
+                await _handle_messages(db, None, value, restaurant_id, phone_number_id)
     except Exception as e:
-        logger.error("benefits_reply_failed", to=to, error=str(e))
+        logger.error("webhook_sync_fallback_failed", error=str(e))
 
 
-async def _handle_template_status(db, value: dict, background_tasks: BackgroundTasks) -> None:
+# ── Template status handler (inline, low-volume) ──────────────────────────────
+
+
+async def _handle_template_status(
+    db, value: dict, background_tasks: BackgroundTasks
+) -> None:
     template_name = value.get("message_template_name")
     actual_status = value.get("status", "").upper()
-    
-    cursor = db.restaurants.find({}, {"_id": 1, "name": 1, "email": 1, "notification_emails": 1})
+
+    cursor = db.restaurants.find(
+        {}, {"_id": 1, "name": 1, "email": 1, "notification_emails": 1}
+    )
     async for rest in cursor:
         if actual_status == "APPROVED":
-            background_tasks.add_task(alert_service.send_template_approved_alert, db, rest, template_name)
+            background_tasks.add_task(
+                alert_service.send_template_approved_alert, db, rest, template_name
+            )
         elif actual_status == "REJECTED":
             rejection_reason = value.get("reason", "No reason provided.")
-            background_tasks.add_task(alert_service.send_template_rejected_alert, db, rest, template_name, rejection_reason)
+            background_tasks.add_task(
+                alert_service.send_template_rejected_alert,
+                db,
+                rest,
+                template_name,
+                rejection_reason,
+            )
 
-def _parse_message_content(msg: dict, msg_type: str) -> tuple[str | None, str | None, str | None]:
-    body_text = None
-    media_url = None
-    media_mime = None
-    
-    if msg_type == "text":
-        body_text = msg.get("text", {}).get("body", "")
-    elif msg_type in ("image", "document", "sticker", "audio", "video"):
-        media_obj = msg.get(msg_type, {})
-        media_url = media_obj.get("url") or media_obj.get("link")
-        media_mime = media_obj.get("mime_type")
-        body_text = media_obj.get("caption") or media_obj.get("filename")
-    elif msg_type == "button":
-        body_text = msg.get("button", {}).get("text", "")
-    elif msg_type == "interactive":
-        interactive = msg.get("interactive", {})
-        button_reply = interactive.get("button_reply", {})
-        body_text = button_reply.get("title") or interactive.get("list_reply", {}).get("title") or ""
-        
-    return body_text, media_url, media_mime
 
-async def _handle_auto_replies(db, msg: dict, msg_type: str, from_phone: str, restaurant_id: str, recipient_id: str, body_text: str | None):
-    # Benefits auto-reply
-    is_benefits = False
-    if msg_type == "interactive":
-        if msg.get("interactive", {}).get("button_reply", {}).get("id") == "get_benefits":
-            is_benefits = True
-    elif msg_type == "button":
-        btn_text = (msg.get("button", {}).get("text") or "").strip().lower()
-        btn_payload = (msg.get("button", {}).get("payload") or "").strip().lower()
-        if btn_payload == "get_benefits" or btn_text == "get the benefits":
-            is_benefits = True
-            
-    if is_benefits:
-        await _send_benefits_reply(db, from_phone, restaurant_id, recipient_id)
+# ── Parse error persistence ───────────────────────────────────────────────────
 
-    # Opt-out suppression
-    if body_text and body_text.strip().lower() in STOP_KEYWORDS:
-        await db.suppression_list.update_one(
-            {"phone": from_phone},
-            {"$setOnInsert": {"phone": from_phone, "reason": "opt_out", "added_at": datetime.now(timezone.utc)}},
-            upsert=True,
-        )
-        logger.info("auto_suppressed", phone=from_phone)
 
-async def _handle_incoming_messages(db, value: dict, restaurant_id: str, recipient_id: str) -> None:
-    messages = value.get("messages", [])
-    contacts = {c["wa_id"]: c.get("profile", {}).get("name") for c in value.get("contacts", [])}
-    
-    for msg in messages:
-        wa_id = msg.get("id")
-        if not wa_id: continue
-
-        from_phone = msg.get("from")
-        sender_name = contacts.get(from_phone)
-        msg_type = normalize_message_type(msg.get("type"))
-        
-        body_text, media_url, media_mime = _parse_message_content(msg, msg_type)
-
-        doc = {
-            "wa_message_id": wa_id, "from_phone": from_phone, "sender_name": sender_name,
-            "message_type": msg_type, "body": body_text, "media_url": media_url,
-            "media_mime_type": media_mime, "location": None, "is_read": False,
-            "received_at": datetime.now(timezone.utc), "raw_payload": msg,
-            "restaurant_id": restaurant_id, "wa_phone_id": recipient_id,
+async def _store_parse_error(db, body: bytes, headers: dict, error: str) -> None:
+    await db.webhook_errors.insert_one(
+        {
+            "raw_body": body.decode("utf-8", errors="replace"),
+            "headers": headers,
+            "error": error,
+            "received_at": datetime.now(timezone.utc),
         }
-
-        result = await db.inbound_messages.update_one(
-            {"wa_message_id": wa_id}, {"$setOnInsert": doc}, upsert=True,
-        )
-
-        if result.upserted_id:
-            logger.info("inbound_message_saved", from_phone=from_phone, type=msg_type, wa_id=wa_id)
-            await _handle_auto_replies(db, msg, msg_type, from_phone, restaurant_id, recipient_id, body_text)
-
-async def _resolve_restaurant_id(db, value: dict) -> str | None:
-    metadata = value.get("metadata", {})
-    recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
-    if not recipient_id:
-        return None
-        
-    rest_doc = await db.restaurants.find_one({"wa_phone_ids": recipient_id})
-    return rest_doc.get("id") or str(rest_doc["_id"]) if rest_doc else None
-
-async def _handle_message_status_update(db, status: dict):
-    wa_id = status.get("id")
-    wa_status = status.get("status")
-    if not wa_id or not wa_status:
-        return
-
-    allowed = {"queued", "sending", "sent", "delivered", "read", "failed", "cancelled"}
-    if wa_status not in allowed:
-        logger.warning("webhook_invalid_status", wa_id=wa_id, status=wa_status)
-        return
-
-    result = await db.outbound_messages.update_one(
-        {"wa_message_id": wa_id},
-        {"$set": {"status": wa_status, "updated_at": datetime.now(timezone.utc)}},
     )
-    if result.modified_count > 0:
-        logger.info("outbound_status_updated", wa_id=wa_id, status=wa_status)
-
-async def _handle_webhook_change(db, change: dict, background_tasks: BackgroundTasks) -> None:
-    value = change.get("value", {})
-    if value.get("event") == "message_template_status_update":
-        await _handle_template_status(db, value, background_tasks)
-        return
-
-    metadata = value.get("metadata", {})
-    recipient_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
-    restaurant_id = await _resolve_restaurant_id(db, value)
-
-    await _handle_incoming_messages(db, value, restaurant_id, recipient_id)
-    if restaurant_id and value.get("messages", []):
-        background_tasks.add_task(alert_service.check_unread_threshold_alert, db, restaurant_id)
-
-    for status in value.get("statuses", []):
-        await _handle_message_status_update(db, status)
-
-async def _process_payload(db, payload: dict, background_tasks: BackgroundTasks) -> None:
-    for entry in payload.get("entry", []):
-        for change in entry.get("changes", []):
-            await _handle_webhook_change(db, change, background_tasks)
 
 
-# ── Resend Webhooks ───────────────────────────────────────────────────────────
+# ── Resend Webhooks (unchanged) ───────────────────────────────────────────────
 
 # Map Resend event types to our internal status names
 _RESEND_EVENT_MAP = {
@@ -308,9 +226,9 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
 
     # 1. Verify webhook signature
     try:
-        from app.services.resend_client import verify_webhook
+        from app.services.resend_client import verify_webhook as verify_resend_webhook
 
-        event = verify_webhook(
+        event = verify_resend_webhook(
             payload_str,
             {
                 "svix-id": request.headers.get("svix-id", ""),
@@ -419,7 +337,6 @@ async def _handle_error_reporting(db, log, new_status, data):
 
 async def _handle_auto_suppression(db, log, new_status, data):
     if new_status in ("bounced", "complained"):
-
         bounce_type = data.get("bounce", {}).get("type", "")
         reason = (
             "complaint"

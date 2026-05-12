@@ -18,4 +18,4 @@ RUN groupadd --gid 1001 celery && \
 
 USER celery
 
-CMD ["sh", "-c", "celery -A app.workers.celery_app worker --loglevel=info -Q utility,marketing,email --concurrency=${CELERY_CONCURRENCY:-4}"]
+CMD ["sh", "-c", "celery -A app.workers.celery_app worker --loglevel=info -Q utility,marketing,email,webhooks --concurrency=${CELERY_CONCURRENCY:-4}"]
