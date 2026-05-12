@@ -431,9 +431,22 @@ class AlertService:
         last_alert_at = restaurant.get("last_unread_alert_at")
         last_alert_count = restaurant.get("last_unread_alert_count", 0)
 
-        if last_alert_at and last_alert_at >= cooldown_cutoff:
-            if unread_count < (last_alert_count + 10):
-                return
+        # Cooldown & Growth check
+        if last_alert_at:
+            # Ensure naive datetimes from DB are treated as UTC for comparison
+            if last_alert_at.tzinfo is None:
+                last_alert_at = last_alert_at.replace(tzinfo=timezone.utc)
+
+            if last_alert_at >= cooldown_cutoff:
+                # Within cooldown, check for significant growth
+                if unread_count < (last_alert_count + settings.unread_alert_growth_threshold):
+                    logger.info(
+                        "unread_alert_suppressed_cooldown",
+                        restaurant_id=restaurant_id,
+                        current=unread_count,
+                        last=last_alert_count,
+                    )
+                    return
 
         # Atomically claim the send slot (Compare-And-Swap).
         # Only one worker wins if multiple Celery tasks race here simultaneously.
@@ -489,6 +502,7 @@ class AlertService:
                     }
                 },
             )
+            logger.exception("Unread threshold alert task failed")
             raise
 
     @staticmethod
