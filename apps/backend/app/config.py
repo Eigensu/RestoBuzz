@@ -123,7 +123,8 @@ class Settings(BaseSettings):
     )
     max_alert_recipients: int = 20
     dashboard_base_url: str = Field(
-        default="https://restobuzz.eigensu.in", validation_alias=AliasChoices("DASHBOARD_BASE_URL")
+        default="https://restobuzz.eigensu.in",
+        validation_alias=AliasChoices("DASHBOARD_BASE_URL"),
     )
 
     @property
@@ -131,11 +132,29 @@ class Settings(BaseSettings):
         if not self.alert_recipients:
             return []
         # Strip quotes and whitespace to handle Railway env injection quirks
-        return [r.strip().strip('"').strip("'") for r in self.alert_recipients.split(",") if r.strip()]
+        return [
+            r.strip().strip('"').strip("'")
+            for r in self.alert_recipients.split(",")
+            if r.strip()
+        ]
 
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def resolve_waba_token(self, env_key: str) -> str | None:
+        """Look up a per-restaurant WABA access token by its env var key name.
+
+        The token itself is never stored in the database — only the key name is.
+        This reads the live environment at call time, so rotating a token in
+        Railway takes effect on the next campaign without any DB change.
+
+        Returns None if the env var is missing or empty, which causes
+        send_template_message to fall back to the global credential chain.
+        """
+        import os
+
+        return os.environ.get(env_key) or None
 
 
 settings = Settings()

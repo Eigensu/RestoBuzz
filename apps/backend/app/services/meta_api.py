@@ -98,26 +98,46 @@ async def send_template_message(
     variables: dict,
     media_url: str | None = None,
     language: str = "en",
+    phone_id: str | None = None,
+    access_token: str | None = None,
 ) -> tuple[str, str]:
-    """Returns (wa_message_id, endpoint_used). Tries primary then fallback."""
-    endpoints = [
-        (settings.meta_primary_phone_id, settings.meta_primary_access_token, "primary"),
-        (
-            settings.meta_fallback_phone_id,
-            settings.meta_fallback_access_token,
-            "fallback",
-        ),
-    ]
+    """Returns (wa_message_id, endpoint_used).
+
+    If `phone_id` and `access_token` are provided the message is sent through
+    that restaurant-specific WABA exclusively — no fallback to the global chain.
+    A failure surfaces immediately so the operator knows the credential is broken.
+
+    If either credential is absent the legacy global primary → fallback chain
+    from settings is used, preserving backwards-compatibility for restaurants
+    that have not yet been configured.
+    """
+    if phone_id and access_token:
+        # Restaurant-specific WABA — single endpoint, fail loudly on error
+        endpoints = [(phone_id, access_token, "primary")]
+    else:
+        # Global fallback chain (legacy / unconfigured restaurants)
+        endpoints = [
+            (
+                settings.meta_primary_phone_id,
+                settings.meta_primary_access_token,
+                "primary",
+            ),
+            (
+                settings.meta_fallback_phone_id,
+                settings.meta_fallback_access_token,
+                "fallback",
+            ),
+        ]
 
     payload = _build_payload(to, template_name, variables, media_url, language)
     last_error = None
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        for phone_id, token, label in endpoints:
-            if not phone_id or not token:
+        for ep_phone_id, ep_token, label in endpoints:
+            if not ep_phone_id or not ep_token:
                 continue
-            url = f"{META_BASE}/{phone_id}/messages"
-            headers = {"Authorization": f"Bearer {token}"}
+            url = f"{META_BASE}/{ep_phone_id}/messages"
+            headers = {"Authorization": f"Bearer {ep_token}"}
             try:
                 resp = await client.post(url, json=payload, headers=headers)
                 data = resp.json()
@@ -131,7 +151,10 @@ async def send_template_message(
                     error.get("message", "Unknown error"),
                 )
                 logger.warning(
-                    "meta_send_failed", endpoint=label, error=str(last_error)
+                    "meta_send_failed",
+                    endpoint=label,
+                    phone_id=ep_phone_id,
+                    error=str(last_error),
                 )
             except httpx.RequestError as e:
                 last_error = MetaAPIError("network_error", str(e))

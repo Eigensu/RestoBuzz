@@ -1,4 +1,5 @@
 """Campaign management routes: CRUD, lifecycle control, analytics, and message logs."""
+
 import csv
 import io
 import json
@@ -48,6 +49,31 @@ _GROUP = "$group"
 _SORT = "$sort"
 _CREATED_AT = "$created_at"
 _BODY_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
+
+
+async def _resolve_waba_credentials(
+    db, restaurant_id: str
+) -> tuple[str | None, str | None, str | None]:
+    """Return (phone_id, access_token, env_key) for the restaurant's primary WABA.
+
+    phone_id is read from MongoDB.
+    access_token is resolved from the env var named by access_token_env_key —
+    the token itself is never stored in the DB.
+    env_key is stamped onto message_logs so the Celery worker can re-resolve
+    the token at send time without an extra DB query.
+
+    Returns (None, None, None) if the restaurant has no wa_phones configured,
+    which causes send_template_message to fall back to the global env-var chain.
+    """
+    rest_doc = await db.restaurants.find_one({"id": restaurant_id}, {"wa_phones": 1})
+    wa_phones = (rest_doc or {}).get("wa_phones", [])
+    if not wa_phones:
+        return None, None, None
+    primary = wa_phones[0]
+    phone_id = primary.get("phone_id") or None
+    env_key = primary.get("access_token_env_key") or ""
+    access_token = settings.resolve_waba_token(env_key) if env_key else None
+    return phone_id, access_token, env_key or None
 
 
 def _template_body_var_keys(template_doc: dict | None) -> set[str]:
@@ -215,6 +241,13 @@ async def create_campaign(
             "WhatsApp campaigns require a phone number for every recipient."
         )
 
+    # Resolve WABA credentials once for the whole campaign — O(1) per campaign.
+    # phone_id and env_key are stamped onto every message_log so _do_send()
+    # can resolve the token from env at send time — no raw token ever in DB.
+    wa_phone_id, _token, wa_access_token_env_key = await _resolve_waba_credentials(
+        db, body.restaurant_id
+    )
+
     message_docs = [
         {
             "job_id": job_id,
@@ -235,6 +268,8 @@ async def create_campaign(
             "fallback_used": False,
             "error_code": None,
             "error_message": None,
+            "wa_phone_id": wa_phone_id,
+            "wa_access_token_env_key": wa_access_token_env_key,
             "created_at": now,
             "updated_at": now,
         }
@@ -296,6 +331,11 @@ async def send_test_message(
     if not to_phone:
         raise ValidationError("Phone number is required")
 
+    # Resolve restaurant-specific WABA credentials for the test send
+    wa_phone_id, wa_access_token, _ = await _resolve_waba_credentials(
+        db, body.restaurant_id
+    )
+
     try:
         wa_message_id, endpoint_used = await send_template_message(
             to=to_phone,
@@ -303,6 +343,8 @@ async def send_test_message(
             variables=request_variables,
             media_url=body.media_url,
             language=language,
+            phone_id=wa_phone_id,
+            access_token=wa_access_token,
         )
     except MetaAPIError as e:
         if e.code in ("network_error", "parse_error", "config_error", "no_endpoint"):
@@ -904,6 +946,11 @@ async def retry_failed(
     batch_size = 1000
     new_logs_batch = []
 
+    # Resolve WABA credentials once for the retry campaign
+    wa_phone_id, _token, wa_access_token_env_key = await _resolve_waba_credentials(
+        db, retry_restaurant_id
+    )
+
     try:
         async for log in cursor:
             new_logs_batch.append(
@@ -921,6 +968,8 @@ async def retry_failed(
                     "error_code": None,
                     "error_message": None,
                     "status_history": [],
+                    "wa_phone_id": wa_phone_id,
+                    "wa_access_token_env_key": wa_access_token_env_key,
                     "created_at": now,
                     "updated_at": now,
                     "locked_until": None,

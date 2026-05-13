@@ -185,6 +185,19 @@ async def _do_send(
         )
         language = (tpl or {}).get("language") or "en_US"
 
+    # Credentials were stamped onto the message_log at campaign creation time.
+    # wa_phone_id is the Meta Phone Number ID (non-sensitive, stored directly).
+    # wa_access_token_env_key is the name of the env var holding the real token —
+    # the token is never stored in the DB, it is resolved here at send time.
+    # Legacy logs without these fields return None → global fallback in meta_api.
+    wa_phone_id: str | None = msg.get("wa_phone_id") or None
+    wa_access_token: str | None = None
+    env_key: str = msg.get("wa_access_token_env_key") or ""
+    if env_key:
+        from app.config import settings as _cfg
+
+        wa_access_token = _cfg.resolve_waba_token(env_key)
+
     try:
         wa_id, endpoint = await send_template_message(
             to=msg["recipient_phone"],
@@ -192,6 +205,8 @@ async def _do_send(
             variables=msg.get("template_variables", {}),
             media_url=msg.get("media_url"),
             language=language,
+            phone_id=wa_phone_id,
+            access_token=wa_access_token,
         )
     except MetaAPIError as e:
         await _handle_meta_error(task, db, msg, message_log_id, e)
