@@ -475,3 +475,20 @@ async def init_indexes() -> None:
             IndexModel([("sync_name", ASCENDING)], unique=True),
         ],
     )
+
+    # templates — scoped per restaurant
+    await safe_create_indexes(
+        db.templates,
+        [
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("name", ASCENDING),
+                    ("language", ASCENDING),
+                ],
+                unique=True,
+                sparse=True,
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("status", ASCENDING)]),
+        ],
+    )

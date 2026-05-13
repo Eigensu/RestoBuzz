@@ -59,9 +59,9 @@ export default function UnifiedTemplatesPage() {
 
   // Queries
   const { data: waTemplates = [], isLoading: isWaLoading } = useQuery<Template[]>({
-    queryKey: ["templates"],
+    queryKey: ["templates", restaurant?.id],
     queryFn: () => api.get("/templates").then((r) => r.data),
-    enabled: activeTab === "whatsapp",
+    enabled: activeTab === "whatsapp" && !!restaurant,
   });
 
   const { data: emailData, isLoading: isEmailLoading } = useQuery({
@@ -80,7 +80,7 @@ export default function UnifiedTemplatesPage() {
     mutationFn: () => api.post("/templates/sync"),
     onSuccess: () => {
       toast.success("Sync queued — templates will update shortly");
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["templates"] }), 3000);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["templates", restaurant?.id] }), 3000);
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });

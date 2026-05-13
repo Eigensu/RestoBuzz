@@ -202,8 +202,15 @@ async def create_template(waba_id: str, token: str, payload: dict) -> dict:
                 ) from esc
             if resp.status_code not in (200, 201):
                 error = data.get("error", {})
+                logger.error(
+                    "meta_api_error",
+                    status_code=resp.status_code,
+                    error=error,
+                    payload=payload,
+                )
+                error_msg = error.get("error_user_msg") or error.get("message", str(data))
                 raise MetaAPIError(
-                    str(error.get("code", "unknown")), error.get("message", str(data))
+                    str(error.get("code", "unknown")), error_msg
                 )
             return data
     except httpx.RequestError as e:
@@ -328,15 +335,23 @@ async def edit_template(template_id: str, token: str, components: list) -> dict:
             )
             try:
                 data = resp.json()
-            except Exception:
+            except Exception as esc:
                 raise MetaAPIError(
                     "invalid_response",
                     f"Non-JSON response from Meta (status {resp.status_code})",
-                )
+                ) from esc
             if resp.status_code != 200:
                 error = data.get("error", {})
+                logger.error(
+                    "meta_api_edit_error",
+                    status_code=resp.status_code,
+                    error=error,
+                    template_id=template_id,
+                    components=components,
+                )
+                error_msg = error.get("error_user_msg") or error.get("message", str(data))
                 raise MetaAPIError(
-                    str(error.get("code", "unknown")), error.get("message", str(data))
+                    str(error.get("code", "unknown")), error_msg
                 )
             return data
     except httpx.RequestError as e:

@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, Query
-from typing import Annotated, Any
 from datetime import datetime, timedelta, timezone
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Query
+from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from app.config import settings
 from app.database import get_db
-from app.dependencies import require_role, get_active_restaurant
-from app.services.message_types import normalize_message_type
+from app.dependencies import get_active_restaurant, require_role
 from app.models.inbox import (
     ConversationListResponse,
     ConversationResponse,
@@ -11,8 +14,8 @@ from app.models.inbox import (
     LocationData,
     ReplyRequest,
 )
+from app.services.message_types import normalize_message_type
 from app.services.meta_api import send_text_message
-from app.config import settings
 
 # ── SonarCloud Hardening ──────────────────────────────────────────────────────
 _MONGO_MATCH = "$match"
@@ -38,28 +41,38 @@ router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 @router.get("/unread-count")
 async def get_unread_count(
-    db: Annotated[Any, Depends(get_db)] = None,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    db: Annotated[Any, Depends(get_db)],
 ):
-    # Global count
+    """Return unread message count for the active restaurant."""
     count = await db.inbound_messages.count_documents(
-        {"is_read": False, "is_resolved": {_MONGO_NE: True}}
+        {
+            "restaurant_id": restaurant["id"],
+            "is_read": False,
+            "is_resolved": {_MONGO_NE: True},
+        }
     )
     return {"count": count}
 
 
 @router.get("/conversations")
 async def list_conversations(
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    db: Annotated[Any, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=500)] = 30,
-    db: Annotated[Any, Depends(get_db)] = None,
 ) -> ConversationListResponse:
+    """List conversations for the active restaurant only."""
     skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
     pipeline = [
-        {_MONGO_MATCH: {
-            "received_at": {_MONGO_GTE: since},
-            "is_resolved": {_MONGO_NE: True}
-        }},
+        {
+            _MONGO_MATCH: {
+                "restaurant_id": restaurant["id"],
+                "received_at": {_MONGO_GTE: since},
+                "is_resolved": {_MONGO_NE: True},
+            }
+        },
         {_MONGO_SORT: {"from_phone": 1, "received_at": -1}},
         {
             _MONGO_GROUP: {
@@ -105,25 +118,52 @@ async def list_conversations(
 @router.get("/conversations/{phone}")
 async def get_conversation(
     phone: str,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    db: Annotated[Any, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
-    db: Annotated[Any, Depends(get_db)] = None,
 ) -> list[InboundMessageResponse]:
-    # Global view of conversation (all restaurants)
-    skip = (page - 1) * page_size
-    items = []
+    """Return the full message thread for a phone number, scoped to the active restaurant.
 
-    # Limit to last 30 days
+    Outbound messages are matched by restaurant_id when present (new rows stamped
+    after the per-restaurant migration) OR by the absence of restaurant_id (legacy
+    rows created before scoping was introduced). This prevents historical replies
+    from silently disappearing from the thread view during the migration window.
+    Once a backfill script has stamped all legacy outbound rows, the $exists
+    fallback can be removed.
+    """
+    skip = (page - 1) * page_size
     since = datetime.now(timezone.utc) - timedelta(days=30)
+    rid = restaurant["id"]
+
+    # Outbound filter: scoped rows OR legacy unscoped rows (migration fallback)
+    outbound_restaurant_filter = {
+        "$or": [
+            {"restaurant_id": rid},
+            {"restaurant_id": {"$exists": False}},
+        ]
+    }
 
     pipeline = [
-        {_MONGO_MATCH: {"from_phone": phone, "received_at": {_MONGO_GTE: since}}},
+        {
+            _MONGO_MATCH: {
+                "from_phone": phone,
+                "restaurant_id": rid,
+                "received_at": {_MONGO_GTE: since},
+            }
+        },
         {_MONGO_ADD_FIELDS: {"direction": "inbound"}},
         {
             _MONGO_UNION: {
                 "coll": "outbound_messages",
                 "pipeline": [
-                    {_MONGO_MATCH: {"to_phone": phone, "sent_at": {_MONGO_GTE: since}}},
+                    {
+                        _MONGO_MATCH: {
+                            "to_phone": phone,
+                            "sent_at": {_MONGO_GTE: since},
+                            **outbound_restaurant_filter,
+                        }
+                    },
                     {
                         _MONGO_ADD_FIELDS: {
                             "direction": "outbound",
@@ -140,6 +180,7 @@ async def get_conversation(
         {_MONGO_LIMIT: page_size},
     ]
 
+    items = []
     async for doc in db.inbound_messages.aggregate(pipeline):
         direction = doc.get("direction", "inbound")
         if direction == "inbound":
@@ -186,10 +227,12 @@ async def get_conversation(
 @router.post("/conversations/{phone}/read")
 async def mark_read(
     phone: str,
-    db: Annotated[Any, Depends(get_db)] = None,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    db: Annotated[Any, Depends(get_db)],
 ):
+    """Mark all messages from a phone number as read for the active restaurant."""
     await db.inbound_messages.update_many(
-        {"from_phone": phone, "is_read": False},
+        {"from_phone": phone, "restaurant_id": restaurant["id"], "is_read": False},
         {_MONGO_SET: {"is_read": True}},
     )
     return {"status": "ok"}
@@ -198,10 +241,12 @@ async def mark_read(
 @router.post("/conversations/{phone}/resolve")
 async def resolve_conversation(
     phone: str,
-    db: Annotated[Any, Depends(get_db)] = None,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    db: Annotated[Any, Depends(get_db)],
 ):
+    """Resolve a conversation for the active restaurant."""
     await db.inbound_messages.update_many(
-        {"from_phone": phone},
+        {"from_phone": phone, "restaurant_id": restaurant["id"]},
         {_MONGO_SET: {"is_resolved": True}},
     )
     return {"status": "ok"}
@@ -211,16 +256,33 @@ async def resolve_conversation(
 async def reply(
     phone: str,
     body: ReplyRequest,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     current_user: Annotated[dict, Depends(require_role("admin"))],
-    db: Annotated[Any, Depends(get_db)] = None,
+    db: Annotated[Any, Depends(get_db)],
 ):
+    """Send a reply to a phone number using the restaurant's own WABA credentials."""
+    # Resolve restaurant-specific WABA credentials, fall back to global
+    phone_id = settings.meta_primary_phone_id
+    token = settings.meta_primary_access_token
+
+    wa_phones = restaurant.get("wa_phones", [])
+    if wa_phones:
+        primary = wa_phones[0]
+        rp = primary.get("phone_id") or ""
+        env_key = primary.get("access_token_env_key") or ""
+        if rp and env_key:
+            rt = settings.resolve_waba_token(env_key) or ""
+            if rt:
+                phone_id = rp
+                token = rt
+
     wa_id = await send_text_message(
         to=phone,
         body=body.body,
-        phone_id=settings.meta_primary_phone_id,
-        token=settings.meta_primary_access_token,
+        phone_id=phone_id,
+        token=token,
     )
-    # Save outbound reply without mandatory restaurant_id (global)
+
     await db.outbound_messages.insert_one(
         {
             "wa_message_id": wa_id,
@@ -230,6 +292,8 @@ async def reply(
             "sent_by": str(current_user["_id"]),
             "sent_at": datetime.now(timezone.utc),
             "status": "sent",
+            "restaurant_id": restaurant["id"],
+            "wa_phone_id": phone_id,
         }
     )
     return {"wa_message_id": wa_id}

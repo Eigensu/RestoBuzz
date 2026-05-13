@@ -153,8 +153,16 @@ class Settings(BaseSettings):
         send_template_message to fall back to the global credential chain.
         """
         import os
+        from dotenv import dotenv_values
 
-        return os.environ.get(env_key) or None
+        # First check os.environ (works in Railway / when vars are shell-exported)
+        value = os.environ.get(env_key)
+        if value:
+            return value
+
+        # Fallback: read from the same .env file pydantic-settings resolved
+        env_values = dotenv_values(str(_ROOT_ENV))
+        return env_values.get(env_key) or None
 
 
 settings = Settings()
