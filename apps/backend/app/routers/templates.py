@@ -177,7 +177,18 @@ async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
 def _resolve_restaurant_waba(restaurant: dict) -> tuple[str, str]:
     """Return (waba_id, access_token) for the restaurant.
 
-    Reads waba_id and access_token_env_key from wa_phones[0].
+    Convention: wa_phones[0] is always the primary outbound number. This is
+    enforced by PUT /restaurants/{id}/phones — the first entry in the array is
+    used for all outbound operations. Additional entries (index 1+) are reserved
+    for future multi-number support.
+
+    Raises ValidationError (HTTP 422) if:
+    - wa_phones is empty (restaurant not yet configured), or
+    - waba_id is present but the env var for the token is not set.
+
+    This is intentional for templates — a misconfigured WABA should surface
+    immediately rather than silently falling back to another restaurant's WABA.
+    For inbox reply, the fallback to global credentials is handled separately.
     """
     name = restaurant.get("name", restaurant.get("id", "unknown"))
     wa_phones = restaurant.get("wa_phones", [])
@@ -208,10 +219,29 @@ async def list_templates(
     _current_user: Annotated[dict, Depends(require_role("viewer"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    """Return templates for the active restaurant only."""
-    cursor = db.templates.find({"restaurant_id": restaurant["id"]}, {"_id": 0}).sort(
-        "name", 1
-    )
+    """Return templates for the active restaurant.
+
+    Scoping rule:
+    - Restaurants WITH wa_phones configured → see only their own templates
+      (restaurant_id matches).
+    - Restaurants WITHOUT wa_phones (not yet migrated) → see legacy global
+      templates (no restaurant_id field) via the $exists fallback.
+
+    This boundary prevents cross-restaurant template leakage while allowing
+    a zero-downtime migration. Once all restaurants are configured and synced,
+    the $exists branch can be removed.
+    """
+    rid = restaurant["id"]
+    has_wa_phones = bool(restaurant.get("wa_phones"))
+
+    if has_wa_phones:
+        # Fully configured restaurant — show only its own templates
+        query: dict = {"restaurant_id": rid}
+    else:
+        # Legacy / unconfigured restaurant — show global (unscoped) templates only
+        query = {"restaurant_id": {"$exists": False}}
+
+    cursor = db.templates.find(query, {"_id": 0}).sort("name", 1)
     return [doc async for doc in cursor]
 
 

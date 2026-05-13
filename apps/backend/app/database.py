@@ -258,6 +258,22 @@ async def init_indexes() -> None:
                     ("from_phone", ASCENDING),
                 ]
             ),
+            # Per-restaurant conversation list (new scoped queries)
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("is_resolved", ASCENDING),
+                    ("received_at", DESCENDING),
+                ]
+            ),
+            # Per-restaurant per-phone thread queries
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("from_phone", ASCENDING),
+                    ("received_at", DESCENDING),
+                ]
+            ),
             # Retained for backwards-compat with per-phone thread queries.
             IndexModel([("from_phone", ASCENDING), ("received_at", DESCENDING)]),
             # Partial index for the unread-count query (is_read=False, is_resolved≠true).
@@ -265,6 +281,29 @@ async def init_indexes() -> None:
                 [("is_read", ASCENDING), ("is_resolved", ASCENDING)],
                 partialFilterExpression={"is_read": False},
             ),
+            # Per-restaurant unread count
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("is_read", ASCENDING)],
+                partialFilterExpression={"is_read": False},
+            ),
+        ],
+    )
+
+    # outbound_messages
+    await safe_create_indexes(
+        db.outbound_messages,
+        [
+            IndexModel([("wa_message_id", ASCENDING)], unique=True, sparse=True),
+            # Per-restaurant thread queries (new scoped path)
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("to_phone", ASCENDING),
+                    ("sent_at", DESCENDING),
+                ]
+            ),
+            # Legacy unscoped path (migration fallback — can be dropped after backfill)
+            IndexModel([("to_phone", ASCENDING), ("sent_at", DESCENDING)]),
         ],
     )
 
@@ -480,6 +519,10 @@ async def init_indexes() -> None:
     await safe_create_indexes(
         db.templates,
         [
+            # Unique per (restaurant, name, language) — prevents two restaurants
+            # clobbering each other's templates with the same name.
+            # partialFilterExpression ensures legacy docs without restaurant_id
+            # are excluded from the unique constraint.
             IndexModel(
                 [
                     ("restaurant_id", ASCENDING),
@@ -487,7 +530,7 @@ async def init_indexes() -> None:
                     ("language", ASCENDING),
                 ],
                 unique=True,
-                sparse=True,
+                partialFilterExpression={"restaurant_id": {"$type": "string"}},
             ),
             IndexModel([("restaurant_id", ASCENDING), ("status", ASCENDING)]),
         ],
