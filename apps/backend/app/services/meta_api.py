@@ -114,6 +114,14 @@ async def send_template_message(
     if phone_id and access_token:
         # Restaurant-specific WABA — single endpoint, fail loudly on error
         endpoints = [(phone_id, access_token, "primary")]
+    elif phone_id and not access_token:
+        # Prevent cross-tenant leakage: if they provided a specific phone_id
+        # but the token failed to resolve, fail loudly rather than falling back
+        # to the global (potentially wrong) account.
+        raise MetaAPIError(
+            "config_error",
+            f"Access token for restaurant WABA (phone_id {phone_id}) is missing or failed to resolve. Check your environment variables."
+        )
     else:
         # Global fallback chain (legacy / unconfigured restaurants)
         endpoints = [
