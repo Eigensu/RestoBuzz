@@ -199,7 +199,8 @@ async def create_campaign(
         contacts = json.loads(raw)
 
     template_doc = await db.templates.find_one(
-        {"name": body.template_name}, {"components": 1}
+        {"name": body.template_name, "restaurant_id": body.restaurant_id},
+        {"components": 1},
     )
     allowed_var_keys = _template_body_var_keys(template_doc)
     campaign_template_variables = _sanitize_template_variables(
@@ -251,6 +252,7 @@ async def create_campaign(
     message_docs = [
         {
             "job_id": job_id,
+            "restaurant_id": body.restaurant_id,
             "recipient_phone": c["phone"],
             "recipient_name": c.get("name", ""),
             "template_name": body.template_name,
@@ -956,6 +958,7 @@ async def retry_failed(
             new_logs_batch.append(
                 {
                     "job_id": job_id,
+                    "restaurant_id": retry_restaurant_id,
                     "recipient_phone": log["recipient_phone"],
                     "recipient_name": log.get("recipient_name", ""),
                     "template_name": log["template_name"],

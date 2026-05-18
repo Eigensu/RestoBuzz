@@ -180,9 +180,11 @@ async def _do_send(
     """Resolve language, call Meta API, record the result, and auto-complete the job."""
     language = msg.get("language")
     if not language:
-        tpl = await db.templates.find_one(
-            {"name": msg.get("template_name", "")}, {"language": 1}
-        )
+        restaurant_id = msg.get("restaurant_id")
+        tpl_query: dict = {"name": msg.get("template_name", "")}
+        if restaurant_id:
+            tpl_query["restaurant_id"] = restaurant_id
+        tpl = await db.templates.find_one(tpl_query, {"language": 1})
         language = (tpl or {}).get("language") or "en_US"
 
     # Credentials were stamped onto the message_log at campaign creation time.

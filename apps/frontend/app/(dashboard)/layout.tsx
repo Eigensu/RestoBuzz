@@ -218,12 +218,11 @@ export default function DashboardLayout({
                     onClick={() => {
                       setRestaurant(r);
                       setDropdownOpen(false);
-                      // Invalidate all restaurant-scoped queries so pages reload
-                      qc.invalidateQueries({ queryKey: ["templates"] });
-                      qc.invalidateQueries({ queryKey: ["email-templates"] });
-                      qc.invalidateQueries({ queryKey: ["campaigns"] });
-                      qc.invalidateQueries({ queryKey: ["members"] });
-                      qc.invalidateQueries({ queryKey: ["unread-count"] });
+                      // Changing restaurant.id causes all queries keyed with
+                      // restaurant?.id to be treated as new queries automatically.
+                      // A single invalidateQueries() clears any remaining global
+                      // or unkeyed queries (e.g. suppression list).
+                      qc.invalidateQueries();
                     }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[#24422e] hover:text-white transition text-left group"
                   >
