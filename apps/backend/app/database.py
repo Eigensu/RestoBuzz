@@ -142,10 +142,21 @@ async def _migrate_index_additive(
         logger.info(f"Migration: '{idx_name}' successfully reconciled.")
 
     except OperationFailure as rebuild_e:
-        logger.error(
-            f"Migration CRASHED during rebuild of '{idx_name}': {rebuild_e.details}. "
-            "Original index preserved. Startup proceeding in degraded state."
+        logger.warning(
+            f"Migration: Additive build failed for '{idx_name}' due to: {rebuild_e.details}. "
+            f"Attempting destructive swap fallback (dropping '{conflict_name}' first)..."
         )
+        try:
+            logger.info(f"Migration: Dropping conflicting index '{conflict_name}'")
+            await collection.drop_index(conflict_name)
+            logger.info(f"Migration: Rebuilding canonical index '{idx_name}'")
+            await collection.create_indexes([index])
+            logger.info(f"Migration: '{idx_name}' successfully reconciled via destructive swap.")
+        except OperationFailure as destructive_e:
+            logger.error(
+                f"Migration CRASHED during destructive rebuild of '{idx_name}': {destructive_e.details}. "
+                "Startup proceeding in degraded state."
+            )
 
 
 async def _reconcile_conflicts(

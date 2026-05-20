@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 
@@ -252,7 +253,7 @@ async def create_email_campaign(
         )
         from app.workers.send_email_task import dispatch_email_campaign_task
 
-        dispatch_email_campaign_task.delay(str(campaign_id))
+        await run_in_threadpool(dispatch_email_campaign_task.delay, str(campaign_id))
         job_doc["status"] = "queued"
         logger.info(
             "email_campaign_dispatched_immediately", campaign_id=str(campaign_id)
@@ -452,7 +453,7 @@ async def start_email_campaign(
 
     from app.workers.send_email_task import dispatch_email_campaign_task
 
-    dispatch_email_campaign_task.delay(campaign_id)
+    await run_in_threadpool(dispatch_email_campaign_task.delay, campaign_id)
 
     doc["status"] = "queued"
     return _serialize_campaign(doc)

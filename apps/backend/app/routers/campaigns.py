@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from redis.asyncio import from_url as redis_from_url
 from redis.exceptions import RedisError as RedisClientError
@@ -295,7 +296,7 @@ async def create_campaign(
         await db.campaign_jobs.update_one(
             {"_id": job_id}, {"$set": {"status": "queued"}}
         )
-        dispatch_campaign_task.delay(str(job_id))
+        await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
         job_doc["status"] = "queued"
         logger.info("campaign_dispatched_immediately", campaign_id=str(job_id))
     else:
@@ -718,7 +719,7 @@ async def start_campaign(
         {"_id": to_object_id(campaign_id)}, {"$set": {"status": "queued"}}
     )
 
-    dispatch_campaign_task.delay(campaign_id)
+    await run_in_threadpool(dispatch_campaign_task.delay, campaign_id)
 
     doc["status"] = "queued"
     return _serialize_campaign(doc)
@@ -999,7 +1000,7 @@ async def retry_failed(
         )
         raise ServerError("Failed to create retry message logs") from exc
 
-    dispatch_campaign_task.delay(str(job_id))
+    await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)
