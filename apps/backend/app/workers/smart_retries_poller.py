@@ -55,9 +55,17 @@ async def _poll() -> None:
                     logger.exception(
                         "smart_retry_dispatch_broker_failed", parent_job_id=str(job_id_obj)
                     )
+                    await db.campaign_jobs.update_one(
+                        {"_id": job_id_obj},
+                        {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}}
+                    )
                 except Exception:
                     logger.exception(
                         "smart_retry_dispatch_failed", parent_job_id=str(job_id_obj)
+                    )
+                    await db.campaign_jobs.update_one(
+                        {"_id": job_id_obj},
+                        {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}}
                     )
     finally:
         db.client.close()

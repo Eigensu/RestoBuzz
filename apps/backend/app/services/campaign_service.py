@@ -41,7 +41,7 @@ async def create_child_retry_campaign(
     campaign_oid = original["_id"]
 
     # Walk up to find the root campaign so all retries share the same root
-    root_id = original.get("parent_campaign_id") or str(campaign_oid)
+    root_id = original.get("parent_campaign_id") or campaign_oid
 
     # Naming logic: strip existing " (retry)" if present to prevent "(retry) (retry)" accumulation
     base_name = original["name"]
@@ -56,7 +56,7 @@ async def create_child_retry_campaign(
         "template_name": original["template_name"],
         "template_variables": original.get("template_variables", {}),
         "priority": original.get("priority", "MARKETING"),
-        "contact_file_ref": original.get("contact_file_ref", ""),
+        "contact_file_ref": original.get("contact_file_ref"),
         "include_unsubscribe": original.get("include_unsubscribe", False),
         "media_url": original.get("media_url"),
         "smart_retries": original.get("smart_retries", False),
@@ -137,6 +137,8 @@ async def create_child_retry_campaign(
             {"_id": campaign_oid},
             {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}},
         )
+        await db.campaign_jobs.delete_one({"_id": job_id})
+        await db.message_logs.delete_many({"job_id": job_id})
         logger.error(
             "retry_failed_message_log_insert_error",
             campaign_id=str(campaign_oid),

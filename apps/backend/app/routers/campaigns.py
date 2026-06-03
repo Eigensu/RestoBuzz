@@ -113,6 +113,8 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
             str(doc["parent_campaign_id"]) if doc.get("parent_campaign_id") else None
         ),
         has_been_retried=doc.get("has_been_retried", False),
+        smart_retries=doc.get("smart_retries", False),
+        retry_until=doc.get("retry_until"),
     )
 
 
@@ -916,6 +918,14 @@ async def retry_failed(
         await run_in_threadpool(dispatch_campaign_task.delay, job_id_str)
     except Exception as e:
         logger.error("campaign_dispatch_failed", error=str(e))
+        # Rollback parent claim and delete created child campaign
+        await db.campaign_jobs.update_one(
+            {"_id": campaign_oid},
+            {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}}
+        )
+        child_oid = to_object_id(job_id_str)
+        await db.campaign_jobs.delete_one({"_id": child_oid})
+        await db.message_logs.delete_many({"job_id": child_oid})
         raise HTTPException(
             status_code=503, detail="Campaign queue unavailable, please try again shortly"
         ) from e

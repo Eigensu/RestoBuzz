@@ -88,8 +88,16 @@ export function Step3Review({
     setRetryUntil(parseISTDatetimeLocal(e.target.value));
   }
 
+  const retryInPast =
+    smartRetries &&
+    retryUntil !== null &&
+    retryUntil <= new Date();
+
   const isRetryWarning =
-    smartRetries && retryUntil && retryUntil.getTime() - new Date().getTime() < 2 * 60 * 60 * 1000;
+    smartRetries &&
+    retryUntil &&
+    !retryInPast &&
+    retryUntil.getTime() - new Date().getTime() < 2 * 60 * 60 * 1000;
 
   const sendsAtLabel =
     sendMode === "immediate" ? "Immediately" : scheduledAtFormatted;
@@ -293,7 +301,7 @@ export function Step3Review({
                     className={cn(
                       INPUT_CLS,
                       "flex-1 py-2",
-                      !retryUntil ? "border-red-400" : ""
+                      retryInPast || !retryUntil ? "border-red-400" : ""
                     )}
                   />
                   <span className="shrink-0 rounded-md bg-[#24422e]/10 px-2 py-1.5 text-xs font-semibold text-[#24422e]">
@@ -305,7 +313,12 @@ export function Step3Review({
                     Warning: Time is less than 2 hours away. A retry will likely not trigger.
                   </p>
                 )}
-                {!retryUntil && (
+                {retryInPast && (
+                  <p className="text-xs text-red-500">
+                    Please pick a future date and time.
+                  </p>
+                )}
+                {!retryUntil && !retryInPast && (
                   <p className="text-xs text-red-500">
                     A valid retry date and time is required.
                   </p>
