@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.workers.send_email_task",
         "app.workers.email_reconciliation_task",
         "app.workers.scheduled_poller",
+        "app.workers.smart_retries_poller",
         "app.workers.alert_tasks",
     ],
 )
@@ -63,6 +64,10 @@ celery_app.conf.update(
         "poll-scheduled-campaigns-every-minute": {
             "task": "app.workers.scheduled_poller.poll_scheduled_campaigns",
             "schedule": crontab(minute="*"),
+        },
+        "poll-smart-retries-every-15m": {
+            "task": "app.workers.smart_retries_poller.poll_smart_retries",
+            "schedule": crontab(minute="*/15"),
         },
     },
 )

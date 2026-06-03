@@ -151,6 +151,11 @@ async def _send(task: Task, message_log_id: str) -> None:
                 await _fail_message(
                     db, message_log_id, "suppressed", "Number is suppressed"
                 )
+                await db.campaign_jobs.update_one(
+                    {"_id": msg["job_id"]},
+                    {"$inc": {"failed_count": 1}},
+                )
+                await _auto_complete_job(db, msg["job_id"])
                 return
 
             # Rate limit
@@ -275,6 +280,7 @@ async def _handle_meta_error(
             {"_id": msg["job_id"]},
             {"$inc": {"failed_count": 1}},
         )
+        await _auto_complete_job(db, msg["job_id"])
 
 
 async def _auto_complete_job(db, job_id) -> None:

@@ -44,6 +44,10 @@ interface Step3ReviewProps {
   setSendMode: (m: "immediate" | "scheduled") => void;
   scheduledAt: Date | null;
   setScheduledAt: (d: Date | null) => void;
+  smartRetries: boolean;
+  setSmartRetries: (b: boolean) => void;
+  retryUntil: Date | null;
+  setRetryUntil: (d: Date | null) => void;
 }
 
 export function Step3Review({
@@ -57,6 +61,10 @@ export function Step3Review({
   setSendMode,
   scheduledAt,
   setScheduledAt,
+  smartRetries,
+  setSmartRetries,
+  retryUntil,
+  setRetryUntil,
 }: Readonly<Step3ReviewProps>) {
   const minDatetime = toDatetimeLocalMin();
 
@@ -71,6 +79,17 @@ export function Step3Review({
   const scheduledAtFormatted = scheduledAt
     ? absoluteIST(scheduledAt) + " (IST)"
     : "—";
+
+  function handleRetryUntilChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.value) {
+      setRetryUntil(null);
+      return;
+    }
+    setRetryUntil(parseISTDatetimeLocal(e.target.value));
+  }
+
+  const isRetryWarning =
+    smartRetries && retryUntil && retryUntil.getTime() - new Date().getTime() < 2 * 60 * 60 * 1000;
 
   const sendsAtLabel =
     sendMode === "immediate" ? "Immediately" : scheduledAtFormatted;
@@ -220,6 +239,83 @@ export function Step3Review({
         </label>
       </div>
 
+      {/* ── Smart Retries ────────────────────────────────────────────── */}
+      <div className="space-y-3 pt-2">
+        <p className="text-sm font-medium">Smart Retries</p>
+        <label
+          htmlFor="smart-retries-toggle"
+          className={cn(
+            "flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition",
+            smartRetries
+              ? "border-[#24422e] bg-[#f7fbf8]"
+              : "border-gray-200 hover:border-gray-300",
+          )}
+        >
+          <input
+            id="smart-retries-toggle"
+            type="checkbox"
+            checked={smartRetries}
+            onChange={(e) => {
+              setSmartRetries(e.target.checked);
+              if (e.target.checked && !retryUntil) {
+                // Default to 24h from now
+                setRetryUntil(new Date(Date.now() + 24 * 60 * 60 * 1000));
+              }
+            }}
+            className="mt-0.5 accent-[#24422e]"
+          />
+          <div className="flex-1 space-y-3">
+            <div>
+              <span className="text-sm font-medium leading-none">
+                Enable automatic retries
+              </span>
+              <p className="mt-1 text-xs text-gray-500">
+                Automatically retry failed messages every 2 hours until the specified date.
+              </p>
+            </div>
+
+            {smartRetries && (
+              <div className="space-y-1">
+                <label
+                  htmlFor="retry-until-datetime"
+                  className="text-xs font-medium text-gray-600"
+                >
+                  Retry until
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="retry-until-datetime"
+                    type="datetime-local"
+                    min={minDatetime}
+                    value={toInputValue(retryUntil)}
+                    onChange={handleRetryUntilChange}
+                    onClick={(e) => e.stopPropagation()}
+                    className={cn(
+                      INPUT_CLS,
+                      "flex-1 py-2",
+                      !retryUntil ? "border-red-400" : ""
+                    )}
+                  />
+                  <span className="shrink-0 rounded-md bg-[#24422e]/10 px-2 py-1.5 text-xs font-semibold text-[#24422e]">
+                    IST
+                  </span>
+                </div>
+                {isRetryWarning && (
+                  <p className="text-xs text-amber-500 mt-1">
+                    Warning: Time is less than 2 hours away. A retry will likely not trigger.
+                  </p>
+                )}
+                {!retryUntil && (
+                  <p className="text-xs text-red-500">
+                    A valid retry date and time is required.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </label>
+      </div>
+
       {/* ── Summary ──────────────────────────────────────────────────── */}
       <div className="border rounded-xl overflow-hidden">
         <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b bg-gray-50">
@@ -234,6 +330,7 @@ export function Step3Review({
               preflight ? `${preflight.valid_count} contacts` : "—",
             ],
             ["Unsubscribe Footer", includeUnsub ? "Yes" : "No"],
+            ["Smart Retries", smartRetries && retryUntil ? `Until ${absoluteIST(retryUntil)} (IST)` : "No"],
             ["Sends At", sendsAtLabel],
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between px-4 py-2.5">

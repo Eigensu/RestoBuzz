@@ -38,6 +38,8 @@ export interface Campaign {
   created_at: string;
   parent_campaign_id: string | null;
   has_been_retried: boolean;
+  smart_retries: boolean;
+  retry_until: string | null;
 }
 
 export interface MessageLog {

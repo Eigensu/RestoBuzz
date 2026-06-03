@@ -56,6 +56,8 @@ export function NewCampaignWizard() {
     "immediate",
   );
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+  const [smartRetries, setSmartRetries] = useState(false);
+  const [retryUntil, setRetryUntil] = useState<Date | null>(null);
 
   const {
     data: apiTemplates,
@@ -169,6 +171,8 @@ export function NewCampaignWizard() {
           sendMode === "scheduled" && scheduledAt
             ? scheduledAt.toISOString()
             : null,
+        smart_retries: smartRetries,
+        retry_until: smartRetries && retryUntil ? retryUntil.toISOString() : null,
       }),
     onSuccess: (res) => {
       toast.success(
@@ -281,6 +285,10 @@ export function NewCampaignWizard() {
               setSendMode={setSendMode}
               scheduledAt={scheduledAt}
               setScheduledAt={setScheduledAt}
+              smartRetries={smartRetries}
+              setSmartRetries={setSmartRetries}
+              retryUntil={retryUntil}
+              setRetryUntil={setRetryUntil}
             />
           )}
         </div>
