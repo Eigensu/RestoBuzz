@@ -178,29 +178,42 @@ async def update_wa_phones(
     The first entry in wa_phones is used as the primary outbound number.
     wa_phone_ids is kept in sync automatically for inbound webhook routing.
     """
-    restaurant = await db.restaurants.find_one({"id": restaurant_id})
-    if not restaurant:
-        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
+    cleaned_phones = []
+    seen_phone_ids = set()
+    new_phone_ids = []
 
     for entry in body.wa_phones:
-        if not entry.phone_id.strip():
+        phone_id = entry.phone_id.strip()
+        env_key = entry.access_token_env_key.strip()
+        
+        if not phone_id:
             raise ValidationError("Each wa_phone entry must have a non-empty phone_id")
-        if not entry.access_token_env_key.strip():
-            raise ValidationError(
-                "Each wa_phone entry must have a non-empty access_token_env_key"
-            )
+        if not env_key:
+            raise ValidationError("Each wa_phone entry must have a non-empty access_token_env_key")
+            
+        cleaned_entry = entry.model_dump()
+        cleaned_entry["phone_id"] = phone_id
+        cleaned_entry["access_token_env_key"] = env_key
+        
+        cleaned_phones.append(cleaned_entry)
+        if phone_id not in seen_phone_ids:
+            seen_phone_ids.add(phone_id)
+            new_phone_ids.append(phone_id)
 
-    # Keep wa_phone_ids in sync so inbound webhook routing continues to work
-    new_phone_ids = [p.phone_id for p in body.wa_phones if p.phone_id]
+    query: dict = {"id": restaurant_id}
+    if ObjectId.is_valid(restaurant_id):
+        query = {"$or": [{"id": restaurant_id}, {"_id": ObjectId(restaurant_id)}]}
 
     result = await db.restaurants.find_one_and_update(
-        {"id": restaurant_id},
+        query,
         {
             "$set": {
-                "wa_phones": [p.model_dump() for p in body.wa_phones],
+                "wa_phones": cleaned_phones,
                 "wa_phone_ids": new_phone_ids,
             }
         },
         return_document=True,
     )
+    if not result:
+        raise NotFoundError(f"Restaurant '{restaurant_id}' not found")
     return _serialize_restaurant(result)

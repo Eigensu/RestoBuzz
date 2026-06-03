@@ -178,27 +178,38 @@ async def _do_send(
     message_log_id: str,
 ) -> None:
     """Resolve language, call Meta API, record the result, and auto-complete the job."""
+    restaurant_id = msg.get("restaurant_id")
     language = msg.get("language")
     if not language:
-        restaurant_id = msg.get("restaurant_id")
-        tpl_query: dict = {"name": msg.get("template_name", "")}
-        if restaurant_id:
-            tpl_query["restaurant_id"] = restaurant_id
-        tpl = await db.templates.find_one(tpl_query, {"language": 1})
-        language = (tpl or {}).get("language") or "en_US"
+        template_id = msg.get("template_id")
+        if template_id:
+            tpl = await db.templates.find_one({"_id": ObjectId(template_id)}, {"language": 1})
+            language = (tpl or {}).get("language")
+            
+        if not language:
+            language = msg.get("template_language")
+            
+        if not language:
+            tpl_query: dict = {"name": msg.get("template_name", "")}
+            if restaurant_id:
+                tpl_query["restaurant_id"] = restaurant_id
+            tpl = await db.templates.find_one(tpl_query, {"language": 1})
+            language = (tpl or {}).get("language") or "en_US"
 
     # Credentials were stamped onto the message_log at campaign creation time.
-    # wa_phone_id is the Meta Phone Number ID (non-sensitive, stored directly).
-    # wa_access_token_env_key is the name of the env var holding the real token —
-    # the token is never stored in the DB, it is resolved here at send time.
-    # Legacy logs without these fields return None → global fallback in meta_api.
     wa_phone_id: str | None = msg.get("wa_phone_id") or None
     wa_access_token: str | None = None
     env_key: str = msg.get("wa_access_token_env_key") or ""
     if env_key:
         from app.config import settings as _cfg
-
         wa_access_token = _cfg.resolve_waba_token(env_key)
+
+    if restaurant_id and (not wa_phone_id or not wa_access_token):
+        await _handle_meta_error(
+            task, db, msg, message_log_id,
+            MetaAPIError("config_error", "Missing or invalid restaurant WABA credentials (wa_phone_id / access_token_env_key). Cannot use global fallback for restaurant messages.")
+        )
+        return
 
     try:
         wa_id, endpoint = await send_template_message(

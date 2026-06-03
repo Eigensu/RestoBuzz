@@ -490,11 +490,12 @@ async def _send_benefits_reply(
             primary = wa_phones[0]
             rp = primary.get("phone_id") or ""
             env_key = primary.get("access_token_env_key") or ""
-            if rp and env_key:
-                rt = settings.resolve_waba_token(env_key) or ""
-                if rt:
-                    resolved_phone_id = rp
-                    resolved_token = rt
+            rt = settings.resolve_waba_token(env_key) if env_key else ""
+            if not rp or not rt:
+                logger.error("meta_restaurant_credentials_resolution_failed", restaurant_id=restaurant_id)
+                return
+            resolved_phone_id = rp
+            resolved_token = rt
 
     if not resolved_phone_id or not resolved_token:
         logger.error("meta_primary_credentials_missing", to=to)

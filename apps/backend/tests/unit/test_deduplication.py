@@ -30,4 +30,4 @@ async def test_mark_seen_sets_key_with_ttl():
     from app.services.deduplication import mark_seen
     await mark_seen(mock_redis, "wamid.abc123")
 
-    mock_redis.set.assert_called_once_with("dedup:wa:wamid.abc123", "1", ex=86400)
+    mock_redis.set.assert_called_once_with("wa_dedup:wamid.abc123", "1", ex=86400)

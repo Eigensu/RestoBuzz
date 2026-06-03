@@ -9,7 +9,7 @@ import io
 import json
 from datetime import datetime, timezone
 from typing import Annotated
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -253,7 +253,11 @@ async def create_email_campaign(
         )
         from app.workers.send_email_task import dispatch_email_campaign_task
 
-        await run_in_threadpool(dispatch_email_campaign_task.delay, str(campaign_id))
+        try:
+            await run_in_threadpool(dispatch_email_campaign_task.delay, str(campaign_id))
+        except Exception as e:
+            logger.error("email_campaign_dispatch_failed", error=str(e))
+            raise HTTPException(status_code=503, detail="Email campaign queue unavailable, please try again shortly")
         job_doc["status"] = "queued"
         logger.info(
             "email_campaign_dispatched_immediately", campaign_id=str(campaign_id)
@@ -453,7 +457,11 @@ async def start_email_campaign(
 
     from app.workers.send_email_task import dispatch_email_campaign_task
 
-    await run_in_threadpool(dispatch_email_campaign_task.delay, campaign_id)
+    try:
+        await run_in_threadpool(dispatch_email_campaign_task.delay, campaign_id)
+    except Exception as e:
+        logger.error("email_campaign_dispatch_failed", error=str(e))
+        raise HTTPException(status_code=503, detail="Email campaign queue unavailable, please try again shortly")
 
     doc["status"] = "queued"
     return _serialize_campaign(doc)

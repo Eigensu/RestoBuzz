@@ -223,10 +223,11 @@ function RestaurantPhoneRow({
         <div className="border-t border-gray-100 bg-gray-50/40 px-5 py-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              <label htmlFor={`phone_id_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
                 Phone Number ID <span className="text-red-400">*</span>
               </label>
               <input
+                id={`phone_id_${restaurant.id}`}
                 value={phoneId}
                 onChange={(e) => setPhoneId(e.target.value)}
                 placeholder="e.g. 936956752843517"
@@ -234,10 +235,11 @@ function RestaurantPhoneRow({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              <label htmlFor={`waba_id_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
                 WABA ID
               </label>
               <input
+                id={`waba_id_${restaurant.id}`}
                 value={wabaId}
                 onChange={(e) => setWabaId(e.target.value)}
                 placeholder="e.g. 929340232802113"
@@ -245,10 +247,11 @@ function RestaurantPhoneRow({
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              <label htmlFor={`env_key_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
                 Access Token Env Key <span className="text-red-400">*</span>
               </label>
               <input
+                id={`env_key_${restaurant.id}`}
                 value={envKey}
                 onChange={(e) => setEnvKey(e.target.value)}
                 placeholder="e.g. META_PRIMARY_ACCESS_TOKEN"
@@ -260,10 +263,11 @@ function RestaurantPhoneRow({
               </p>
             </div>
             <div>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              <label htmlFor={`label_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
                 Label
               </label>
               <input
+                id={`label_${restaurant.id}`}
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="primary"

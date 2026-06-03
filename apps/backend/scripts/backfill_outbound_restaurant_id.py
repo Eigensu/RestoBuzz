@@ -31,42 +31,50 @@ async def main() -> None:
     client = AsyncIOMotorClient(settings.mongodb_url)
     db = client.get_default_database(settings.mongodb_db_name)
 
-    # Build a lookup map: wa_phone_id → restaurant_id
-    phone_to_restaurant: dict[str, str] = {}
-    async for rest in db.restaurants.find(
-        {"wa_phone_ids": {"$exists": True, "$not": {"$size": 0}}},
-        {"id": 1, "wa_phone_ids": 1},
-    ):
-        rid = rest.get("id") or str(rest["_id"])
-        for pid in rest.get("wa_phone_ids", []):
-            if pid:
-                phone_to_restaurant[str(pid)] = rid
+    try:
+        # Build a lookup map: wa_phone_id → restaurant_id
+        phone_to_restaurant: dict[str, str] = {}
+        async for rest in db.restaurants.find(
+            {"wa_phone_ids": {"$exists": True, "$not": {"$size": 0}}},
+            {"id": 1, "wa_phone_ids": 1},
+        ):
+            rid = rest.get("id") or str(rest["_id"])
+            for pid in rest.get("wa_phone_ids", []):
+                if pid:
+                    phone_to_restaurant[str(pid)] = rid
 
-    print(f"Built phone→restaurant map: {len(phone_to_restaurant)} entries")
+        print(f"Built phone→restaurant map: {len(phone_to_restaurant)} entries")
 
-    # Find all outbound_messages without restaurant_id
-    query = {"restaurant_id": {"$exists": False}}
-    total = await db.outbound_messages.count_documents(query)
-    print(f"Unscoped outbound_messages to process: {total}")
+        # Find all outbound_messages without restaurant_id
+        query = {"restaurant_id": {"$exists": False}}
+        total = await db.outbound_messages.count_documents(query)
+        print(f"Unscoped outbound_messages to process: {total}")
 
-    stamped = 0
-    skipped = 0
+        stamped = 0
+        skipped = 0
 
-    async for doc in db.outbound_messages.find(query, {"_id": 1, "wa_phone_id": 1}):
-        wa_phone_id = str(doc.get("wa_phone_id") or "")
-        rid = phone_to_restaurant.get(wa_phone_id)
+        async for doc in db.outbound_messages.find(query, {"_id": 1, "wa_phone_id": 1}):
+            wa_phone_id = str(doc.get("wa_phone_id") or "")
+            rid = phone_to_restaurant.get(wa_phone_id)
 
-        if rid:
-            await db.outbound_messages.update_one(
-                {"_id": doc["_id"]},
-                {"$set": {"restaurant_id": rid}},
-            )
-            stamped += 1
-        else:
-            skipped += 1
+            if rid:
+                try:
+                    await db.outbound_messages.update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {"restaurant_id": rid}},
+                    )
+                    stamped += 1
+                except Exception as e:
+                    print(f"Failed to update outbound message {doc['_id']} with restaurant_id: {e}")
+            else:
+                skipped += 1
 
-    print(f"Done. Stamped: {stamped} | Skipped (no match): {skipped}")
-    client.close()
+        print(f"Done. Stamped: {stamped} | Skipped (no match): {skipped}")
+    except Exception as e:
+        print(f"Error during migration: {e}")
+    finally:
+        client.close()
+
 
 
 if __name__ == "__main__":

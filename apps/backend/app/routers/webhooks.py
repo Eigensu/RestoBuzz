@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, Query, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -110,7 +111,6 @@ async def receive_webhook(
     # If Redis is unavailable, apply_async raises — fall back to BackgroundTasks
     # so the data is never lost and Meta still receives a 200. Processing will be
     # slower and without dedup, but correct. Alert on-call if this fires.
-    from fastapi.concurrency import run_in_threadpool
     try:
         await run_in_threadpool(
             process_webhook_task.apply_async, args=[payload], queue="webhooks"
@@ -240,7 +240,9 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
 
     # 1. Verify webhook signature
     try:
-        from app.services.resend_client import verify_webhook as verify_resend_webhook  # pylint: disable=import-outside-toplevel
+        from app.services.resend_client import (
+            verify_webhook as verify_resend_webhook,
+        )  # pylint: disable=import-outside-toplevel
 
         event = verify_resend_webhook(
             payload_str,

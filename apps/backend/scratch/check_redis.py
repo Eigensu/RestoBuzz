@@ -9,7 +9,7 @@ from app.config import settings
 import redis
 
 def check_redis():
-    print(f"Connecting to Redis at {settings.redis_url}")
+    print("Connecting to Redis...")
     try:
         r = redis.from_url(settings.redis_url, socket_timeout=5)
         r.ping()

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class WaPhone(BaseModel):
@@ -14,6 +14,16 @@ class WaPhone(BaseModel):
     access_token_env_key: str  # Name of the env var holding the access token
     waba_id: str = ""  # WhatsApp Business Account ID (for template management)
     label: str = "primary"  # Human-readable label, e.g. "primary", "backup"
+
+    @field_validator("access_token_env_key")
+    @classmethod
+    def validate_env_key(cls, v: str) -> str:
+        v = v.strip()
+        if " " in v:
+            raise ValueError("Env key cannot contain spaces")
+        if not v.startswith("META_") and not v.startswith("WHATSAPP_TOKEN_"):
+            raise ValueError("Env key must start with META_ or WHATSAPP_TOKEN_")
+        return v
 
 
 class RestaurantResponse(BaseModel):

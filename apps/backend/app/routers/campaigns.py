@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Annotated
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -296,7 +296,11 @@ async def create_campaign(
         await db.campaign_jobs.update_one(
             {"_id": job_id}, {"$set": {"status": "queued"}}
         )
-        await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
+        try:
+            await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
+        except Exception as e:
+            logger.error("campaign_dispatch_failed", error=str(e))
+            raise HTTPException(status_code=503, detail="Campaign queue unavailable, please try again shortly")
         job_doc["status"] = "queued"
         logger.info("campaign_dispatched_immediately", campaign_id=str(job_id))
     else:
@@ -322,7 +326,7 @@ async def send_test_message(
 
     # Reuse the template's configured language when available.
     template_doc = await db.templates.find_one(
-        {"name": body.template_name}, {"language": 1, "components": 1}
+        {"name": body.template_name, "restaurant_id": body.restaurant_id}, {"language": 1, "components": 1}
     )
     language = (template_doc or {}).get("language") or "en_US"
     allowed_var_keys = _template_body_var_keys(template_doc)
@@ -719,7 +723,11 @@ async def start_campaign(
         {"_id": to_object_id(campaign_id)}, {"$set": {"status": "queued"}}
     )
 
-    await run_in_threadpool(dispatch_campaign_task.delay, campaign_id)
+    try:
+        await run_in_threadpool(dispatch_campaign_task.delay, campaign_id)
+    except Exception as e:
+        logger.error("campaign_dispatch_failed", error=str(e))
+        raise HTTPException(status_code=503, detail="Campaign queue unavailable, please try again shortly")
 
     doc["status"] = "queued"
     return _serialize_campaign(doc)
@@ -1000,7 +1008,11 @@ async def retry_failed(
         )
         raise ServerError("Failed to create retry message logs") from exc
 
-    await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
+    try:
+        await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
+    except Exception as e:
+        logger.error("campaign_dispatch_failed", error=str(e))
+        raise HTTPException(status_code=503, detail="Campaign queue unavailable, please try again shortly")
 
     job_doc["_id"] = job_id
     return _serialize_campaign(job_doc)

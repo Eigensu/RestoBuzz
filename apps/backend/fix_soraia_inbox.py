@@ -43,6 +43,10 @@ async def fix():
     doc = await db.restaurants.find_one(
         {"id": SORAIA_RESTAURANT_ID}, {"wa_phone_ids": 1, "wa_phones": 1}
     )
+    if not doc:
+        import sys
+        sys.exit(f"Error: Restaurant {SORAIA_RESTAURANT_ID} not found in database.")
+        
     print(f"    wa_phone_ids now: {doc.get('wa_phone_ids')}")
     print(f"    wa_phones now:    {doc.get('wa_phones')}")
 
@@ -54,19 +58,6 @@ async def fix():
     print(
         f"\n[2] Backfilled inbound_messages — "
         f"matched: {inbound_result.matched_count}, modified: {inbound_result.modified_count}"
-    )
-
-    # ── Step 3: Backfill outbound_messages with restaurant_id=None ───────────
-    # outbound_messages don't have wa_phone_id, but they do have restaurant_id.
-    # The inbox thread query already has a fallback for unscoped outbound rows,
-    # so this is optional — but clean it up anyway if any exist.
-    outbound_result = await db.outbound_messages.update_many(
-        {"restaurant_id": None},
-        {"$set": {"restaurant_id": SORAIA_RESTAURANT_ID}},
-    )
-    print(
-        f"[3] Backfilled outbound_messages (unscoped) — "
-        f"matched: {outbound_result.matched_count}, modified: {outbound_result.modified_count}"
     )
 
     # ── Summary ───────────────────────────────────────────────────────────────

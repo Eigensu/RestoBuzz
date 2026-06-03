@@ -80,7 +80,7 @@ export default function UnifiedTemplatesPage() {
     mutationFn: () => api.post("/templates/sync"),
     onSuccess: () => {
       toast.success("Sync queued — templates will update shortly");
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["templates", restaurant?.id] }), 3000);
+      qc.invalidateQueries({ queryKey: ["templates", restaurant?.id] });
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });

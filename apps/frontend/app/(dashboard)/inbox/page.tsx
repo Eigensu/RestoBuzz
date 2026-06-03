@@ -169,7 +169,7 @@ export default function InboxPage() {
       api.post(`/inbox/conversations/${encodeURIComponent(phone)}/resolve`),
     onSuccess: () => {
       setSelected(null);
-      qc.invalidateQueries({ queryKey: ["inbox-conversations"] });
+      qc.invalidateQueries({ queryKey: ["inbox-conversations", restaurant?.id] });
       toast.success("Conversation marked as done");
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
@@ -183,8 +183,8 @@ export default function InboxPage() {
       ),
     onSuccess: () => {
       setReply("");
-      qc.invalidateQueries({ queryKey: ["inbox-messages", selected] });
-      qc.invalidateQueries({ queryKey: ["inbox-conversations"] });
+      qc.invalidateQueries({ queryKey: ["inbox-messages", restaurant?.id, selected] });
+      qc.invalidateQueries({ queryKey: ["inbox-conversations", restaurant?.id] });
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });

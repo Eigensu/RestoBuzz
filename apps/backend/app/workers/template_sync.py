@@ -32,9 +32,8 @@ async def _sync() -> None:
             {"wa_phones.0": {"$exists": True}},
             {"id": 1, "name": 1, "wa_phones": 1},
         )
-        restaurants = await cursor.to_list(100)
 
-        for rest in restaurants:
+        async for rest in cursor:
             rid = rest.get("id") or str(rest["_id"])
             primary = rest["wa_phones"][0]
             waba_id = primary.get("waba_id") or ""

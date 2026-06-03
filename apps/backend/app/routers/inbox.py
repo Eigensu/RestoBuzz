@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.config import settings
 from app.database import get_db
@@ -136,11 +135,18 @@ async def get_conversation(
     since = datetime.now(timezone.utc) - timedelta(days=30)
     rid = restaurant["id"]
 
+    wa_phones = restaurant.get("wa_phones", [])
+    phone_ids = [p["phone_id"] for p in wa_phones if p.get("phone_id")]
+
+    legacy_fallback: dict = {"restaurant_id": {"$exists": False}}
+    if phone_ids:
+        legacy_fallback["wa_phone_id"] = {"$in": phone_ids}
+
     # Outbound filter: scoped rows OR legacy unscoped rows (migration fallback)
     outbound_restaurant_filter = {
         "$or": [
             {"restaurant_id": rid},
-            {"restaurant_id": {"$exists": False}},
+            legacy_fallback,
         ]
     }
 

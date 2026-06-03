@@ -12,8 +12,10 @@ from motor.motor_asyncio import AsyncIOMotorClient
 async def check():
     print("Checking DB...")
     client = AsyncIOMotorClient(settings.mongodb_url, serverSelectionTimeoutMS=5000)
-    db_name = settings.mongodb_db_name or "dishpatch"
-    db = client[db_name]
+    if settings.mongodb_db_name:
+        db = client[settings.mongodb_db_name]
+    else:
+        db = client.get_default_database("dishpatch")
     try:
         await db.command("ping")
         print("DB Ping OK")

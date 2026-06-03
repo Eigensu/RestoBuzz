@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 import re
@@ -142,7 +142,7 @@ def _normalize_component_for_meta(component: TemplateComponent) -> dict:
     return data
 
 
-async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
+async def _resolve_media_header_handles(components: list[dict], access_token: str | None = None) -> list[dict]:
     resolved: list[dict] = []
     for comp in components:
         item = dict(comp)
@@ -160,14 +160,14 @@ async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
                     and isinstance(handles[0], str)
                     and handles[0].strip().startswith("https://")
                 ):
-                    if not settings.meta_primary_access_token:
+                    if not access_token:
                         raise ValidationError(
                             "Meta access token missing; cannot upload template media"
                         )
                     media_id = await create_media_handle_from_url(
                         handles[0].strip(),
                         settings.meta_app_id,
-                        settings.meta_primary_access_token,
+                        access_token,
                     )
                     item["example"] = {"header_handle": [media_id]}
         resolved.append(item)
@@ -254,7 +254,7 @@ async def create_new_template(
 ):
     waba_id, token = _resolve_restaurant_waba(restaurant)
     normalized_components = [_normalize_component_for_meta(c) for c in body.components]
-    normalized_components = await _resolve_media_header_handles(normalized_components)
+    normalized_components = await _resolve_media_header_handles(normalized_components, token)
     if not any(c.get("type") == "BODY" for c in normalized_components):
         raise ValidationError("Template must include a BODY component with text")
     payload = {
@@ -262,7 +262,7 @@ async def create_new_template(
         "category": body.category,
         "language": _normalize_language_code(body.language),
         "components": [c for c in normalized_components if c],
-        "parameter_format": "POSITIONAL",
+        "parameter_format": "positional",
     }
     try:
         result = await create_template(waba_id, token, payload)
@@ -340,10 +340,12 @@ async def edit_existing_template(
     await edit_template(meta_id, token, components)
 
     await db.templates.update_one(
-        {"meta_id": meta_id},
+        {"meta_id": meta_id, "restaurant_id": restaurant["id"]},
         {"$set": {"components": components, "synced_at": datetime.now(timezone.utc)}},
     )
-    updated = await db.templates.find_one({"meta_id": meta_id}, {"_id": 0})
+    updated = await db.templates.find_one(
+        {"meta_id": meta_id, "restaurant_id": restaurant["id"]}, {"_id": 0}
+    )
     return updated
 
 
@@ -361,7 +363,10 @@ async def sync_templates(
     try:
         templates = await fetch_templates(waba_id, token)
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch templates from Meta: {e}"
+        )
 
     keys: list[dict] = []
     for t in templates:

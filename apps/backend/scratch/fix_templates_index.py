@@ -14,11 +14,22 @@ async def fix_indexes():
     
     from app.config import settings
     
+    from pymongo.uri_parser import parse_uri
+    
     print("Connecting to MongoDB...")
     client = AsyncIOMotorClient(settings.mongodb_url)
-    db_name = settings.mongodb_db_name or settings.mongodb_url.split("/")[-1].split("?")[0]
+    
+    db_name = None
+    if settings.mongodb_db_name:
+        db_name = settings.mongodb_db_name
+    else:
+        try:
+            db_name = parse_uri(settings.mongodb_url).get("database")
+        except Exception:
+            pass
     if not db_name:
         db_name = "dishpatch"
+        
     db = client[db_name]
     
     print(f"Using database: {db_name}")
@@ -51,6 +62,8 @@ async def fix_indexes():
         print("Canonical index created successfully!")
     except Exception as e:
         print(f"Failed to create canonical index: {e}")
+        import sys
+        sys.exit(1)
         
     # Print indexes again
     indexes = await db.templates.index_information()
