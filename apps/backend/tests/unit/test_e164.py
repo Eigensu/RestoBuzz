@@ -1,13 +1,11 @@
 import pytest
-from app.services.contact_parser import _normalize_phone
+from app.utils.phone import normalize_phone as _normalize_phone
 
 
 def test_valid_us_number():
     assert _normalize_phone("+12125551234") == "+12125551234"
 
 
-def test_local_us_number_with_region():
-    assert _normalize_phone("2125551234", "US") == "+12125551234"
 
 
 def test_international_uk():

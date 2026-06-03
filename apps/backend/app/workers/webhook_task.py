@@ -476,9 +476,28 @@ async def _send_benefits_reply(
         logger.warning("benefits_link_not_configured", to=to)
         return
 
-    phone_id = phone_id or settings.meta_primary_phone_id
-    token = settings.meta_primary_access_token
-    if not phone_id or not token:
+    # Prefer the restaurant's own WABA credentials when available.
+    # Fall back to the global primary phone if not configured.
+    resolved_phone_id = phone_id or settings.meta_primary_phone_id
+    resolved_token = settings.meta_primary_access_token
+
+    if restaurant_id:
+        rest_doc = await db.restaurants.find_one(
+            {"id": restaurant_id}, {"wa_phones": 1}
+        )
+        wa_phones = (rest_doc or {}).get("wa_phones", [])
+        if wa_phones:
+            primary = wa_phones[0]
+            rp = primary.get("phone_id") or ""
+            env_key = primary.get("access_token_env_key") or ""
+            rt = settings.resolve_waba_token(env_key) if env_key else ""
+            if not rp or not rt:
+                logger.error("meta_restaurant_credentials_resolution_failed", restaurant_id=restaurant_id)
+                return
+            resolved_phone_id = rp
+            resolved_token = rt
+
+    if not resolved_phone_id or not resolved_token:
         logger.error("meta_primary_credentials_missing", to=to)
         return
 
@@ -487,8 +506,8 @@ async def _send_benefits_reply(
         wa_id = await send_text_message(
             to=to,
             body=body,
-            phone_id=phone_id,
-            token=token,
+            phone_id=resolved_phone_id,
+            token=resolved_token,
         )
         await db.outbound_messages.insert_one(
             {
@@ -498,7 +517,7 @@ async def _send_benefits_reply(
                 "status": "sent",
                 "sent_at": datetime.now(timezone.utc),
                 "restaurant_id": restaurant_id,
-                "wa_phone_id": phone_id,
+                "wa_phone_id": resolved_phone_id,
                 "sender_name": "System (Auto-Response)",
                 "channel": "whatsapp",
             }

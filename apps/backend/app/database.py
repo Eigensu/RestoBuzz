@@ -142,10 +142,21 @@ async def _migrate_index_additive(
         logger.info(f"Migration: '{idx_name}' successfully reconciled.")
 
     except OperationFailure as rebuild_e:
-        logger.error(
-            f"Migration CRASHED during rebuild of '{idx_name}': {rebuild_e.details}. "
-            "Original index preserved. Startup proceeding in degraded state."
+        logger.warning(
+            f"Migration: Additive build failed for '{idx_name}' due to: {rebuild_e.details}. "
+            f"Attempting destructive swap fallback (dropping '{conflict_name}' first)..."
         )
+        try:
+            logger.info(f"Migration: Dropping conflicting index '{conflict_name}'")
+            await collection.drop_index(conflict_name)
+            logger.info(f"Migration: Rebuilding canonical index '{idx_name}'")
+            await collection.create_indexes([index])
+            logger.info(f"Migration: '{idx_name}' successfully reconciled via destructive swap.")
+        except OperationFailure as destructive_e:
+            logger.error(
+                f"Migration CRASHED during destructive rebuild of '{idx_name}': {destructive_e.details}. "
+                "Startup proceeding in degraded state."
+            )
 
 
 async def _reconcile_conflicts(
@@ -258,6 +269,22 @@ async def init_indexes() -> None:
                     ("from_phone", ASCENDING),
                 ]
             ),
+            # Per-restaurant conversation list (new scoped queries)
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("is_resolved", ASCENDING),
+                    ("received_at", DESCENDING),
+                ]
+            ),
+            # Per-restaurant per-phone thread queries
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("from_phone", ASCENDING),
+                    ("received_at", DESCENDING),
+                ]
+            ),
             # Retained for backwards-compat with per-phone thread queries.
             IndexModel([("from_phone", ASCENDING), ("received_at", DESCENDING)]),
             # Partial index for the unread-count query (is_read=False, is_resolved≠true).
@@ -265,6 +292,29 @@ async def init_indexes() -> None:
                 [("is_read", ASCENDING), ("is_resolved", ASCENDING)],
                 partialFilterExpression={"is_read": False},
             ),
+            # Per-restaurant unread count
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("is_read", ASCENDING)],
+                partialFilterExpression={"is_read": False},
+            ),
+        ],
+    )
+
+    # outbound_messages
+    await safe_create_indexes(
+        db.outbound_messages,
+        [
+            IndexModel([("wa_message_id", ASCENDING)], unique=True, sparse=True),
+            # Per-restaurant thread queries (new scoped path)
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("to_phone", ASCENDING),
+                    ("sent_at", DESCENDING),
+                ]
+            ),
+            # Legacy unscoped path (migration fallback — can be dropped after backfill)
+            IndexModel([("to_phone", ASCENDING), ("sent_at", DESCENDING)]),
         ],
     )
 
@@ -473,5 +523,26 @@ async def init_indexes() -> None:
         db.sync_metadata,
         [
             IndexModel([("sync_name", ASCENDING)], unique=True),
+        ],
+    )
+
+    # templates — scoped per restaurant
+    await safe_create_indexes(
+        db.templates,
+        [
+            # Unique per (restaurant, name, language) — prevents two restaurants
+            # clobbering each other's templates with the same name.
+            # partialFilterExpression ensures legacy docs without restaurant_id
+            # are excluded from the unique constraint.
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("name", ASCENDING),
+                    ("language", ASCENDING),
+                ],
+                unique=True,
+                partialFilterExpression={"restaurant_id": {"$type": "string"}},
+            ),
+            IndexModel([("restaurant_id", ASCENDING), ("status", ASCENDING)]),
         ],
     )

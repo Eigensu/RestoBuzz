@@ -98,26 +98,54 @@ async def send_template_message(
     variables: dict,
     media_url: str | None = None,
     language: str = "en",
+    phone_id: str | None = None,
+    access_token: str | None = None,
 ) -> tuple[str, str]:
-    """Returns (wa_message_id, endpoint_used). Tries primary then fallback."""
-    endpoints = [
-        (settings.meta_primary_phone_id, settings.meta_primary_access_token, "primary"),
-        (
-            settings.meta_fallback_phone_id,
-            settings.meta_fallback_access_token,
-            "fallback",
-        ),
-    ]
+    """Returns (wa_message_id, endpoint_used).
+
+    If `phone_id` and `access_token` are provided the message is sent through
+    that restaurant-specific WABA exclusively — no fallback to the global chain.
+    A failure surfaces immediately so the operator knows the credential is broken.
+
+    If either credential is absent the legacy global primary → fallback chain
+    from settings is used, preserving backwards-compatibility for restaurants
+    that have not yet been configured.
+    """
+    if phone_id and access_token:
+        # Restaurant-specific WABA — single endpoint, fail loudly on error
+        endpoints = [(phone_id, access_token, "primary")]
+    elif bool(phone_id) != bool(access_token):
+        # Prevent cross-tenant leakage: if they provided a specific phone_id
+        # but the token failed to resolve, or vice versa, fail loudly rather than 
+        # falling back to the global (potentially wrong) account.
+        raise MetaAPIError(
+            "config_error",
+            "Partial restaurant credentials provided (phone_id or access_token is missing or failed to resolve). Both must be present."
+        )
+    else:
+        # Global fallback chain (legacy / unconfigured restaurants)
+        endpoints = [
+            (
+                settings.meta_primary_phone_id,
+                settings.meta_primary_access_token,
+                "primary",
+            ),
+            (
+                settings.meta_fallback_phone_id,
+                settings.meta_fallback_access_token,
+                "fallback",
+            ),
+        ]
 
     payload = _build_payload(to, template_name, variables, media_url, language)
     last_error = None
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        for phone_id, token, label in endpoints:
-            if not phone_id or not token:
+        for ep_phone_id, ep_token, label in endpoints:
+            if not ep_phone_id or not ep_token:
                 continue
-            url = f"{META_BASE}/{phone_id}/messages"
-            headers = {"Authorization": f"Bearer {token}"}
+            url = f"{META_BASE}/{ep_phone_id}/messages"
+            headers = {"Authorization": f"Bearer {ep_token}"}
             try:
                 resp = await client.post(url, json=payload, headers=headers)
                 data = resp.json()
@@ -131,7 +159,10 @@ async def send_template_message(
                     error.get("message", "Unknown error"),
                 )
                 logger.warning(
-                    "meta_send_failed", endpoint=label, error=str(last_error)
+                    "meta_send_failed",
+                    endpoint=label,
+                    phone_id=ep_phone_id,
+                    error=str(last_error),
                 )
             except httpx.RequestError as e:
                 last_error = MetaAPIError("network_error", str(e))
@@ -179,8 +210,15 @@ async def create_template(waba_id: str, token: str, payload: dict) -> dict:
                 ) from esc
             if resp.status_code not in (200, 201):
                 error = data.get("error", {})
+                logger.error(
+                    "meta_api_error",
+                    status_code=resp.status_code,
+                    error=error,
+                    payload=payload,
+                )
+                error_msg = error.get("error_user_msg") or error.get("message", str(data))
                 raise MetaAPIError(
-                    str(error.get("code", "unknown")), error.get("message", str(data))
+                    str(error.get("code", "unknown")), error_msg
                 )
             return data
     except httpx.RequestError as e:
@@ -305,15 +343,23 @@ async def edit_template(template_id: str, token: str, components: list) -> dict:
             )
             try:
                 data = resp.json()
-            except Exception:
+            except Exception as esc:
                 raise MetaAPIError(
                     "invalid_response",
                     f"Non-JSON response from Meta (status {resp.status_code})",
-                )
+                ) from esc
             if resp.status_code != 200:
                 error = data.get("error", {})
+                logger.error(
+                    "meta_api_edit_error",
+                    status_code=resp.status_code,
+                    error=error,
+                    template_id=template_id,
+                    components=components,
+                )
+                error_msg = error.get("error_user_msg") or error.get("message", str(data))
                 raise MetaAPIError(
-                    str(error.get("code", "unknown")), error.get("message", str(data))
+                    str(error.get("code", "unknown")), error_msg
                 )
             return data
     except httpx.RequestError as e:

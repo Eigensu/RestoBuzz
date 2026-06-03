@@ -18,6 +18,10 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    broker_transport_options={
+        "socket_timeout": 5,
+        "socket_connect_timeout": 5,
+    },
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],

@@ -6,6 +6,7 @@ import { useUIStore } from "@/lib/ui-store";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import type { Conversation, InboundMessage } from "@/types";
+import { useAuthStore } from "@/store/auth";
 import {
   Send,
   ArrowLeft,
@@ -57,6 +58,7 @@ function DateSeparator({ date }: { date: string }) {
 
 export default function InboxPage() {
   const qc = useQueryClient();
+  const { restaurant } = useAuthStore();
   const [selected, setSelected] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "unread" | "media" | "text">(
@@ -71,13 +73,14 @@ export default function InboxPage() {
     items: Conversation[];
     total: number;
   }>({
-    queryKey: ["inbox-conversations"],
+    queryKey: ["inbox-conversations", restaurant?.id],
     queryFn: async () => {
       const res = await api
         .get(`/inbox/conversations?page=1&page_size=500`)
         .then((r) => r.data);
       return { items: res.items as Conversation[], total: res.total as number };
     },
+    enabled: !!restaurant,
     refetchInterval: 15_000,
   });
 
@@ -132,12 +135,12 @@ export default function InboxPage() {
   }, [convs, setInboxUnread]);
 
   const { data: messages } = useQuery<InboundMessage[]>({
-    queryKey: ["inbox-messages", selected],
+    queryKey: ["inbox-messages", restaurant?.id, selected],
     queryFn: () =>
       api
         .get(`/inbox/conversations/${encodeURIComponent(selected ?? "")}`)
         .then((r) => r.data),
-    enabled: !!selected,
+    enabled: !!selected && !!restaurant,
     refetchInterval: 8_000,
   });
 
@@ -151,7 +154,9 @@ export default function InboxPage() {
     mutationFn: (phone: string) =>
       api.post(`/inbox/conversations/${encodeURIComponent(phone)}/read`),
     onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["inbox-conversations"] }),
+      qc.invalidateQueries({
+        queryKey: ["inbox-conversations", restaurant?.id],
+      }),
   });
 
   const selectConv = (phone: string) => {
@@ -164,7 +169,7 @@ export default function InboxPage() {
       api.post(`/inbox/conversations/${encodeURIComponent(phone)}/resolve`),
     onSuccess: () => {
       setSelected(null);
-      qc.invalidateQueries({ queryKey: ["inbox-conversations"] });
+      qc.invalidateQueries({ queryKey: ["inbox-conversations", restaurant?.id] });
       toast.success("Conversation marked as done");
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
@@ -178,8 +183,8 @@ export default function InboxPage() {
       ),
     onSuccess: () => {
       setReply("");
-      qc.invalidateQueries({ queryKey: ["inbox-messages", selected] });
-      qc.invalidateQueries({ queryKey: ["inbox-conversations"] });
+      qc.invalidateQueries({ queryKey: ["inbox-messages", restaurant?.id, selected] });
+      qc.invalidateQueries({ queryKey: ["inbox-conversations", restaurant?.id] });
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });

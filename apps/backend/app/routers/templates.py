@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 import re
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import require_role, get_active_restaurant
 from app.services.meta_api import (
     fetch_templates,
     create_template,
@@ -74,8 +74,6 @@ def _normalize_component_for_meta(component: TemplateComponent) -> dict:
             "BUTTONS component requires structured buttons; plain text buttons are not supported yet"
         )
 
-    # Frontend uses media_url for local preview/upload flow. Meta expects media
-    # example under `header_handle` for media HEADER components.
     example = data.get("example")
     if isinstance(example, dict):
         media_url = example.get("media_url")
@@ -96,34 +94,55 @@ def _normalize_component_for_meta(component: TemplateComponent) -> dict:
             ):
                 handle_value = header_handles[0].strip()
 
-            example = {"header_handle": [handle_value]} if handle_value else {}
+            if handle_value:
+                data["example"] = {"header_handle": [handle_value]}
 
-        cleaned_example = {k: v for k, v in example.items() if k != "media_url"}
-        if cleaned_example:
-            data["example"] = cleaned_example
-        else:
-            data.pop("example", None)
+        # Remove media_url from the final payload to Meta
+        if "media_url" in data.get("example", {}):
+            data["example"] = {
+                k: v for k, v in data["example"].items() if k != "media_url"
+            }
+            if not data["example"]:
+                data.pop("example", None)
 
     # Avoid sending empty text values for media header components.
     text = data.get("text")
-    if isinstance(text, str) and not text.strip():
+    is_media_header = (
+        component_type == "HEADER" and (component.format or "").upper() != "TEXT"
+    )
+    if is_media_header and isinstance(text, str) and not text.strip():
         data.pop("text", None)
 
-    # Meta requires body variable examples when placeholders are used.
-    if component_type == "BODY" and isinstance(data.get("text"), str):
-        matches = [int(m.group(1)) for m in VAR_PATTERN.finditer(data["text"])]
-        if matches and not (
-            isinstance(data.get("example"), dict) and data["example"].get("body_text")
-        ):
+    # Meta requires variable examples when placeholders are used.
+    if component_type in {"BODY", "HEADER"} and isinstance(data.get("text"), str):
+        text_val = data["text"]
+        matches = [int(m.group(1)) for m in VAR_PATTERN.finditer(text_val)]
+        if matches:
             var_count = max(matches)
-            data["example"] = {
-                "body_text": [[f"value_{i}" for i in range(1, var_count + 1)]]
-            }
+            if component_type == "BODY":
+                if not (
+                    isinstance(data.get("example"), dict)
+                    and data["example"].get("body_text")
+                ):
+                    data.setdefault("example", {})["body_text"] = [
+                        [f"value_{i}" for i in range(1, var_count + 1)]
+                    ]
+            elif (
+                component_type == "HEADER"
+                and (component.format or "").upper() == "TEXT"
+            ):
+                if not (
+                    isinstance(data.get("example"), dict)
+                    and data["example"].get("header_text")
+                ):
+                    data.setdefault("example", {})["header_text"] = [
+                        f"value_{i}" for i in range(1, var_count + 1)
+                    ]
 
     return data
 
 
-async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
+async def _resolve_media_header_handles(components: list[dict], access_token: str | None = None) -> list[dict]:
     resolved: list[dict] = []
     for comp in components:
         item = dict(comp)
@@ -141,18 +160,54 @@ async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
                     and isinstance(handles[0], str)
                     and handles[0].strip().startswith("https://")
                 ):
-                    if not settings.meta_primary_access_token:
+                    if not access_token:
                         raise ValidationError(
                             "Meta access token missing; cannot upload template media"
                         )
                     media_id = await create_media_handle_from_url(
                         handles[0].strip(),
                         settings.meta_app_id,
-                        settings.meta_primary_access_token,
+                        access_token,
                     )
                     item["example"] = {"header_handle": [media_id]}
         resolved.append(item)
     return resolved
+
+
+def _resolve_restaurant_waba(restaurant: dict) -> tuple[str, str]:
+    """Return (waba_id, access_token) for the restaurant.
+
+    Convention: wa_phones[0] is always the primary outbound number. This is
+    enforced by PUT /restaurants/{id}/phones — the first entry in the array is
+    used for all outbound operations. Additional entries (index 1+) are reserved
+    for future multi-number support.
+
+    Raises ValidationError (HTTP 422) if:
+    - wa_phones is empty (restaurant not yet configured), or
+    - waba_id is present but the env var for the token is not set.
+
+    This is intentional for templates — a misconfigured WABA should surface
+    immediately rather than silently falling back to another restaurant's WABA.
+    For inbox reply, the fallback to global credentials is handled separately.
+    """
+    name = restaurant.get("name", restaurant.get("id", "unknown"))
+    wa_phones = restaurant.get("wa_phones", [])
+    if wa_phones:
+        primary = wa_phones[0]
+        waba_id = primary.get("waba_id") or ""
+        env_key = primary.get("access_token_env_key") or ""
+        token = settings.resolve_waba_token(env_key) if env_key else ""
+        if waba_id and token:
+            return waba_id, token
+        if waba_id and not token:
+            raise ValidationError(
+                f"WhatsApp access token for '{name}' is missing. "
+                f"Add the '{env_key}' environment variable and restart the server."
+            )
+    raise ValidationError(
+        f"'{name}' has no WhatsApp Business Account configured. "
+        "Go to Admin → Restaurants and add a phone number with WABA credentials."
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -160,21 +215,46 @@ async def _resolve_media_header_handles(components: list[dict]) -> list[dict]:
 
 @router.get("")
 async def list_templates(
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _current_user: Annotated[dict, Depends(require_role("viewer"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    cursor = db.templates.find({}, {"_id": 0}).sort("name", 1)
+    """Return templates for the active restaurant.
+
+    Scoping rule:
+    - Restaurants WITH wa_phones configured → see only their own templates
+      (restaurant_id matches).
+    - Restaurants WITHOUT wa_phones (not yet migrated) → see legacy global
+      templates (no restaurant_id field) via the $exists fallback.
+
+    This boundary prevents cross-restaurant template leakage while allowing
+    a zero-downtime migration. Once all restaurants are configured and synced,
+    the $exists branch can be removed.
+    """
+    rid = restaurant["id"]
+    has_wa_phones = bool(restaurant.get("wa_phones"))
+
+    if has_wa_phones:
+        # Fully configured restaurant — show only its own templates
+        query: dict = {"restaurant_id": rid}
+    else:
+        # Legacy / unconfigured restaurant — show global (unscoped) templates only
+        query = {"restaurant_id": {"$exists": False}}
+
+    cursor = db.templates.find(query, {"_id": 0}).sort("name", 1)
     return [doc async for doc in cursor]
 
 
 @router.post("", status_code=201)
 async def create_new_template(
     body: CreateTemplateRequest,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
+    waba_id, token = _resolve_restaurant_waba(restaurant)
     normalized_components = [_normalize_component_for_meta(c) for c in body.components]
-    normalized_components = await _resolve_media_header_handles(normalized_components)
+    normalized_components = await _resolve_media_header_handles(normalized_components, token)
     if not any(c.get("type") == "BODY" for c in normalized_components):
         raise ValidationError("Template must include a BODY component with text")
     payload = {
@@ -182,13 +262,10 @@ async def create_new_template(
         "category": body.category,
         "language": _normalize_language_code(body.language),
         "components": [c for c in normalized_components if c],
+        "parameter_format": "positional",
     }
     try:
-        result = await create_template(
-            settings.meta_waba_id,
-            settings.meta_primary_access_token,
-            payload,
-        )
+        result = await create_template(waba_id, token, payload)
     except MetaAPIError as exc:
         raise ValidationError(f"Meta rejected template payload: {exc.message}") from exc
 
@@ -199,10 +276,8 @@ async def create_new_template(
             "Check your WABA settings and try again."
         )
 
-    # Persist locally so it shows up immediately without a sync
     now = datetime.now(timezone.utc)
 
-    # Preserve the original media_url from the header component before normalization strips it
     original_media_url = None
     for comp in body.components:
         if (comp.type or "").upper() == "HEADER" and (
@@ -219,13 +294,18 @@ async def create_new_template(
         "status": result.get("status", "PENDING"),
         "components": payload["components"],
         "meta_id": str(meta_id),
+        "restaurant_id": restaurant["id"],
         "synced_at": now,
     }
     if original_media_url:
         doc["media_url"] = original_media_url
 
     await db.templates.update_one(
-        {"name": body.name, "language": doc["language"]},
+        {
+            "name": body.name,
+            "language": doc["language"],
+            "restaurant_id": restaurant["id"],
+        },
         {"$set": doc},
         upsert=True,
     )
@@ -236,11 +316,12 @@ async def create_new_template(
 async def edit_existing_template(
     template_name: str,
     body: EditTemplateRequest,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     language: str | None = None,
 ):
-    query = {"name": template_name}
+    query: dict = {"name": template_name, "restaurant_id": restaurant["id"]}
     if language:
         query["language"] = language
 
@@ -254,52 +335,62 @@ async def edit_existing_template(
             "This template has no Meta ID — sync templates first so the ID is stored."
         )
 
+    _, token = _resolve_restaurant_waba(restaurant)
     components = [_normalize_component_for_meta(c) for c in body.components]
-    await edit_template(meta_id, settings.meta_primary_access_token, components)
+    await edit_template(meta_id, token, components)
 
-    # Update local copy — use meta_id to target the exact document,
-    # avoiding ambiguity when multiple language variants share a name.
     await db.templates.update_one(
-        {"meta_id": meta_id},
+        {"meta_id": meta_id, "restaurant_id": restaurant["id"]},
         {"$set": {"components": components, "synced_at": datetime.now(timezone.utc)}},
     )
-    updated = await db.templates.find_one({"meta_id": meta_id}, {"_id": 0})
+    updated = await db.templates.find_one(
+        {"meta_id": meta_id, "restaurant_id": restaurant["id"]}, {"_id": 0}
+    )
     return updated
 
 
 @router.post("/sync", status_code=200)
 async def sync_templates(
     background_tasks: BackgroundTasks,
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _current_user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    try:
-        templates = await fetch_templates(
-            settings.meta_waba_id,
-            settings.meta_primary_access_token,
-        )
-    except Exception as e:
-        # If fetch fails, we return the error and do NOT prune.
-        return {"error": str(e)}
+    """Sync templates from the restaurant's own WABA and prune stale local copies."""
+    waba_id, token = _resolve_restaurant_waba(restaurant)
+    rid = restaurant["id"]
 
-    keys: list[dict[str, str]] = []
+    try:
+        templates = await fetch_templates(waba_id, token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch templates from Meta: {e}"
+        )
+
+    keys: list[dict] = []
     for t in templates:
-        key = await _sync_single_template(db, t, background_tasks)
+        key = await _sync_single_template(db, t, background_tasks, rid)
         keys.append(key)
 
-    # Remove templates that no longer exist in Meta for this workspace.
+    # Prune templates that no longer exist in Meta for this restaurant
     if keys:
-        await db.templates.delete_many({"$nor": keys})
+        await db.templates.delete_many({"restaurant_id": rid, "$nor": keys})
     else:
-        await db.templates.delete_many({})
+        await db.templates.delete_many({"restaurant_id": rid})
 
     return {"synced": len(templates), "pruned": True}
 
 
-async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict, background_tasks: BackgroundTasks) -> dict[str, str]:
-    """Upsert one template and fire an approval alert if it just became APPROVED."""
+async def _sync_single_template(
+    db: AsyncIOMotorDatabase,
+    t: dict,
+    background_tasks: BackgroundTasks,
+    restaurant_id: str,
+) -> dict:
+    """Upsert one template scoped to a restaurant and fire an approval alert if newly APPROVED."""
     lang = t.get("language")
-    key: dict[str, str] = {"name": t["name"]}
+    key: dict = {"name": t["name"], "restaurant_id": restaurant_id}
     if lang:
         key["language"] = lang
 
@@ -308,21 +399,22 @@ async def _sync_single_template(db: AsyncIOMotorDatabase, t: dict, background_ta
     already_alerted = bool(old_doc and old_doc.get("alert_sent"))
     is_approved = t.get("status") == "APPROVED"
 
-    update_fields = {**t, "synced_at": datetime.now(timezone.utc)}
-
+    update_fields = {
+        **t,
+        "restaurant_id": restaurant_id,
+        "synced_at": datetime.now(timezone.utc),
+    }
     await db.templates.update_one(key, {"$set": update_fields}, upsert=True)
 
     if not was_approved and is_approved and not already_alerted:
-        # Templates are global, notify all relevant restaurants
-        cursor = db.restaurants.find({}, {"_id": 1, "name": 1, "email": 1, "notification_emails": 1})
-        async for rest in cursor:
-            background_tasks.add_task(alert_service.send_template_approved_alert, db, rest, t["name"])
-        
+        rest = await db.restaurants.find_one({"id": restaurant_id})
+        if rest:
+            background_tasks.add_task(
+                alert_service.send_template_approved_alert, db, rest, t["name"]
+            )
         await db.templates.update_one(
-            key, 
-            {"$set": {"alert_sent": True, "synced_at": datetime.now(timezone.utc)}}
+            key,
+            {"$set": {"alert_sent": True, "synced_at": datetime.now(timezone.utc)}},
         )
 
     return key
-
-

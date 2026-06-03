@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { getMe, logout } from "@/lib/auth";
@@ -59,6 +59,7 @@ export default function DashboardLayout({
   const { user, setUser, restaurant, setRestaurant, _hydrated } =
     useAuthStore();
   const setInboxUnread = useUIStore((s) => s.setInboxUnread);
+  const qc = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   // Track whether the user has explicitly toggled the campaigns submenu.
@@ -217,6 +218,11 @@ export default function DashboardLayout({
                     onClick={() => {
                       setRestaurant(r);
                       setDropdownOpen(false);
+                      // Changing restaurant.id causes all queries keyed with
+                      // restaurant?.id to be treated as new queries automatically.
+                      // A single invalidateQueries() clears any remaining global
+                      // or unkeyed queries (e.g. suppression list).
+                      qc.invalidateQueries();
                     }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[#24422e] hover:text-white transition text-left group"
                   >

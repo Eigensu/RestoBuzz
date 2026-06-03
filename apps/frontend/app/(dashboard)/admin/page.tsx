@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Shield, UserPlus } from "lucide-react";
+import { Phone, Shield, UserPlus } from "lucide-react";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { api } from "@/lib/api";
 import { parseApiError } from "@/lib/errors";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth";
 import { getRestaurants } from "@/lib/restaurants";
-import type { Restaurant } from "@/types";
+import type { Restaurant, WaPhone } from "@/types";
 
 type AdminUser = {
   id: string;
@@ -39,7 +39,8 @@ function LinkedRestaurants({
   assignments: Restaurant[];
 }>) {
   if (loading) return <span className="text-gray-400">Loading...</span>;
-  if (assignments.length === 0) return <span className="text-gray-400">None</span>;
+  if (assignments.length === 0)
+    return <span className="text-gray-400">None</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
       {assignments.map((restaurant) => (
@@ -79,7 +80,10 @@ function AdminUserRow({
       </td>
       <td className="px-5 py-3 capitalize">{admin.role.replace("_", " ")}</td>
       <td className="px-5 py-3">
-        <LinkedRestaurants loading={loadingAssignments} assignments={assignments} />
+        <LinkedRestaurants
+          loading={loadingAssignments}
+          assignments={assignments}
+        />
       </td>
       <td className="px-5 py-3">
         <div className="flex gap-2">
@@ -123,6 +127,170 @@ function AdminUserRow({
   );
 }
 
+const EMPTY_WA_PHONE: WaPhone = {
+  phone_id: "",
+  access_token_env_key: "",
+  waba_id: "",
+  label: "primary",
+};
+
+function RestaurantPhoneRow({
+  restaurant,
+  onSaved,
+}: Readonly<{
+  restaurant: Restaurant;
+  onSaved: () => void;
+}>) {
+  const [open, setOpen] = useState(false);
+
+  const existingPhones = restaurant.wa_phones ?? [];
+  const existing = existingPhones[0] ?? EMPTY_WA_PHONE;
+
+  const [phoneId, setPhoneId] = useState(existing.phone_id);
+  const [envKey, setEnvKey] = useState(existing.access_token_env_key);
+  const [wabaId, setWabaId] = useState(existing.waba_id);
+  const [label, setLabel] = useState(existing.label || "primary");
+
+  const isConfigured = !!existingPhones[0]?.phone_id;
+
+  const saveMutation = useMutation({
+    mutationFn: (wa_phones: WaPhone[]) =>
+      api
+        .put(`/restaurants/${restaurant.id}/phones`, { wa_phones })
+        .then((r) => r.data),
+    onSuccess: () => {
+      toast.success(`Credentials saved for ${restaurant.name}`);
+      onSaved();
+      setOpen(false);
+    },
+    onError: (err: unknown) => toast.error(parseApiError(err).message),
+  });
+
+  function handleSave() {
+    if (!phoneId.trim()) {
+      toast.error("Phone Number ID is required");
+      return;
+    }
+    if (!envKey.trim()) {
+      toast.error("Access Token Env Key is required");
+      return;
+    }
+    // Merge edited entry back — preserves wa_phones[1], [2], etc.
+    const merged: WaPhone[] = [
+      {
+        phone_id: phoneId.trim(),
+        access_token_env_key: envKey.trim(),
+        waba_id: wabaId.trim(),
+        label: label.trim() || "primary",
+      },
+      ...existingPhones.slice(1),
+    ];
+    saveMutation.mutate(merged);
+  }
+
+  return (
+    <div className="border border-gray-100 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-5 py-3.5 bg-white hover:bg-gray-50/60 transition text-left"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-lg">{restaurant.emoji}</span>
+          <div>
+            <p className="text-sm font-bold text-gray-900">{restaurant.name}</p>
+            <p className="text-xs text-gray-400">
+              {restaurant.location} · {restaurant.id}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {isConfigured ? (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+              Configured
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
+              Not set
+            </span>
+          )}
+          <span className="text-gray-400 text-xs">{open ? "▲" : "▼"}</span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 bg-gray-50/40 px-5 py-4 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor={`phone_id_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                Phone Number ID <span className="text-red-400">*</span>
+              </label>
+              <input
+                id={`phone_id_${restaurant.id}`}
+                value={phoneId}
+                onChange={(e) => setPhoneId(e.target.value)}
+                placeholder="e.g. 936956752843517"
+                className={INPUT_CLS}
+              />
+            </div>
+            <div>
+              <label htmlFor={`waba_id_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                WABA ID
+              </label>
+              <input
+                id={`waba_id_${restaurant.id}`}
+                value={wabaId}
+                onChange={(e) => setWabaId(e.target.value)}
+                placeholder="e.g. 929340232802113"
+                className={INPUT_CLS}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor={`env_key_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                Access Token Env Key <span className="text-red-400">*</span>
+              </label>
+              <input
+                id={`env_key_${restaurant.id}`}
+                value={envKey}
+                onChange={(e) => setEnvKey(e.target.value)}
+                placeholder="e.g. META_PRIMARY_ACCESS_TOKEN"
+                className={INPUT_CLS}
+              />
+              <p className="text-[10px] text-gray-400 mt-1.5">
+                The name of the Railway environment variable that holds the
+                actual token. The token itself is never stored in the database.
+              </p>
+            </div>
+            <div>
+              <label htmlFor={`label_${restaurant.id}`} className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                Label
+              </label>
+              <input
+                id={`label_${restaurant.id}`}
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="primary"
+                className={INPUT_CLS}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={handleSave}
+              disabled={saveMutation.isPending}
+              className="inline-flex items-center gap-2 text-white text-xs font-black uppercase tracking-widest px-5 py-2.5 rounded-xl transition disabled:opacity-50"
+              style={{ background: BRAND_GRADIENT }}
+            >
+              {saveMutation.isPending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -137,56 +305,67 @@ export default function AdminPage() {
   const authResolved = _hydrated && user !== undefined;
   const isSuperAdmin = authResolved && user?.role === "super_admin";
 
-  const { data: admins, isLoading, isError: isAdminsError } = useQuery<AdminUser[]>({
+  const {
+    data: admins,
+    isLoading,
+    isError: isAdminsError,
+  } = useQuery<AdminUser[]>({
     queryKey: ["admin-users"],
     queryFn: () => api.get("/admin/users").then((r) => r.data),
     enabled: isSuperAdmin,
   });
 
-  const { data: restaurants, isError: isRestaurantsError } = useQuery<Restaurant[]>({
+  const { data: restaurants, isError: isRestaurantsError } = useQuery<
+    Restaurant[]
+  >({
     queryKey: ["admin-restaurants"],
     queryFn: getRestaurants,
     enabled: isSuperAdmin,
   });
 
-  const { data: assignmentsByUser, isLoading: loadingAssignments, isError: isAssignmentsError } =
-    useQuery<Record<string, Restaurant[]>>({
-      queryKey: [
-        "admin-user-restaurant-links",
-        (restaurants || []).map((r) => r.id).sort(),
-      ],
-      enabled: isSuperAdmin && !!restaurants?.length,
-      queryFn: async () => {
-        const results = await Promise.allSettled(
-          restaurants!.map(async (restaurant) => {
-            const { data } = await api.get<RestaurantUserRole[]>(
-              `/restaurants/${restaurant.id}/users`,
-            );
-            return { restaurant, users: data };
-          }),
+  const {
+    data: assignmentsByUser,
+    isLoading: loadingAssignments,
+    isError: isAssignmentsError,
+  } = useQuery<Record<string, Restaurant[]>>({
+    queryKey: [
+      "admin-user-restaurant-links",
+      (restaurants || []).map((r) => r.id).sort(),
+    ],
+    enabled: isSuperAdmin && !!restaurants?.length,
+    queryFn: async () => {
+      const results = await Promise.allSettled(
+        restaurants!.map(async (restaurant) => {
+          const { data } = await api.get<RestaurantUserRole[]>(
+            `/restaurants/${restaurant.id}/users`,
+          );
+          return { restaurant, users: data };
+        }),
+      );
+
+      const errors = results
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map((r) => r.reason?.message || "Unknown error");
+
+      if (errors.length > 0) {
+        throw new Error(
+          `Failed to load some assignments: ${errors.join(", ")}`,
         );
+      }
 
-        const errors = results
-          .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-          .map((r) => r.reason?.message || "Unknown error");
-
-        if (errors.length > 0) {
-          throw new Error(`Failed to load some assignments: ${errors.join(", ")}`);
-        }
-
-        const map: Record<string, Restaurant[]> = {};
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            for (const row of result.value.users) {
-              if (!map[row.user_id]) map[row.user_id] = [];
-              map[row.user_id].push(result.value.restaurant);
-            }
+      const map: Record<string, Restaurant[]> = {};
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          for (const row of result.value.users) {
+            if (!map[row.user_id]) map[row.user_id] = [];
+            map[row.user_id].push(result.value.restaurant);
           }
         }
+      }
 
-        return map;
-      },
-    });
+      return map;
+    },
+  });
 
   const createAdmin = useMutation({
     mutationFn: () =>
@@ -257,12 +436,17 @@ export default function AdminPage() {
     tableContent = (
       <div className="px-5 py-6 text-sm text-red-500 bg-red-50/50 rounded-xl m-4 border border-red-100">
         <p className="font-semibold mb-1">Failed to load administration data</p>
-        <p>There was an error communicating with the server. Please try refreshing.</p>
+        <p>
+          There was an error communicating with the server. Please try
+          refreshing.
+        </p>
       </div>
     );
   } else if (!admins || admins.length === 0) {
     tableContent = (
-      <div className="px-5 py-6 text-sm text-gray-500">No admin users found.</div>
+      <div className="px-5 py-6 text-sm text-gray-500">
+        No admin users found.
+      </div>
     );
   } else {
     tableContent = (
@@ -423,6 +607,41 @@ export default function AdminPage() {
         </div>
 
         {tableContent}
+      </div>
+
+      {/* ── Restaurant WhatsApp Numbers ─────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b bg-gray-50/80 flex items-center gap-2">
+          <Phone className="w-4 h-4 text-[#24422e]" />
+          <div>
+            <h2 className="text-sm font-bold text-gray-800">
+              Restaurant WhatsApp Numbers
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Configure the WABA credentials used for outbound messages per
+              restaurant. Tokens are stored in Railway env vars, not the
+              database.
+            </p>
+          </div>
+        </div>
+
+        {!restaurants || restaurants.length === 0 ? (
+          <div className="px-5 py-6 text-sm text-gray-400">
+            No restaurants found.
+          </div>
+        ) : (
+          <div className="p-4 space-y-2">
+            {restaurants.map((r) => (
+              <RestaurantPhoneRow
+                key={r.id}
+                restaurant={r}
+                onSaved={() =>
+                  qc.invalidateQueries({ queryKey: ["admin-restaurants"] })
+                }
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

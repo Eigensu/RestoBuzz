@@ -1,5 +1,12 @@
 import { CampaignStatus, MessageStatus } from "./common/enums";
 
+export interface WaPhone {
+  phone_id: string;
+  access_token_env_key: string;
+  waba_id: string;
+  label: string;
+}
+
 export interface Restaurant {
   id: string;
   name: string;
@@ -7,6 +14,8 @@ export interface Restaurant {
   emoji: string;
   color: string; // tailwind bg color class
   member_categories: string[];
+  wa_phone_ids?: string[];
+  wa_phones?: WaPhone[];
 }
 
 export interface Campaign {
@@ -137,7 +146,13 @@ export interface Member {
   dormancy_tier: "ACTIVE" | "AT_RISK" | "DORMANT" | "LOST" | "UNKNOWN";
   last_synced_at: string | null;
   /** Backend-computed dormancy status. Optional so older API responses don't crash. */
-  activity_status?: "active" | "dormant" | "unknown" | "at_risk" | "lost" | null;
+  activity_status?:
+    | "active"
+    | "dormant"
+    | "unknown"
+    | "at_risk"
+    | "lost"
+    | null;
   /** Provenance of the activity match (uuid_match, phone_match, fallback_internal). */
   activity_source?: string | null;
   joined_at: string;

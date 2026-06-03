@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, Query, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.config import settings
@@ -53,6 +55,7 @@ async def verify_webhook(
     hub_verify_token: str = Query(alias="hub.verify_token"),
     hub_challenge: str = Query(alias="hub.challenge"),
 ):
+    """Handle the Meta webhook verification challenge."""
     if (
         hub_mode == "subscribe"
         and hub_verify_token == settings.meta_webhook_verify_token
@@ -70,7 +73,12 @@ async def receive_webhook(
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
-    body = await request.body()
+    """Receive and process incoming Meta webhooks."""
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        logger.info("webhook_client_disconnect")
+        return {"status": "client_disconnect"}
     sig = request.headers.get("X-Hub-Signature-256", "")
 
     if not _verify_signature(body, sig):
@@ -79,7 +87,7 @@ async def receive_webhook(
 
     try:
         payload = json.loads(body)
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("webhook_json_parse_error", error=str(e))
         # Persist parse errors for debugging — still return 200 so Meta doesn't retry.
         background_tasks.add_task(
@@ -104,8 +112,10 @@ async def receive_webhook(
     # so the data is never lost and Meta still receives a 200. Processing will be
     # slower and without dedup, but correct. Alert on-call if this fires.
     try:
-        process_webhook_task.apply_async(args=[payload], queue="webhooks")
-    except Exception as e:
+        await run_in_threadpool(
+            process_webhook_task.apply_async, args=[payload], queue="webhooks"
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error(
             "webhook_enqueue_failed_falling_back_to_background",
             error=str(e),
@@ -133,7 +143,7 @@ async def _process_webhook_sync(db, payload: dict) -> None:
                 value = change.get("value", {})
                 if value.get("event") == "message_template_status_update":
                     continue
-                from app.workers.webhook_task import (
+                from app.workers.webhook_task import (  # pylint: disable=import-outside-toplevel
                     _resolve_restaurant,
                     _handle_statuses,
                     _handle_messages,
@@ -146,7 +156,7 @@ async def _process_webhook_sync(db, payload: dict) -> None:
                     db, None, value.get("statuses", []), restaurant_id
                 )
                 await _handle_messages(db, None, value, restaurant_id, phone_number_id)
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("webhook_sync_fallback_failed", error=str(e))
 
 
@@ -221,12 +231,18 @@ _RESEND_COUNTER_MAP = {
 @router.post("/resend", status_code=200)
 async def receive_resend_webhook(request: Request, db=Depends(get_db)):
     """Handle Resend webhook events with svix signature verification and idempotency."""
-    body = await request.body()
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        logger.info("resend_webhook_client_disconnect")
+        return {"status": "client_disconnect"}
     payload_str = body.decode("utf-8")
 
     # 1. Verify webhook signature
     try:
-        from app.services.resend_client import verify_webhook as verify_resend_webhook
+        from app.services.resend_client import (
+            verify_webhook as verify_resend_webhook,
+        )  # pylint: disable=import-outside-toplevel
 
         event = verify_resend_webhook(
             payload_str,
@@ -236,9 +252,9 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
                 "svix-signature": request.headers.get("svix-signature", ""),
             },
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         logger.warning("resend_webhook_invalid_signature", error=str(e))
-        raise WebhookSignatureError("Invalid Resend webhook signature")
+        raise WebhookSignatureError("Invalid Resend webhook signature") from e
 
     # 2. Idempotency: deduplicate by svix-id
     svix_id = request.headers.get("svix-id", "")
@@ -251,7 +267,7 @@ async def receive_resend_webhook(request: Request, db=Depends(get_db)):
                     "event_type": event.get("type"),
                 }
             )
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             # Duplicate key → already processed
             logger.info("resend_webhook_duplicate", svix_id=svix_id)
             return {"status": "ok"}
