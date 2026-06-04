@@ -18,11 +18,16 @@ class WaPhone(BaseModel):
     @field_validator("access_token_env_key")
     @classmethod
     def validate_env_key(cls, v: str) -> str:
+        import re
+
         v = v.strip()
-        if " " in v:
-            raise ValueError("Env key cannot contain spaces")
-        if not v.startswith("META_") and not v.startswith("WHATSAPP_TOKEN_"):
-            raise ValueError("Env key must start with META_ or WHATSAPP_TOKEN_")
+        if not v:
+            raise ValueError("Env key cannot be empty")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v):
+            raise ValueError(
+                "Env key must be a valid environment variable name "
+                "(letters, digits, underscores; cannot start with a digit)"
+            )
         return v
 
 
