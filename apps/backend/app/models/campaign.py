@@ -42,7 +42,9 @@ class CampaignCreate(BaseModel):
             if cmp_v <= now:
                 raise ValueError("retry_until must be strictly in the future")
             if cmp_v > now + timedelta(days=30):
-                raise ValueError("retry_until cannot be more than 30 days in the future")
+                raise ValueError(
+                    "retry_until cannot be more than 30 days in the future"
+                )
         return v
 
     @root_validator(skip_on_failure=True)
@@ -59,6 +61,7 @@ class CampaignCreateInternal(CampaignCreate):
     parent_campaign_id: str | None = None
     has_been_retried: bool = False
     completed_at: datetime | None = None
+    contact_file_ref: str | None = None  # Override parent — optional for retries
 
     @validator("retry_until")
     @classmethod
@@ -69,7 +72,9 @@ class CampaignCreateInternal(CampaignCreate):
             now = datetime.now(timezone.utc)
             cmp_v = v if v.tzinfo else v.replace(tzinfo=timezone.utc)
             if cmp_v > now + timedelta(days=30):
-                raise ValueError("retry_until cannot be more than 30 days in the future")
+                raise ValueError(
+                    "retry_until cannot be more than 30 days in the future"
+                )
         return v
 
 

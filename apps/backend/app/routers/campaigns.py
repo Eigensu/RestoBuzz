@@ -40,7 +40,10 @@ from app.models.message import (
 )
 from app.services.meta_api import send_template_message, MetaAPIError
 from app.workers.send_task import dispatch_campaign_task
-from app.services.campaign_service import resolve_waba_credentials, create_child_retry_campaign
+from app.services.campaign_service import (
+    resolve_waba_credentials,
+    create_child_retry_campaign,
+)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 logger = get_logger(__name__)
@@ -51,9 +54,6 @@ _GROUP = "$group"
 _SORT = "$sort"
 _CREATED_AT = "$created_at"
 _BODY_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
-
-
-
 
 
 def _template_body_var_keys(template_doc: dict | None) -> set[str]:
@@ -284,7 +284,8 @@ async def create_campaign(
         except Exception as e:
             logger.error("campaign_dispatch_failed", error=str(e))
             raise HTTPException(
-                status_code=503, detail="Campaign queue unavailable, please try again shortly"
+                status_code=503,
+                detail="Campaign queue unavailable, please try again shortly",
             ) from e
         job_doc["status"] = "queued"
         logger.info("campaign_dispatched_immediately", campaign_id=str(job_id))
@@ -311,7 +312,8 @@ async def send_test_message(
 
     # Reuse the template's configured language when available.
     template_doc = await db.templates.find_one(
-        {"name": body.template_name, "restaurant_id": body.restaurant_id}, {"language": 1, "components": 1}
+        {"name": body.template_name, "restaurant_id": body.restaurant_id},
+        {"language": 1, "components": 1},
     )
     language = (template_doc or {}).get("language") or "en_US"
     allowed_var_keys = _template_body_var_keys(template_doc)
@@ -713,7 +715,8 @@ async def start_campaign(
     except Exception as e:
         logger.error("campaign_dispatch_failed", error=str(e))
         raise HTTPException(
-            status_code=503, detail="Campaign queue unavailable, please try again shortly"
+            status_code=503,
+            detail="Campaign queue unavailable, please try again shortly",
         ) from e
 
     doc["status"] = "queued"
@@ -912,7 +915,9 @@ async def retry_failed(
     if claim_result.modified_count == 0:
         raise ValidationError("This campaign has already been retried")
 
-    job_id_str = await create_child_retry_campaign(original, failed_count, db, current_user["_id"])
+    job_id_str = await create_child_retry_campaign(
+        original, failed_count, db, current_user["_id"]
+    )
 
     try:
         await run_in_threadpool(dispatch_campaign_task.delay, job_id_str)
@@ -921,13 +926,14 @@ async def retry_failed(
         # Rollback parent claim and delete created child campaign
         await db.campaign_jobs.update_one(
             {"_id": campaign_oid},
-            {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}}
+            {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}},
         )
         child_oid = to_object_id(job_id_str)
         await db.campaign_jobs.delete_one({"_id": child_oid})
         await db.message_logs.delete_many({"job_id": child_oid})
         raise HTTPException(
-            status_code=503, detail="Campaign queue unavailable, please try again shortly"
+            status_code=503,
+            detail="Campaign queue unavailable, please try again shortly",
         ) from e
 
     new_doc = await db.campaign_jobs.find_one({"_id": to_object_id(job_id_str)})
@@ -1000,3 +1006,131 @@ async def export_failed(
             "Content-Disposition": f"attachment; filename=failed_{campaign_id}.csv"
         },
     )
+
+
+@router.get("/{campaign_id}/smart-retry-status")
+async def get_smart_retry_status(
+    campaign_id: str,
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """
+    Get smart retry status for a campaign including:
+    - When the last auto-retry happened
+    - When the next auto-retry will happen (if eligible)
+    - All child retry campaigns created by smart retries
+    - Time until retry_until deadline
+    """
+    from datetime import timedelta
+
+    campaign_oid = to_object_id(campaign_id)
+    doc = await db.campaign_jobs.find_one({"_id": campaign_oid})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
+    now = datetime.now(timezone.utc)
+
+    # Find the root campaign (for tracking all retries in chain)
+    root_oid = doc.get("parent_campaign_id")
+    if root_oid:
+        # This is a child retry, get the root
+        root_oid = to_object_id(root_oid) if isinstance(root_oid, str) else root_oid
+    else:
+        # This is the root
+        root_oid = campaign_oid
+
+    # Get all campaigns in the retry chain
+    cursor = db.campaign_jobs.find(
+        {"$or": [{"_id": root_oid}, {"parent_campaign_id": str(root_oid)}]}
+    ).sort("created_at", 1)
+
+    campaigns = []
+    async for campaign in cursor:
+        campaigns.append(
+            {
+                "id": str(campaign["_id"]),
+                "name": campaign["name"],
+                "status": campaign["status"],
+                "created_at": campaign.get("created_at"),
+                "total_count": campaign.get("total_count", 0),
+                "sent_count": campaign.get("sent_count", 0),
+                "delivered_count": campaign.get("delivered_count", 0),
+                "failed_count": campaign.get("failed_count", 0),
+                "is_root": campaign["_id"] == root_oid,
+            }
+        )
+
+    # Smart retry metadata
+    smart_retries_enabled = doc.get("smart_retries", False)
+    retry_until = doc.get("retry_until")
+    last_auto_retry_at = doc.get("last_auto_retry_at")
+    failed_count = doc.get("failed_count", 0)
+    status = doc["status"]
+
+    # Calculate next retry time
+    next_retry_at = None
+    next_retry_in_seconds = None
+    is_eligible_for_retry = False
+    reason_not_eligible = None
+
+    if smart_retries_enabled:
+        if not retry_until:
+            reason_not_eligible = "No retry_until deadline set"
+        elif retry_until <= now:
+            reason_not_eligible = "Retry deadline has passed"
+        elif failed_count == 0:
+            reason_not_eligible = "No failed messages to retry"
+        elif status not in ["completed", "failed"]:
+            reason_not_eligible = (
+                f"Campaign status is '{status}' (must be completed or failed)"
+            )
+        else:
+            # Campaign is eligible for retry
+            is_eligible_for_retry = True
+
+            if last_auto_retry_at:
+                next_retry_at = last_auto_retry_at + timedelta(hours=2)
+                if next_retry_at > now:
+                    next_retry_in_seconds = int((next_retry_at - now).total_seconds())
+                else:
+                    # Already past 2 hours, should retry on next poll
+                    next_retry_at = now
+                    next_retry_in_seconds = 0
+            else:
+                # Never retried, will retry on next poll
+                next_retry_at = now
+                next_retry_in_seconds = 0
+    else:
+        reason_not_eligible = "Smart retries not enabled for this campaign"
+
+    # Calculate time until deadline
+    deadline_in_seconds = None
+    if retry_until:
+        deadline_in_seconds = max(0, int((retry_until - now).total_seconds()))
+
+    # Calculate time since last retry
+    last_retry_seconds_ago = None
+    if last_auto_retry_at:
+        last_retry_seconds_ago = int((now - last_auto_retry_at).total_seconds())
+
+    return {
+        "campaign_id": campaign_id,
+        "campaign_name": doc["name"],
+        "smart_retries_enabled": smart_retries_enabled,
+        "status": status,
+        "failed_count": failed_count,
+        "retry_until": retry_until,
+        "last_auto_retry_at": last_auto_retry_at,
+        "last_retry_seconds_ago": last_retry_seconds_ago,
+        "next_retry_at": next_retry_at,
+        "next_retry_in_seconds": next_retry_in_seconds,
+        "deadline_in_seconds": deadline_in_seconds,
+        "is_eligible_for_retry": is_eligible_for_retry,
+        "reason_not_eligible": reason_not_eligible,
+        "retry_chain": campaigns,
+        "total_retries": len(campaigns) - 1,  # Exclude root
+        "poller_frequency": "Every 15 minutes",
+        "retry_interval": "Every 2 hours",
+    }

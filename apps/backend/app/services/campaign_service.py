@@ -1,4 +1,5 @@
 """Campaign service logic including WABA resolution and retry handling."""
+
 from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.errors import ServerError
@@ -56,12 +57,12 @@ async def create_child_retry_campaign(
         "template_name": original["template_name"],
         "template_variables": original.get("template_variables", {}),
         "priority": original.get("priority", "MARKETING"),
-        "contact_file_ref": original.get("contact_file_ref"),
+        "contact_file_ref": original.get("contact_file_ref"),  # None for old campaigns
         "include_unsubscribe": original.get("include_unsubscribe", False),
         "media_url": original.get("media_url"),
         "smart_retries": original.get("smart_retries", False),
         "retry_until": original.get("retry_until"),
-        "parent_campaign_id": root_id,
+        "parent_campaign_id": str(root_id),  # Convert ObjectId to str
         "has_been_retried": False,
         "completed_at": None,
         "scheduled_at": None,
