@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { FailureChart } from "@/components/campaigns/molecules/FailureChart";
 import { MessageLogsTable } from "@/components/campaigns/molecules/MessageLogsTable";
+import { SmartRetryStatus } from "@/components/campaigns/molecules/SmartRetryStatus";
 import { CampaignStatus } from "@/types/common/enums";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { cn } from "@/lib/utils";
@@ -352,6 +353,9 @@ export default function CampaignDetailPage() {
 
         {/* Sidebar / Failure Breakdown */}
         <div className="space-y-6">
+          {/* Smart Retry Status — only shown when smart retries are enabled */}
+          {campaign?.smart_retries && <SmartRetryStatus campaignId={id} />}
+
           <div className="bg-white rounded-[32px] border border-gray-100 p-8 shadow-sm h-full">
             <div className="flex items-center gap-2 mb-8">
               <BarChart3 className="w-5 h-5 text-red-500" />
