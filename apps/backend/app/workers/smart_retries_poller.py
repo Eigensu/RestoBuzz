@@ -22,32 +22,39 @@ async def _poll() -> None:
         now = datetime.now(timezone.utc)
         two_hours_ago = now - timedelta(hours=2)
 
-        # Find campaigns that need auto-retry:
-        # - smart_retries enabled
-        # - status completed/failed (finished initial run)
-        # - have failed messages
-        # - retry_until is still in the future
-        # - last_auto_retry_at is missing OR older than 2 hours
+        # Only poll ROOT campaigns that have actually finished running.
+        # Children are never polled directly — the root tracks last_auto_retry_at
+        # and we look up the latest completed child to source failures from.
         cursor = db.campaign_jobs.find(
             {
                 "smart_retries": True,
                 "status": {"$in": ["completed", "failed"]},
-                "failed_count": {"$gt": 0},
                 "retry_until": {"$gt": now},
-                "$or": [
-                    {"last_auto_retry_at": {"$exists": False}},
-                    {"last_auto_retry_at": {"$lte": two_hours_ago}},
+                "$and": [
+                    # Only root campaigns — children have a parent_campaign_id set
+                    {
+                        "$or": [
+                            {"parent_campaign_id": {"$exists": False}},
+                            {"parent_campaign_id": None},
+                        ]
+                    },
+                    # 2-hour gate on the root
+                    {
+                        "$or": [
+                            {"last_auto_retry_at": {"$exists": False}},
+                            {"last_auto_retry_at": {"$lte": two_hours_ago}},
+                        ]
+                    },
                 ],
             }
         )
-        async for job in cursor:
-            job_id_obj = job["_id"]
+        async for root_job in cursor:
+            root_id_obj = root_job["_id"]
 
-            # Atomically claim the retry slot for this 2-hour window
-            # Use last_auto_retry_at to prevent duplicate retries in the same window
+            # Atomically claim the retry slot on the ROOT campaign
             claimed = await db.campaign_jobs.find_one_and_update(
                 {
-                    "_id": job_id_obj,
+                    "_id": root_id_obj,
                     "$or": [
                         {"last_auto_retry_at": {"$exists": False}},
                         {"last_auto_retry_at": {"$lte": two_hours_ago}},
@@ -57,47 +64,91 @@ async def _poll() -> None:
                 return_document=False,
             )
 
-            if claimed is not None:
-                # Check actual failed count (might be less than failed_count if manually retried)
-                actual_failed = await db.message_logs.count_documents(
-                    {"job_id": job_id_obj, "status": "failed"}
+            if claimed is None:
+                # Another worker beat us to it
+                continue
+
+            # Find the most recent completed/failed child in this chain.
+            latest_child = await db.campaign_jobs.find_one(
+                {
+                    "parent_campaign_id": str(root_id_obj),
+                    "status": {"$in": ["completed", "failed"]},
+                },
+                sort=[("created_at", -1)],
+            )
+
+            # Guard against duplicate sends: if ANY child is still in flight
+            # (queued/dispatching/running), roll back and wait for it to finish
+            # before creating another one.  This covers two cases:
+            #   a) latest_child is None — a child was dispatched but never completed
+            #   b) latest_child exists — but a NEWER child is still running
+            pending_filter: dict = {
+                "parent_campaign_id": str(root_id_obj),
+                "status": {"$in": ["queued", "dispatching", "running"]},
+            }
+            if latest_child is not None:
+                pending_filter["created_at"] = {"$gt": latest_child["created_at"]}
+
+            pending_child = await db.campaign_jobs.find_one(pending_filter)
+            if pending_child is not None:
+                logger.info(
+                    "smart_retry_skipped_child_still_running",
+                    root_id=str(root_id_obj),
+                    child_id=str(pending_child["_id"]),
+                    child_status=pending_child["status"],
+                )
+                await db.campaign_jobs.update_one(
+                    {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
+                )
+                continue
+
+            source_job = latest_child if latest_child else root_job
+
+            source_id_obj = source_job["_id"]
+
+            # Count actual failures in the source campaign
+            actual_failed = await db.message_logs.count_documents(
+                {"job_id": source_id_obj, "status": "failed"}
+            )
+
+            if actual_failed == 0:
+                logger.info(
+                    "smart_retry_skipped_no_failures",
+                    root_id=str(root_id_obj),
+                    source_id=str(source_id_obj),
+                )
+                continue
+
+            # Spawn the child retry campaign
+            try:
+                new_job_id_str = await create_child_retry_campaign(
+                    source_job, actual_failed, db, root_job.get("created_by", "system")
                 )
 
-                if actual_failed == 0:
-                    logger.info(
-                        "smart_retry_skipped_no_failures", job_id=str(job_id_obj)
-                    )
-                    continue
-
-                # We claimed it, let's spawn the child retry campaign
-                try:
-                    new_job_id_str = await create_child_retry_campaign(
-                        job, actual_failed, db, job.get("created_by", "system")
-                    )
-
-                    dispatch_campaign_task.delay(new_job_id_str)
-                    logger.info(
-                        "smart_retry_dispatched",
-                        parent_job_id=str(job_id_obj),
-                        child_job_id=new_job_id_str,
-                        failed_count=actual_failed,
-                    )
-                except kombu.exceptions.KombuError:
-                    logger.exception(
-                        "smart_retry_dispatch_broker_failed",
-                        parent_job_id=str(job_id_obj),
-                    )
-                    # Roll back the claim so it can retry in the next poll
-                    await db.campaign_jobs.update_one(
-                        {"_id": job_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
-                    )
-                except Exception:
-                    logger.exception(
-                        "smart_retry_dispatch_failed", parent_job_id=str(job_id_obj)
-                    )
-                    # Roll back the claim so it can retry in the next poll
-                    await db.campaign_jobs.update_one(
-                        {"_id": job_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
-                    )
+                dispatch_campaign_task.delay(new_job_id_str)
+                logger.info(
+                    "smart_retry_dispatched",
+                    root_id=str(root_id_obj),
+                    source_id=str(source_id_obj),
+                    child_job_id=new_job_id_str,
+                    failed_count=actual_failed,
+                )
+            except kombu.exceptions.KombuError:
+                logger.exception(
+                    "smart_retry_dispatch_broker_failed",
+                    root_id=str(root_id_obj),
+                )
+                # Roll back the claim so it retries on the next poll cycle
+                await db.campaign_jobs.update_one(
+                    {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
+                )
+            except Exception:
+                logger.exception(
+                    "smart_retry_dispatch_failed", root_id=str(root_id_obj)
+                )
+                # Roll back the claim so it retries on the next poll cycle
+                await db.campaign_jobs.update_one(
+                    {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
+                )
     finally:
         db.client.close()

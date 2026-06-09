@@ -243,10 +243,10 @@ async def init_indexes() -> None:
             IndexModel(
                 [
                     ("smart_retries", ASCENDING),
-                    ("has_been_retried", ASCENDING),
                     ("status", ASCENDING),
-                    ("completed_at", ASCENDING),
                     ("retry_until", ASCENDING),
+                    ("parent_campaign_id", ASCENDING),
+                    ("last_auto_retry_at", ASCENDING),
                 ]
             ),  # smart retries poller
         ],
