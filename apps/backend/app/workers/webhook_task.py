@@ -31,6 +31,20 @@ logger = get_logger(__name__)
 
 STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
+# Positive-intent replies that flag a campaign respondent as an "interested"
+# member. Matched case-insensitively against the trimmed message body.
+INTERESTED_KEYWORDS = {
+    "yes",
+    "yeah",
+    "yep",
+    "yup",
+    "interested",
+    "sure",
+    "ok",
+    "okay",
+    "👍",
+}
+
 
 # ── Celery task ───────────────────────────────────────────────────────────────
 
@@ -357,11 +371,15 @@ async def _process_inbound_message(
         restaurant_id=restaurant_id,
     )
 
-    await _handle_reply_tracking(db, msg, from_phone, doc["received_at"])
+    orig_msg = await _handle_reply_tracking(db, msg, from_phone, doc["received_at"])
 
     if body and body.strip().lower() in STOP_KEYWORDS:
         await add_suppression(db, from_phone, reason="opt_out")
         logger.info("auto_suppressed", phone=from_phone)
+    else:
+        # A positive reply to a campaign message flags the respondent as an
+        # "interested" member (skipped above for STOP keywords on purpose).
+        await _handle_interested_reply(db, orig_msg, body, from_phone, sender_name)
 
     await _handle_auto_replies(
         db, msg, msg_type, from_phone, restaurant_id, phone_number_id
@@ -372,8 +390,12 @@ async def _process_inbound_message(
 
 async def _handle_reply_tracking(
     db, msg: dict, from_phone: str, received_at: datetime
-) -> None:
-    """Mark the original outbound message as replied and increment replies_count."""
+) -> dict | None:
+    """Mark the original outbound message as replied and increment replies_count.
+
+    Returns the matched outbound message_log (or None) so callers can use the
+    campaign + recipient context — e.g. flagging the sender as interested.
+    """
     replied_to_wa_id = msg.get("context", {}).get("id")
     orig_msg = await _find_and_mark_replied(
         db, replied_to_wa_id, from_phone, received_at
@@ -383,6 +405,94 @@ async def _handle_reply_tracking(
             {"_id": orig_msg["job_id"]},
             {"$inc": {"replies_count": 1}},
         )
+    return orig_msg
+
+
+async def _handle_interested_reply(
+    db,
+    orig_msg: dict | None,
+    body: str | None,
+    from_phone: str,
+    sender_name: str | None,
+) -> None:
+    """Upsert the campaign respondent as an 'interested' member.
+
+    Only fires when the inbound message was matched to an outbound campaign
+    message (orig_msg) AND the body is a positive-intent keyword. Existing
+    members are tagged 'interested' (keeping their original type); brand-new
+    respondents are created as fresh member docs.
+    """
+    if not orig_msg or not body:
+        return
+    if body.strip().lower() not in INTERESTED_KEYWORDS:
+        return
+
+    restaurant_id = orig_msg.get("restaurant_id")
+    job_id = orig_msg.get("job_id")
+
+    # restaurant_id isn't always denormalized onto message_logs — fall back to
+    # the campaign job, which always carries it.
+    if not restaurant_id and job_id:
+        job = await db.campaign_jobs.find_one(
+            {"_id": job_id}, {"restaurant_id": 1, "name": 1}
+        )
+        if job:
+            restaurant_id = job.get("restaurant_id")
+            campaign_name = job.get("name")
+        else:
+            campaign_name = None
+    else:
+        campaign_name = orig_msg.get("campaign_name")
+        if campaign_name is None and job_id:
+            job = await db.campaign_jobs.find_one({"_id": job_id}, {"name": 1})
+            campaign_name = (job or {}).get("name")
+
+    if not restaurant_id:
+        logger.warning("interested_reply_no_restaurant", from_phone=from_phone)
+        return
+
+    phone = (
+        orig_msg.get("recipient_phone")
+        or normalize_phone(from_phone)
+        or from_phone
+    )
+    name = orig_msg.get("recipient_name") or sender_name or "Unknown"
+    now = datetime.now(timezone.utc)
+
+    await db.members.update_one(
+        {"restaurant_id": restaurant_id, "phone": phone},
+        {
+            "$addToSet": {"tags": "interested"},
+            "$set": {
+                "interested_at": now,
+                "interested_campaign_id": job_id,
+                "interested_campaign_name": campaign_name,
+                "interested_reply_text": body.strip(),
+            },
+            "$setOnInsert": {
+                "restaurant_id": restaurant_id,
+                "type": "interested",
+                "name": name,
+                "phone": phone,
+                "email": None,
+                "card_uid": None,
+                "ecard_code": None,
+                "notes": None,
+                "visit_count": 0,
+                "last_visit": None,
+                "is_active": True,
+                "joined_at": now,
+                "source": "campaign_reply",
+            },
+        },
+        upsert=True,
+    )
+    logger.info(
+        "interested_member_captured",
+        restaurant_id=restaurant_id,
+        phone=phone,
+        campaign_id=str(job_id) if job_id else None,
+    )
 
 
 def _parse_message_content(
