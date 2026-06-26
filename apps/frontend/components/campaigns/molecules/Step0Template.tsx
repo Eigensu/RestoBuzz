@@ -1,5 +1,5 @@
 "use client";
-import { RefreshCw, ImageIcon, X, Search } from "lucide-react";
+import { RefreshCw, ImageIcon, Video, FileText, X, Search } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -10,6 +10,35 @@ import { WizardTemplatePreview } from "@/components/campaigns/molecules/WizardTe
 
 const INPUT_CLS =
   "w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30";
+
+// Per WhatsApp header media format: upload accept filter, helper copy, URL
+// placeholder and the icon shown in the empty drop zone. Drives the media
+// section so a VIDEO/DOCUMENT header is handled, not just IMAGE.
+const MEDIA_CONFIG = {
+  IMAGE: {
+    label: "Media Image",
+    accept: "image/jpeg,image/png,image/webp,image/gif",
+    hint: "Click to upload · JPG, PNG, WEBP · max 5MB",
+    urlPlaceholder: "Or paste an image URL",
+    Icon: ImageIcon,
+  },
+  VIDEO: {
+    label: "Media Video",
+    accept: "video/mp4,video/3gpp",
+    hint: "Click to upload · MP4, 3GP · max 16MB",
+    urlPlaceholder: "Or paste a video URL",
+    Icon: Video,
+  },
+  DOCUMENT: {
+    label: "Media Document",
+    accept: "application/pdf",
+    hint: "Click to upload · PDF · max 16MB",
+    urlPlaceholder: "Or paste a document URL",
+    Icon: FileText,
+  },
+} as const;
+
+type MediaFormat = keyof typeof MEDIA_CONFIG;
 
 interface Step0TemplateProps {
   templates: Template[];
@@ -45,11 +74,13 @@ export function Step0Template({
   const filteredTemplates = templates.filter((t) =>
     t.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
-  const requiresMedia =
-    selectedTemplate?.components.some(
-      (component) =>
-        component.type === "HEADER" && component.format === "IMAGE",
-    ) ?? false;
+  const headerFormat = (
+    selectedTemplate?.components.find((c) => c.type === "HEADER")?.format ?? ""
+  ).toUpperCase();
+  const requiresMedia = headerFormat in MEDIA_CONFIG;
+  const mediaCfg = requiresMedia
+    ? MEDIA_CONFIG[headerFormat as MediaFormat]
+    : MEDIA_CONFIG.IMAGE;
 
   return (
     <div className="flex gap-6">
@@ -146,7 +177,7 @@ export function Step0Template({
                 htmlFor="media-upload-input"
                 className="text-xs text-gray-500 block"
               >
-                Media Image
+                {mediaCfg.label}
               </label>
               {selectedTemplate.media_url &&
                 mediaUrl === selectedTemplate.media_url && (
@@ -157,12 +188,30 @@ export function Step0Template({
             </div>
             {mediaUrl ? (
               <div className="relative w-full rounded-lg overflow-hidden border">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={mediaUrl}
-                  alt="media preview"
-                  className="w-full max-h-36 object-cover"
-                />
+                {headerFormat === "VIDEO" ? (
+                  <video
+                    src={mediaUrl}
+                    controls
+                    className="w-full max-h-36 bg-black object-contain"
+                  />
+                ) : headerFormat === "DOCUMENT" ? (
+                  <a
+                    href={mediaUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 px-3 py-4 text-sm text-[#24422e] hover:underline"
+                  >
+                    <FileText className="w-5 h-5 shrink-0" />
+                    <span className="truncate">View attached document</span>
+                  </a>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={mediaUrl}
+                    alt="media preview"
+                    className="w-full max-h-36 object-cover"
+                  />
+                )}
                 <button
                   onClick={() => setMediaUrl("")}
                   className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
@@ -182,7 +231,7 @@ export function Step0Template({
                 <input
                   id="media-upload-input"
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  accept={mediaCfg.accept}
                   className="sr-only"
                   onChange={async (e) => {
                     const img = e.target.files?.[0];
@@ -205,12 +254,10 @@ export function Step0Template({
                 {uploadingMedia ? (
                   <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
                 ) : (
-                  <ImageIcon className="w-5 h-5 text-gray-300" />
+                  <mediaCfg.Icon className="w-5 h-5 text-gray-300" />
                 )}
                 <span className="text-xs text-gray-400">
-                  {uploadingMedia
-                    ? "Uploading…"
-                    : "Click to upload · JPG, PNG, WEBP · max 5MB"}
+                  {uploadingMedia ? "Uploading…" : mediaCfg.hint}
                 </span>
               </label>
             )}
@@ -218,7 +265,7 @@ export function Step0Template({
               value={mediaUrl}
               onChange={(e) => setMediaUrl(e.target.value)}
               className={cn(INPUT_CLS, "bg-gray-50")}
-              placeholder="Or paste an image URL"
+              placeholder={mediaCfg.urlPlaceholder}
             />
           </div>
         )}

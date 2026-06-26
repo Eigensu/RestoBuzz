@@ -70,6 +70,28 @@ def _template_body_var_keys(template_doc: dict | None) -> set[str]:
     return keys
 
 
+def _template_header_media_type(template_doc: dict | None) -> str | None:
+    """Return 'image' | 'video' | 'document' for the template's header, or None.
+
+    Mirrors the WhatsApp template HEADER `format` so the send payload uses the
+    matching media parameter type — Meta rejects a send whose header parameter
+    type doesn't match the declared header format.
+    """
+    if not template_doc:
+        return None
+    for component in template_doc.get("components") or []:
+        if str(component.get("type") or "").upper() != "HEADER":
+            continue
+        fmt = str(component.get("format") or "").upper()
+        if fmt == "VIDEO":
+            return "video"
+        if fmt == "DOCUMENT":
+            return "document"
+        if fmt == "IMAGE":
+            return "image"
+    return None
+
+
 def _sanitize_template_variables(
     variables: dict | None, allowed_keys: set[str]
 ) -> dict:
@@ -185,6 +207,7 @@ async def create_campaign(
         {"components": 1},
     )
     allowed_var_keys = _template_body_var_keys(template_doc)
+    media_type = _template_header_media_type(template_doc)
     campaign_template_variables = _sanitize_template_variables(
         body.template_variables, allowed_var_keys
     )
@@ -198,6 +221,7 @@ async def create_campaign(
         "template_name": body.template_name,
         "template_variables": campaign_template_variables,
         "media_url": body.media_url,
+        "media_type": media_type,
         "priority": body.priority,
         "status": "draft",
         "total_count": len(contacts),
@@ -245,6 +269,7 @@ async def create_campaign(
                 allowed_var_keys,
             ),
             "media_url": body.media_url,
+            "media_type": media_type,
             "wa_message_id": None,
             "status": "queued",
             "status_history": [],
@@ -316,6 +341,7 @@ async def send_test_message(
         {"language": 1, "components": 1},
     )
     language = (template_doc or {}).get("language") or "en_US"
+    media_type = _template_header_media_type(template_doc)
     allowed_var_keys = _template_body_var_keys(template_doc)
     request_variables = _sanitize_template_variables(
         body.template_variables, allowed_var_keys
@@ -339,6 +365,7 @@ async def send_test_message(
             language=language,
             phone_id=wa_phone_id,
             access_token=wa_access_token,
+            media_type=media_type,
         )
     except MetaAPIError as e:
         if e.code in ("network_error", "parse_error", "config_error", "no_endpoint"):

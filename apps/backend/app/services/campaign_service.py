@@ -60,6 +60,7 @@ async def create_child_retry_campaign(
         "contact_file_ref": original.get("contact_file_ref"),  # None for old campaigns
         "include_unsubscribe": original.get("include_unsubscribe", False),
         "media_url": original.get("media_url"),
+        "media_type": original.get("media_type"),
         "smart_retries": original.get("smart_retries", False),
         "retry_until": original.get("retry_until"),
         "parent_campaign_id": str(root_id),  # Convert ObjectId to str
@@ -110,6 +111,7 @@ async def create_child_retry_campaign(
                     "template_name": log["template_name"],
                     "template_variables": log.get("template_variables", {}),
                     "media_url": log.get("media_url"),
+                    "media_type": log.get("media_type"),
                     "status": "queued",
                     "retry_count": 0,
                     "endpoint_used": None,

@@ -9,8 +9,9 @@ cloudinary.config(
     secure=True,
 )
 
-MAX_IMAGE_BYTES = 5 * 1024 * 1024   # 5 MB
-MAX_PDF_BYTES = 16 * 1024 * 1024    # 16 MB
+MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 5 MB
+MAX_VIDEO_BYTES = 16 * 1024 * 1024    # 16 MB (WhatsApp template video header cap)
+MAX_PDF_BYTES = 16 * 1024 * 1024      # 16 MB
 
 
 def upload_media(content: bytes, filename: str, resource_type: str = "auto") -> str:

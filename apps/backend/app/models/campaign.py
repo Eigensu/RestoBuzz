@@ -16,6 +16,9 @@ class CampaignCreate(BaseModel):
     template_name: str = Field(min_length=1)
     template_variables: dict = Field(default_factory=dict)
     media_url: str | None = None
+    # Header media kind ("image"/"video"/"document"), derived server-side from
+    # the template's HEADER format so the Meta send uses the matching parameter.
+    media_type: str | None = None
     priority: Priority = Field(default="MARKETING")
     scheduled_at: datetime | None = None
     include_unsubscribe: bool = True
