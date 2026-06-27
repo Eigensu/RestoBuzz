@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 
 import kombu.exceptions
+from bson import ObjectId
 from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
@@ -9,6 +10,30 @@ from app.services.campaign_service import create_child_retry_campaign
 from app.workers.send_task import dispatch_campaign_task
 
 logger = get_logger(__name__)
+
+
+async def _rollback_child_campaign(db, new_job_id_str: str | None) -> None:
+    """Delete a child retry campaign (and its message_logs) that was created by
+    create_child_retry_campaign but never dispatched, so it isn't stranded in
+    'queued' forever. No-op if no child was created."""
+    if not new_job_id_str:
+        return
+    try:
+        child_oid = ObjectId(new_job_id_str)
+    except Exception:
+        logger.exception(
+            "smart_retry_rollback_invalid_child_id", child_id=new_job_id_str
+        )
+        return
+    try:
+        # message_logs reference the child via their job_id field (see
+        # create_child_retry_campaign), not campaign_id/campaign_job_id.
+        await db.message_logs.delete_many({"job_id": child_oid})
+        await db.campaign_jobs.delete_one({"_id": child_oid})
+    except Exception:
+        logger.exception(
+            "smart_retry_rollback_delete_failed", child_id=new_job_id_str
+        )
 
 
 @celery_app.task(name="app.workers.smart_retries_poller.poll_smart_retries")
@@ -120,6 +145,7 @@ async def _poll() -> None:
                 continue
 
             # Spawn the child retry campaign
+            new_job_id_str: str | None = None
             try:
                 new_job_id_str = await create_child_retry_campaign(
                     source_job, actual_failed, db, root_job.get("created_by", "system")
@@ -138,7 +164,9 @@ async def _poll() -> None:
                     "smart_retry_dispatch_broker_failed",
                     root_id=str(root_id_obj),
                 )
-                # Roll back the claim so it retries on the next poll cycle
+                # Delete the orphaned (never-dispatched) child, then roll back the
+                # claim so it retries on the next poll cycle.
+                await _rollback_child_campaign(db, new_job_id_str)
                 await db.campaign_jobs.update_one(
                     {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
                 )
@@ -146,7 +174,9 @@ async def _poll() -> None:
                 logger.exception(
                     "smart_retry_dispatch_failed", root_id=str(root_id_obj)
                 )
-                # Roll back the claim so it retries on the next poll cycle
+                # Delete the orphaned (never-dispatched) child, then roll back the
+                # claim so it retries on the next poll cycle.
+                await _rollback_child_campaign(db, new_job_id_str)
                 await db.campaign_jobs.update_one(
                     {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
                 )

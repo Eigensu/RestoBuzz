@@ -14,7 +14,7 @@ interface RetryChainItem {
   id: string;
   name: string;
   status: string;
-  created_at: string;
+  created_at: string | null;
   total_count: number;
   sent_count: number;
   delivered_count: number;
@@ -51,7 +51,8 @@ function formatDuration(seconds: number): string {
   return `${hrs}h ${remMins}m`;
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
   return new Date(iso).toLocaleString(undefined, {
     month: "short",
     day: "numeric",

@@ -167,14 +167,18 @@ export default function CampaignDetailPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {campaign?.status === CampaignStatus.DRAFT && (
+          {(campaign?.status === CampaignStatus.DRAFT ||
+            campaign?.status === CampaignStatus.PAUSED) && (
             <button
               onClick={() => startMutation.mutate()}
               disabled={startMutation.isPending}
               className={cn(BTN_BASE, "text-white shadow-green-900/20")}
               style={{ background: BRAND_GRADIENT }}
             >
-              <Play className="w-3.5 h-3.5" /> START CAMPAIGN
+              <Play className="w-3.5 h-3.5" />{" "}
+              {campaign?.status === CampaignStatus.PAUSED
+                ? "RESUME"
+                : "START CAMPAIGN"}
             </button>
           )}
 
