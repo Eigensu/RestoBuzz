@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
+import { buildEcardPreviewUrl } from "@/lib/cloudinary";
 import type { Template } from "@/types";
 import { WizardTemplatePreview } from "@/components/campaigns/molecules/WizardTemplatePreview";
 
@@ -53,6 +54,47 @@ interface Step0TemplateProps {
   uploadingMedia: boolean;
   setUploadingMedia: (b: boolean) => void;
   bodyVars: string[];
+  ecardPersonalize: boolean;
+  setEcardPersonalize: (b: boolean) => void;
+  setEcardPublicId: (id: string) => void;
+}
+
+function HeaderMediaPreview({
+  headerFormat,
+  mediaUrl,
+}: Readonly<{ headerFormat: string; mediaUrl: string }>) {
+  if (headerFormat === "VIDEO") {
+    return (
+      <video
+        src={mediaUrl}
+        controls
+        className="w-full max-h-36 bg-black object-contain"
+      >
+        <track kind="captions" />
+      </video>
+    );
+  }
+  if (headerFormat === "DOCUMENT") {
+    return (
+      <a
+        href={mediaUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center gap-2 px-3 py-4 text-sm text-[#24422e] hover:underline"
+      >
+        <FileText className="w-5 h-5 shrink-0" />
+        <span className="truncate">View attached document</span>
+      </a>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={mediaUrl}
+      alt="media preview"
+      className="w-full max-h-36 object-cover"
+    />
+  );
 }
 
 export function Step0Template({
@@ -68,6 +110,9 @@ export function Step0Template({
   uploadingMedia,
   setUploadingMedia,
   bodyVars,
+  ecardPersonalize,
+  setEcardPersonalize,
+  setEcardPublicId,
 }: Readonly<Step0TemplateProps>) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -124,6 +169,8 @@ export function Step0Template({
                   setSelectedTemplate(t);
                   setVariables({});
                   setMediaUrl(t.media_url ?? "");
+                  setEcardPublicId("");
+                  setEcardPersonalize(false);
                 }}
                 className={cn(
                   "text-left border rounded-lg px-4 py-3 transition",
@@ -188,32 +235,16 @@ export function Step0Template({
             </div>
             {mediaUrl ? (
               <div className="relative w-full rounded-lg overflow-hidden border">
-                {headerFormat === "VIDEO" ? (
-                  <video
-                    src={mediaUrl}
-                    controls
-                    className="w-full max-h-36 bg-black object-contain"
-                  />
-                ) : headerFormat === "DOCUMENT" ? (
-                  <a
-                    href={mediaUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 px-3 py-4 text-sm text-[#24422e] hover:underline"
-                  >
-                    <FileText className="w-5 h-5 shrink-0" />
-                    <span className="truncate">View attached document</span>
-                  </a>
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={mediaUrl}
-                    alt="media preview"
-                    className="w-full max-h-36 object-cover"
-                  />
-                )}
+                <HeaderMediaPreview
+                  headerFormat={headerFormat}
+                  mediaUrl={mediaUrl}
+                />
                 <button
-                  onClick={() => setMediaUrl("")}
+                  onClick={() => {
+                    setMediaUrl("");
+                    setEcardPublicId("");
+                    setEcardPersonalize(false);
+                  }}
                   className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -244,6 +275,7 @@ export function Step0Template({
                         headers: { "Content-Type": "multipart/form-data" },
                       });
                       setMediaUrl(data.url);
+                      setEcardPublicId(data.public_id ?? "");
                     } catch (err) {
                       toast.error(parseApiError(err).message);
                     } finally {
@@ -267,6 +299,43 @@ export function Step0Template({
               className={cn(INPUT_CLS, "bg-gray-50")}
               placeholder={mediaCfg.urlPlaceholder}
             />
+          </div>
+        )}
+
+        {selectedTemplate && headerFormat === "IMAGE" && mediaUrl && (
+          <div className="space-y-2 rounded-lg border border-[#24422e]/20 bg-[#f7fbf8] p-3">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={ecardPersonalize}
+                onChange={(e) => setEcardPersonalize(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-sm">
+                <span className="font-medium text-[#24422e]">
+                  Personalize with recipient&apos;s name (e-card)
+                </span>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  Each recipient gets this card with their own name rendered on
+                  it, taken from the “name” column of your contact sheet.
+                </span>
+              </span>
+            </label>
+            {ecardPersonalize && (
+              <div className="space-y-1">
+                <div className="mx-auto w-full max-w-[200px] overflow-hidden rounded-lg border">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={buildEcardPreviewUrl(mediaUrl, "Aarav Mehta")}
+                    alt="personalized card preview"
+                    className="w-full object-contain"
+                  />
+                </div>
+                <p className="text-center text-[10px] text-gray-400">
+                  Preview with a sample name
+                </p>
+              </div>
+            )}
           </div>
         )}
 

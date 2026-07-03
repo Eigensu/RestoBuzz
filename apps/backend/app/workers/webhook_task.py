@@ -31,6 +31,9 @@ logger = get_logger(__name__)
 
 STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
+# Reused Mongo operator literal — named to avoid duplicated-literal warnings.
+_SET_ON_INSERT = "$setOnInsert"
+
 # Positive-intent replies that flag a campaign respondent as an "interested"
 # member. Matched case-insensitively against the trimmed message body.
 INTERESTED_KEYWORDS = {
@@ -267,7 +270,7 @@ async def _record_billing_event(
     await db.meta_billing_events.update_one(
         {"wa_message_id": wa_id},
         {
-            "$setOnInsert": {
+            _SET_ON_INSERT: {
                 "wa_message_id": wa_id,
                 "restaurant_id": restaurant_id,
                 "job_id": job_id,
@@ -356,7 +359,7 @@ async def _process_inbound_message(
 
     result = await db.inbound_messages.update_one(
         {"wa_message_id": wa_id},
-        {"$setOnInsert": doc},
+        {_SET_ON_INSERT: doc},
         upsert=True,
     )
 
@@ -408,6 +411,32 @@ async def _handle_reply_tracking(
     return orig_msg
 
 
+async def _resolve_interested_context(
+    db, orig_msg: dict
+) -> tuple[str | None, str | None, object]:
+    """Resolve (restaurant_id, campaign_name, job_id) for an interested reply.
+
+    restaurant_id isn't always denormalized onto message_logs — fall back to the
+    campaign job, which always carries it. campaign_name likewise falls back to
+    the job's name when the message log doesn't have it.
+    """
+    restaurant_id = orig_msg.get("restaurant_id")
+    job_id = orig_msg.get("job_id")
+    campaign_name = orig_msg.get("campaign_name")
+
+    if not restaurant_id and job_id:
+        job = await db.campaign_jobs.find_one(
+            {"_id": job_id}, {"restaurant_id": 1, "name": 1}
+        )
+        restaurant_id = (job or {}).get("restaurant_id")
+        campaign_name = (job or {}).get("name")
+    elif campaign_name is None and job_id:
+        job = await db.campaign_jobs.find_one({"_id": job_id}, {"name": 1})
+        campaign_name = (job or {}).get("name")
+
+    return restaurant_id, campaign_name, job_id
+
+
 async def _handle_interested_reply(
     db,
     orig_msg: dict | None,
@@ -427,25 +456,9 @@ async def _handle_interested_reply(
     if body.strip().lower() not in INTERESTED_KEYWORDS:
         return
 
-    restaurant_id = orig_msg.get("restaurant_id")
-    job_id = orig_msg.get("job_id")
-
-    # restaurant_id isn't always denormalized onto message_logs — fall back to
-    # the campaign job, which always carries it.
-    if not restaurant_id and job_id:
-        job = await db.campaign_jobs.find_one(
-            {"_id": job_id}, {"restaurant_id": 1, "name": 1}
-        )
-        if job:
-            restaurant_id = job.get("restaurant_id")
-            campaign_name = job.get("name")
-        else:
-            campaign_name = None
-    else:
-        campaign_name = orig_msg.get("campaign_name")
-        if campaign_name is None and job_id:
-            job = await db.campaign_jobs.find_one({"_id": job_id}, {"name": 1})
-            campaign_name = (job or {}).get("name")
+    restaurant_id, campaign_name, job_id = await _resolve_interested_context(
+        db, orig_msg
+    )
 
     if not restaurant_id:
         logger.warning("interested_reply_no_restaurant", from_phone=from_phone)
@@ -469,7 +482,7 @@ async def _handle_interested_reply(
                 "interested_campaign_name": campaign_name,
                 "interested_reply_text": body.strip(),
             },
-            "$setOnInsert": {
+            _SET_ON_INSERT: {
                 "restaurant_id": restaurant_id,
                 "type": "interested",
                 "name": name,

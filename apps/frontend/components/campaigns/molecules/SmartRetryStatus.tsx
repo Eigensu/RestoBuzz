@@ -65,7 +65,14 @@ interface Props {
   campaignId: string;
 }
 
-export function SmartRetryStatus({ campaignId }: Props) {
+function retryStatusColor(status: string): string {
+  if (status === "completed") return "text-green-500";
+  if (status === "failed") return "text-red-500";
+  if (status === "running") return "text-blue-500";
+  return "text-gray-400";
+}
+
+export function SmartRetryStatus({ campaignId }: Readonly<Props>) {
   const { data, isLoading } = useQuery<SmartRetryStatusData>({
     queryKey: ["smart-retry-status", campaignId],
     queryFn: () =>
@@ -105,7 +112,7 @@ export function SmartRetryStatus({ campaignId }: Props) {
         </div>
         {data.is_eligible_for_retry ? (
           <span className="flex items-center gap-1 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-wider">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse inline-block" />
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse inline-block" />{" "}
             Active
           </span>
         ) : (
@@ -137,7 +144,7 @@ export function SmartRetryStatus({ campaignId }: Props) {
 
         <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
           <p className="text-2xl font-black text-gray-700">
-            {deadlineHours !== null ? `${deadlineHours}h` : "—"}
+            {deadlineHours === null ? "—" : `${deadlineHours}h`}
           </p>
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">
             Until deadline
@@ -212,13 +219,7 @@ export function SmartRetryStatus({ campaignId }: Props) {
                     <span
                       className={cn(
                         "ml-2 text-[10px] font-black uppercase",
-                        item.status === "completed"
-                          ? "text-green-500"
-                          : item.status === "failed"
-                            ? "text-red-500"
-                            : item.status === "running"
-                              ? "text-blue-500"
-                              : "text-gray-400",
+                        retryStatusColor(item.status),
                       )}
                     >
                       {item.status}

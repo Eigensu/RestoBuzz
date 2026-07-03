@@ -9,6 +9,19 @@ CampaignStatus = Literal[
 Priority = Literal["MARKETING", "UTILITY"]
 
 
+class CampaignPersonalization(BaseModel):
+    """Per-recipient image personalization for a campaign's template header.
+
+    When present, the send path renders each recipient's name onto a single
+    base card (uploaded once) via a Cloudinary text-overlay URL, and uses that
+    as the message's image header instead of a static `media_url`.
+    """
+
+    type: Literal["ecard_name_overlay"] = "ecard_name_overlay"
+    base_public_id: str = Field(min_length=1)  # Cloudinary public_id of the blank card
+    overlay: dict = Field(default_factory=dict)  # overrides ecard_service defaults
+
+
 class CampaignCreate(BaseModel):
     restaurant_id: str = Field(min_length=1)
     name: str = Field(min_length=1, max_length=200)
@@ -19,6 +32,7 @@ class CampaignCreate(BaseModel):
     # Header media kind ("image"/"video"/"document"), derived server-side from
     # the template's HEADER format so the Meta send uses the matching parameter.
     media_type: str | None = None
+    personalization: CampaignPersonalization | None = None
     priority: Priority = Field(default="MARKETING")
     scheduled_at: datetime | None = None
     include_unsubscribe: bool = True

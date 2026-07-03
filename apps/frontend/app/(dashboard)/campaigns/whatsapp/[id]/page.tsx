@@ -41,6 +41,14 @@ const INACTIVE_STATUSES = new Set([
   CampaignStatus.DRAFT,
 ]);
 
+function statusBadgeClass(status?: string): string {
+  if (status === CampaignStatus.COMPLETED) return "bg-green-100 text-green-700";
+  if (status === CampaignStatus.FAILED) return "bg-red-100 text-red-700";
+  if (status === CampaignStatus.RUNNING)
+    return "bg-blue-100 text-blue-700 animate-pulse";
+  return "bg-gray-100 text-gray-700";
+}
+
 export default function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -145,13 +153,7 @@ export default function CampaignDetailPage() {
               <span
                 className={cn(
                   "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm",
-                  campaign?.status === CampaignStatus.COMPLETED
-                    ? "bg-green-100 text-green-700"
-                    : campaign?.status === CampaignStatus.FAILED
-                      ? "bg-red-100 text-red-700"
-                      : campaign?.status === CampaignStatus.RUNNING
-                        ? "bg-blue-100 text-blue-700 animate-pulse"
-                        : "bg-gray-100 text-gray-700",
+                  statusBadgeClass(campaign?.status),
                 )}
               >
                 {campaign?.status}
@@ -372,9 +374,9 @@ export default function CampaignDetailPage() {
               <div className="space-y-6">
                 <FailureChart data={failureBreakdown} />
                 <div className="space-y-3">
-                  {failureBreakdown.map((f, i) => (
+                  {failureBreakdown.map((f) => (
                     <div
-                      key={i}
+                      key={f.reason}
                       className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100"
                     >
                       <span className="text-xs font-bold text-gray-600 truncate mr-4">

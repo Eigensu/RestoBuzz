@@ -133,7 +133,7 @@ export interface CampaignProgress {
 export interface Member {
   id: string;
   restaurant_id: string;
-  type: "nfc" | "ecard" | "interested" | string;
+  type: string;
   name: string;
   phone: string;
   email: string | null;

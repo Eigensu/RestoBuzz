@@ -23,7 +23,7 @@ class WaPhone(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("Env key cannot be empty")
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v):
+        if not re.fullmatch(r"[A-Za-z_]\w*", v, re.ASCII):
             raise ValueError(
                 "Env key must be a valid environment variable name "
                 "(letters, digits, underscores; cannot start with a digit)"

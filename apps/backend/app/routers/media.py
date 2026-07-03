@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, UploadFile, File
 from app.dependencies import require_role
 from app.core.errors import InvalidFileFormatError, ValidationError
 from app.services.cloudinary_service import (
-    upload_media,
+    upload_media_result,
     MAX_IMAGE_BYTES,
     MAX_VIDEO_BYTES,
     MAX_PDF_BYTES,
@@ -45,5 +45,7 @@ async def upload_image(
     ext = (file.filename or "media").rsplit(".", 1)[-1]
     public_id = f"whatsapp-media/{uuid.uuid4().hex}.{ext}"
 
-    url = upload_media(content, public_id, resource_type=resource_type)
-    return {"url": url}
+    url, cloudinary_public_id = upload_media_result(
+        content, public_id, resource_type=resource_type
+    )
+    return {"url": url, "public_id": cloudinary_public_id}

@@ -11,6 +11,10 @@ from app.workers.send_task import dispatch_campaign_task
 
 logger = get_logger(__name__)
 
+# Reused Mongo operator literals — named to avoid duplicated-literal warnings.
+_EXISTS = "$exists"
+_UNSET = "$unset"
+
 
 async def _rollback_child_campaign(db, new_job_id_str: str | None) -> None:
     """Delete a child retry campaign (and its message_logs) that was created by
@@ -59,14 +63,14 @@ async def _poll() -> None:
                     # Only root campaigns — children have a parent_campaign_id set
                     {
                         "$or": [
-                            {"parent_campaign_id": {"$exists": False}},
+                            {"parent_campaign_id": {_EXISTS: False}},
                             {"parent_campaign_id": None},
                         ]
                     },
                     # 2-hour gate on the root
                     {
                         "$or": [
-                            {"last_auto_retry_at": {"$exists": False}},
+                            {"last_auto_retry_at": {_EXISTS: False}},
                             {"last_auto_retry_at": {"$lte": two_hours_ago}},
                         ]
                     },
@@ -76,13 +80,30 @@ async def _poll() -> None:
         async for root_job in cursor:
             root_id_obj = root_job["_id"]
 
-            # Atomically claim the retry slot on the ROOT campaign
+            # Atomically claim the retry slot on the ROOT campaign. The filter
+            # re-asserts the FULL eligibility predicate from the find() prefilter
+            # (not just last_auto_retry_at) so a campaign that was cancelled, had
+            # smart_retries toggled off, or aged past retry_until between the read
+            # and the claim cannot be claimed.
             claimed = await db.campaign_jobs.find_one_and_update(
                 {
                     "_id": root_id_obj,
-                    "$or": [
-                        {"last_auto_retry_at": {"$exists": False}},
-                        {"last_auto_retry_at": {"$lte": two_hours_ago}},
+                    "smart_retries": True,
+                    "status": {"$in": ["completed", "failed"]},
+                    "retry_until": {"$gt": now},
+                    "$and": [
+                        {
+                            "$or": [
+                                {"parent_campaign_id": {_EXISTS: False}},
+                                {"parent_campaign_id": None},
+                            ]
+                        },
+                        {
+                            "$or": [
+                                {"last_auto_retry_at": {_EXISTS: False}},
+                                {"last_auto_retry_at": {"$lte": two_hours_ago}},
+                            ]
+                        },
                     ],
                 },
                 {"$set": {"last_auto_retry_at": now}},
@@ -123,7 +144,7 @@ async def _poll() -> None:
                     child_status=pending_child["status"],
                 )
                 await db.campaign_jobs.update_one(
-                    {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
+                    {"_id": root_id_obj}, {_UNSET: {"last_auto_retry_at": ""}}
                 )
                 continue
 
@@ -168,7 +189,7 @@ async def _poll() -> None:
                 # claim so it retries on the next poll cycle.
                 await _rollback_child_campaign(db, new_job_id_str)
                 await db.campaign_jobs.update_one(
-                    {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
+                    {"_id": root_id_obj}, {_UNSET: {"last_auto_retry_at": ""}}
                 )
             except Exception:
                 logger.exception(
@@ -178,7 +199,7 @@ async def _poll() -> None:
                 # claim so it retries on the next poll cycle.
                 await _rollback_child_campaign(db, new_job_id_str)
                 await db.campaign_jobs.update_one(
-                    {"_id": root_id_obj}, {"$unset": {"last_auto_retry_at": ""}}
+                    {"_id": root_id_obj}, {_UNSET: {"last_auto_retry_at": ""}}
                 )
     finally:
         db.client.close()

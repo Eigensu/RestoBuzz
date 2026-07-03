@@ -4,7 +4,7 @@ import csv
 import io
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
@@ -39,6 +39,7 @@ from app.models.message import (
     StatusHistoryEntry,
 )
 from app.services.meta_api import send_template_message, MetaAPIError
+from app.services.ecard_service import build_card_url
 from app.workers.send_task import dispatch_campaign_task
 from app.services.campaign_service import (
     resolve_waba_credentials,
@@ -54,6 +55,11 @@ _GROUP = "$group"
 _SORT = "$sort"
 _CREATED_AT = "$created_at"
 _BODY_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
+
+# Returned when the Celery broker can't accept a dispatch (HTTP 503).
+_QUEUE_UNAVAILABLE_DETAIL = "Campaign queue unavailable, please try again shortly"
+# Documents the 503 raised by dispatch endpoints (satisfies HTTPException docs).
+_QUEUE_UNAVAILABLE_RESPONSE = {503: {"description": _QUEUE_UNAVAILABLE_DETAIL}}
 
 
 def _template_body_var_keys(template_doc: dict | None) -> set[str]:
@@ -163,7 +169,7 @@ async def list_campaigns(
     )
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, responses=_QUEUE_UNAVAILABLE_RESPONSE)
 async def create_campaign(
     body: CampaignCreate,
     current_user: Annotated[dict, Depends(require_role("admin"))],
@@ -222,6 +228,9 @@ async def create_campaign(
         "template_variables": campaign_template_variables,
         "media_url": body.media_url,
         "media_type": media_type,
+        "personalization": (
+            body.personalization.model_dump() if body.personalization else None
+        ),
         "priority": body.priority,
         "status": "draft",
         "total_count": len(contacts),
@@ -250,6 +259,19 @@ async def create_campaign(
             "WhatsApp campaigns require a phone number for every recipient."
         )
 
+    # Personalized e-cards render the recipient's name onto the card image — a
+    # blank name would produce a nameless card, so fail loudly rather than send
+    # a broken card. Surface the count so the operator can fix the sheet.
+    if body.personalization:
+        nameless = sum(1 for c in phone_contacts if not (c.get("name") or "").strip())
+        if nameless:
+            await db.campaign_jobs.delete_one({"_id": job_id})
+            raise ValidationError(
+                f"{nameless} of {len(phone_contacts)} contacts have no name. "
+                "Personalized e-card campaigns require a name for every recipient — "
+                "add the missing names and re-upload."
+            )
+
     # Resolve WABA credentials once for the whole campaign — O(1) per campaign.
     # phone_id and env_key are stamped onto every message_log so _do_send()
     # can resolve the token from env at send time — no raw token ever in DB.
@@ -268,7 +290,15 @@ async def create_campaign(
                 {**campaign_template_variables, **c.get("variables", {})},
                 allowed_var_keys,
             ),
-            "media_url": body.media_url,
+            "media_url": (
+                build_card_url(
+                    body.personalization.base_public_id,
+                    c.get("name", ""),
+                    body.personalization.overlay,
+                )
+                if body.personalization
+                else body.media_url
+            ),
             "media_type": media_type,
             "wa_message_id": None,
             "status": "queued",
@@ -308,9 +338,14 @@ async def create_campaign(
             await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
         except Exception as e:
             logger.error("campaign_dispatch_failed", error=str(e))
+            # Broker enqueue failed — remove the just-created job and its message
+            # logs so a 503 truly means nothing was created (no orphaned campaign
+            # stranded in 'queued' that never dispatches).
+            await db.message_logs.delete_many({"job_id": job_id})
+            await db.campaign_jobs.delete_one({"_id": job_id})
             raise HTTPException(
                 status_code=503,
-                detail="Campaign queue unavailable, please try again shortly",
+                detail=_QUEUE_UNAVAILABLE_DETAIL,
             ) from e
         job_doc["status"] = "queued"
         logger.info("campaign_dispatched_immediately", campaign_id=str(job_id))
@@ -717,7 +752,7 @@ async def get_campaign(
     return _serialize_campaign(doc)
 
 
-@router.post("/{campaign_id}/start")
+@router.post("/{campaign_id}/start", responses=_QUEUE_UNAVAILABLE_RESPONSE)
 async def start_campaign(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
@@ -730,8 +765,11 @@ async def start_campaign(
 
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
-    if doc["status"] not in ("draft", "paused"):
-        raise ValidationError(f"Cannot start a campaign with status '{doc['status']}'")
+    previous_status = doc["status"]
+    if previous_status not in ("draft", "paused"):
+        raise ValidationError(
+            f"Cannot start a campaign with status '{previous_status}'"
+        )
 
     await db.campaign_jobs.update_one(
         {"_id": to_object_id(campaign_id)}, {"$set": {"status": "queued"}}
@@ -741,9 +779,15 @@ async def start_campaign(
         await run_in_threadpool(dispatch_campaign_task.delay, campaign_id)
     except Exception as e:
         logger.error("campaign_dispatch_failed", error=str(e))
+        # Revert to the prior status so the campaign isn't stranded in 'queued'
+        # with no dispatch task enqueued.
+        await db.campaign_jobs.update_one(
+            {"_id": to_object_id(campaign_id)},
+            {"$set": {"status": previous_status}},
+        )
         raise HTTPException(
             status_code=503,
-            detail="Campaign queue unavailable, please try again shortly",
+            detail=_QUEUE_UNAVAILABLE_DETAIL,
         ) from e
 
     doc["status"] = "queued"
@@ -905,7 +949,11 @@ async def failure_breakdown(
     return [{"reason": r["_id"] or "Unknown", "count": r["count"]} for r in results]
 
 
-@router.post("/{campaign_id}/retry-failed", status_code=201)
+@router.post(
+    "/{campaign_id}/retry-failed",
+    status_code=201,
+    responses=_QUEUE_UNAVAILABLE_RESPONSE,
+)
 async def retry_failed(
     campaign_id: str,
     current_user: Annotated[dict, Depends(require_role("admin"))],
@@ -960,7 +1008,7 @@ async def retry_failed(
         await db.message_logs.delete_many({"job_id": child_oid})
         raise HTTPException(
             status_code=503,
-            detail="Campaign queue unavailable, please try again shortly",
+            detail=_QUEUE_UNAVAILABLE_DETAIL,
         ) from e
 
     new_doc = await db.campaign_jobs.find_one({"_id": to_object_id(job_id_str)})
@@ -1035,6 +1083,41 @@ async def export_failed(
     )
 
 
+def _compute_retry_eligibility(doc: dict, now: datetime) -> tuple:
+    """Derive (is_eligible, reason_not_eligible, next_retry_at, next_retry_in_seconds).
+
+    Extracted from get_smart_retry_status to keep that handler's complexity low.
+    """
+    if not doc.get("smart_retries", False):
+        return False, "Smart retries not enabled for this campaign", None, None
+
+    retry_until = doc.get("retry_until")
+    if not retry_until:
+        return False, "No retry_until deadline set", None, None
+    if retry_until <= now:
+        return False, "Retry deadline has passed", None, None
+    if doc.get("failed_count", 0) == 0:
+        return False, "No failed messages to retry", None, None
+
+    status = doc["status"]
+    if status not in ["completed", "failed"]:
+        return (
+            False,
+            f"Campaign status is '{status}' (must be completed or failed)",
+            None,
+            None,
+        )
+
+    # Eligible. Next retry is 2h after the last auto-retry, or immediately if
+    # it has never been retried / the 2h window has already elapsed.
+    last_auto_retry_at = doc.get("last_auto_retry_at")
+    if last_auto_retry_at:
+        next_retry_at = last_auto_retry_at + timedelta(hours=2)
+        if next_retry_at > now:
+            return True, None, next_retry_at, int((next_retry_at - now).total_seconds())
+    return True, None, now, 0
+
+
 @router.get("/{campaign_id}/smart-retry-status")
 async def get_smart_retry_status(
     campaign_id: str,
@@ -1048,8 +1131,6 @@ async def get_smart_retry_status(
     - All child retry campaigns created by smart retries
     - Time until retry_until deadline
     """
-    from datetime import timedelta
-
     campaign_oid = to_object_id(campaign_id)
     doc = await db.campaign_jobs.find_one({"_id": campaign_oid})
     if not doc:
@@ -1096,41 +1177,13 @@ async def get_smart_retry_status(
     failed_count = doc.get("failed_count", 0)
     status = doc["status"]
 
-    # Calculate next retry time
-    next_retry_at = None
-    next_retry_in_seconds = None
-    is_eligible_for_retry = False
-    reason_not_eligible = None
-
-    if smart_retries_enabled:
-        if not retry_until:
-            reason_not_eligible = "No retry_until deadline set"
-        elif retry_until <= now:
-            reason_not_eligible = "Retry deadline has passed"
-        elif failed_count == 0:
-            reason_not_eligible = "No failed messages to retry"
-        elif status not in ["completed", "failed"]:
-            reason_not_eligible = (
-                f"Campaign status is '{status}' (must be completed or failed)"
-            )
-        else:
-            # Campaign is eligible for retry
-            is_eligible_for_retry = True
-
-            if last_auto_retry_at:
-                next_retry_at = last_auto_retry_at + timedelta(hours=2)
-                if next_retry_at > now:
-                    next_retry_in_seconds = int((next_retry_at - now).total_seconds())
-                else:
-                    # Already past 2 hours, should retry on next poll
-                    next_retry_at = now
-                    next_retry_in_seconds = 0
-            else:
-                # Never retried, will retry on next poll
-                next_retry_at = now
-                next_retry_in_seconds = 0
-    else:
-        reason_not_eligible = "Smart retries not enabled for this campaign"
+    # Eligibility + next-retry timing (extracted to keep complexity low).
+    (
+        is_eligible_for_retry,
+        reason_not_eligible,
+        next_retry_at,
+        next_retry_in_seconds,
+    ) = _compute_retry_eligibility(doc, now)
 
     # Calculate time until deadline
     deadline_in_seconds = None
