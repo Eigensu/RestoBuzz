@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -87,6 +87,26 @@ export function NewCampaignWizard() {
     enabled: step === 1 && !!restaurant?.id,
   });
   const reservegoCount = analytics?.totals?.reservego_members ?? 0;
+
+  // E-card campaign entry: when opened via "New E-card campaign" (?type=ecard),
+  // lock the configured template + base card and jump straight to contacts.
+  const ecardPrefilled = useRef(false);
+  useEffect(() => {
+    if (ecardPrefilled.current || typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("type") !== "ecard")
+      return;
+    const cfg = restaurant?.ecard_config;
+    if (!cfg || !apiTemplates) return;
+    const tpl = apiTemplates.find((t) => t.name === cfg.template_name);
+    if (!tpl) return;
+    ecardPrefilled.current = true;
+    setSelectedTemplate(tpl);
+    setVariables({});
+    setMediaUrl(cfg.base_url);
+    setEcardPublicId(cfg.base_public_id);
+    setEcardPersonalize(true);
+    setStep(1);
+  }, [apiTemplates, restaurant]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {

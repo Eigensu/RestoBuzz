@@ -33,6 +33,7 @@ def _serialize_restaurant(doc: dict) -> RestaurantResponse:
         or ["nfc", "ecard"],
         wa_phone_ids=doc.get("wa_phone_ids", []),
         wa_phones=doc.get("wa_phones", []),
+        ecard_config=doc.get("ecard_config"),
     )
 
 

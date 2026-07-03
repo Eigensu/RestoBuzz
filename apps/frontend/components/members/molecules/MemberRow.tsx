@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, IdCard } from "lucide-react";
 import type { Member } from "@/types";
 import { relativeIST } from "@/lib/date";
 import { MemberTypeBadge } from "@/components/members/atoms/MemberTypeBadge";
@@ -8,12 +8,14 @@ interface MemberRowProps {
   member: Member;
   onEdit: (m: Member) => void;
   onDelete: (m: Member) => void;
+  onSendEcard?: (m: Member) => void;
 }
 
 export function MemberRow({
   member: m,
   onEdit,
   onDelete,
+  onSendEcard,
 }: Readonly<MemberRowProps>) {
   return (
     <tr className="group hover:bg-[#eff2f0]/50 transition-colors">
@@ -72,6 +74,15 @@ export function MemberRow({
       {/* Actions */}
       <td className="px-6 py-4">
         <div className="flex items-center gap-1.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+          {onSendEcard && (
+            <button
+              onClick={() => onSendEcard(m)}
+              title="Send e-card"
+              className="p-2 text-gray-400 hover:text-[#24422e] hover:bg-[#eff2f0] rounded-xl transition-all"
+            >
+              <IdCard className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={() => onEdit(m)}
             className="p-2 text-gray-400 hover:text-[#24422e] hover:bg-[#eff2f0] rounded-xl transition-all"

@@ -7,6 +7,14 @@ export interface WaPhone {
   label: string;
 }
 
+export interface EcardConfig {
+  template_name: string;
+  base_public_id: string;
+  base_url: string;
+  language: string;
+  overlay: Record<string, unknown>;
+}
+
 export interface Restaurant {
   id: string;
   name: string;
@@ -16,6 +24,7 @@ export interface Restaurant {
   member_categories: string[];
   wa_phone_ids?: string[];
   wa_phones?: WaPhone[];
+  ecard_config?: EcardConfig | null;
 }
 
 export interface Campaign {

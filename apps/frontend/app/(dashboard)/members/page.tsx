@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
@@ -26,7 +26,6 @@ import { MemberModal } from "@/components/members/molecules/MemberModal";
 import { MembersTable } from "@/components/members/organisms/MembersTable";
 import { BulkAddMemberModal } from "@/components/members/molecules/BulkAddMemberModal";
 
-
 type Tab = string;
 
 const PAGE_SIZE = 25;
@@ -42,6 +41,7 @@ export default function MembersPage() {
   );
   const [bulkModal, setBulkModal] = useState(false);
   const [catModal, setCatModal] = useState(false);
+  const [ecardConfirm, setEcardConfirm] = useState<Member | null>(null);
 
   const [newCat, setNewCat] = useState("");
 
@@ -67,7 +67,6 @@ export default function MembersPage() {
       console.error("Import Error:", e);
       toast.error(parseApiError(e).message);
     },
-
   });
 
   const catMutation = useMutation({
@@ -99,23 +98,23 @@ export default function MembersPage() {
       console.error("Category Update Error:", e);
       toast.error(parseApiError(e).message);
     },
-
   });
 
-  const { data, isLoading, isError, error, refetch } = useQuery<MemberListResponse>({
-    queryKey: ["members", restaurant?.id, tab, search, page],
-    queryFn: () => {
-      const params = new URLSearchParams({
-        restaurant_id: restaurant!.id,
-        page: String(page),
-        page_size: String(PAGE_SIZE),
-      });
-      if (tab !== "all") params.set("type", tab);
-      if (search) params.set("search", search);
-      return api.get(`/members?${params}`).then((r) => r.data);
-    },
-    enabled: !!restaurant,
-  });
+  const { data, isLoading, isError, error, refetch } =
+    useQuery<MemberListResponse>({
+      queryKey: ["members", restaurant?.id, tab, search, page],
+      queryFn: () => {
+        const params = new URLSearchParams({
+          restaurant_id: restaurant!.id,
+          page: String(page),
+          page_size: String(PAGE_SIZE),
+        });
+        if (tab !== "all") params.set("type", tab);
+        if (search) params.set("search", search);
+        return api.get(`/members?${params}`).then((r) => r.data);
+      },
+      enabled: !!restaurant,
+    });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/members/${id}`),
@@ -127,7 +126,6 @@ export default function MembersPage() {
       console.error("Delete Error:", e);
       toast.error(parseApiError(e).message);
     },
-
   });
 
   const bulkDeleteMutation = useMutation({
@@ -151,7 +149,15 @@ export default function MembersPage() {
       console.error("Bulk Delete Error:", e);
       toast.error(parseApiError(e).message);
     },
+  });
 
+  const sendEcardMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/members/${id}/send-ecard`),
+    onSuccess: () => {
+      toast.success("E-card sent");
+      setEcardConfirm(null);
+    },
+    onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
   const members = data?.items ?? [];
@@ -173,8 +179,12 @@ export default function MembersPage() {
               <Upload className="w-6 h-6 text-[#24422e] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
             </div>
             <div className="text-center">
-              <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">Processing Excel</h3>
-              <p className="text-sm text-gray-500 font-medium">Please wait while we sync your members...</p>
+              <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">
+                Processing Excel
+              </h3>
+              <p className="text-sm text-gray-500 font-medium">
+                Please wait while we sync your members...
+              </p>
             </div>
           </div>
         </div>
@@ -184,7 +194,6 @@ export default function MembersPage() {
         <MemberModal
           restaurantId={restaurant.id}
           memberCategories={restaurant.member_categories || ["nfc", "ecard"]}
-
           editing={modal.editing}
           defaultType={tab}
           onClose={() => setModal({ open: false, editing: null })}
@@ -199,7 +208,6 @@ export default function MembersPage() {
           onClose={() => setBulkModal(false)}
         />
       )}
-
 
       {catModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -311,8 +319,6 @@ export default function MembersPage() {
             className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap"
           >
             <Download className="w-3.5 h-3.5" /> DOWNLOAD TEMPLATE
-
-
           </a>
           <input
             ref={fileInputRef}
@@ -334,8 +340,6 @@ export default function MembersPage() {
             {importMutation.isPending ? "IMPORTING..." : "IMPORT EXCEL"}
           </button>
 
-
-
           <button
             onClick={() => setBulkModal(true)}
             className="flex items-center gap-2 border border-[#24422e]/40 text-[#24422e] hover:bg-[#eff2f0] text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all duration-300 whitespace-nowrap"
@@ -350,7 +354,6 @@ export default function MembersPage() {
           >
             <Plus className="w-3.5 h-3.5" /> ADD MEMBER
           </button>
-
         </div>
       </div>
 
@@ -457,9 +460,12 @@ export default function MembersPage() {
         </div>
       ) : isError ? (
         <div className="bg-white rounded-xl border p-12 text-center text-sm">
-          <p className="text-red-500 font-medium mb-3">Failed to load members: {(error as Error)?.message || "Unknown error"}</p>
-          <button 
-            onClick={() => refetch()} 
+          <p className="text-red-500 font-medium mb-3">
+            Failed to load members:{" "}
+            {(error as Error)?.message || "Unknown error"}
+          </p>
+          <button
+            onClick={() => refetch()}
             className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50"
           >
             Retry
@@ -475,7 +481,46 @@ export default function MembersPage() {
               if (confirm(`Remove ${m.name}?`)) deleteMutation.mutate(m.id);
             }}
             onAddFirst={() => setModal({ open: true, editing: null })}
+            onSendEcard={
+              restaurant.ecard_config ? (m) => setEcardConfirm(m) : undefined
+            }
           />
+        </div>
+      )}
+
+      {ecardConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-base font-bold text-gray-900">Send e-card?</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              A personalized WhatsApp e-card will be sent to{" "}
+              <span className="font-semibold text-gray-900">
+                {ecardConfirm.name || "this member"}
+              </span>{" "}
+              at{" "}
+              <span className="font-semibold text-gray-900">
+                {ecardConfirm.phone}
+              </span>
+              .
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setEcardConfirm(null)}
+                disabled={sendEcardMutation.isPending}
+                className="rounded-lg border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => sendEcardMutation.mutate(ecardConfirm.id)}
+                disabled={sendEcardMutation.isPending}
+                className="rounded-lg px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                style={{ background: BRAND_GRADIENT }}
+              >
+                {sendEcardMutation.isPending ? "Sending…" : "Send e-card"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
