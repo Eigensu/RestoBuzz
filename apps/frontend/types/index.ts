@@ -38,6 +38,8 @@ export interface Campaign {
   created_at: string;
   parent_campaign_id: string | null;
   has_been_retried: boolean;
+  smart_retries: boolean;
+  retry_until: string | null;
 }
 
 export interface MessageLog {
@@ -131,7 +133,7 @@ export interface CampaignProgress {
 export interface Member {
   id: string;
   restaurant_id: string;
-  type: "nfc" | "ecard";
+  type: "nfc" | "ecard" | "interested" | string;
   name: string;
   phone: string;
   email: string | null;
@@ -156,6 +158,9 @@ export interface Member {
   /** Provenance of the activity match (uuid_match, phone_match, fallback_internal). */
   activity_source?: string | null;
   joined_at: string;
+  /** Set when the member was captured by replying positively to a campaign. */
+  interested_at?: string | null;
+  interested_campaign_name?: string | null;
 }
 
 export interface MemberListResponse {

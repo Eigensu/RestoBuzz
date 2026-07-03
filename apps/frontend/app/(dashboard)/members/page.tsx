@@ -19,6 +19,7 @@ import {
   Settings,
   X,
   Moon,
+  Heart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MemberModal } from "@/components/members/molecules/MemberModal";
@@ -85,7 +86,12 @@ export default function MembersPage() {
 
       setCatModal(false);
       setNewCat("");
-      if (!res.data.member_categories.includes(tab) && tab !== "all" && tab !== "inactive") {
+      if (
+        !res.data.member_categories.includes(tab) &&
+        tab !== "all" &&
+        tab !== "inactive" &&
+        tab !== "interested"
+      ) {
         setTab("all");
       }
     },
@@ -385,6 +391,23 @@ export default function MembersPage() {
               {c.replaceAll("-", " ").toUpperCase()}
             </button>
           ))}
+
+          {/* Interested — respondents who replied positively to a campaign */}
+          <button
+            onClick={() => {
+              setTab("interested");
+              setPage(1);
+            }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
+              tab === "interested"
+                ? "bg-rose-500 text-white shadow-sm"
+                : "text-rose-700/70 hover:text-rose-700 hover:bg-rose-50",
+            )}
+          >
+            <Heart className="w-3.5 h-3.5" />
+            Interested
+          </button>
 
           {/* Inactive — clubs At-Risk, Dormant, and Lost */}
           <button

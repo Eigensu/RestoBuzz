@@ -56,6 +56,8 @@ export function NewCampaignWizard() {
     "immediate",
   );
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
+  const [smartRetries, setSmartRetries] = useState(false);
+  const [retryUntil, setRetryUntil] = useState<Date | null>(null);
 
   const {
     data: apiTemplates,
@@ -169,6 +171,8 @@ export function NewCampaignWizard() {
           sendMode === "scheduled" && scheduledAt
             ? scheduledAt.toISOString()
             : null,
+        smart_retries: smartRetries,
+        retry_until: smartRetries && retryUntil ? retryUntil.toISOString() : null,
       }),
     onSuccess: (res) => {
       toast.success(
@@ -206,6 +210,10 @@ export function NewCampaignWizard() {
     sendMode === "immediate" ||
     (scheduledAt !== null && scheduledAt > new Date());
 
+  const retryValid =
+    !smartRetries ||
+    (smartRetries && retryUntil !== null && retryUntil > new Date());
+
   const launchLabel = (() => {
     if (createMutation.isPending) {
       return sendMode === "scheduled" ? "Scheduling..." : "Creating...";
@@ -219,7 +227,7 @@ export function NewCampaignWizard() {
     if (step === 0) return !!selectedTemplate;
     if (step === 1) return !!preflight;
     if (step === 2) return (preflight?.valid_count ?? 0) > 0;
-    return !!campaignName && scheduleValid;
+    return !!campaignName && scheduleValid && retryValid;
   }
 
   const canNext = getCanNext();
@@ -281,6 +289,10 @@ export function NewCampaignWizard() {
               setSendMode={setSendMode}
               scheduledAt={scheduledAt}
               setScheduledAt={setScheduledAt}
+              smartRetries={smartRetries}
+              setSmartRetries={setSmartRetries}
+              retryUntil={retryUntil}
+              setRetryUntil={setRetryUntil}
             />
           )}
         </div>
@@ -341,7 +353,7 @@ export function NewCampaignWizard() {
             <GradientButton
               onClick={() => createMutation.mutate()}
               disabled={
-                createMutation.isPending || !campaignName || !scheduleValid
+                createMutation.isPending || !campaignName || !scheduleValid || !retryValid
               }
               className="px-6 py-2 text-sm"
             >

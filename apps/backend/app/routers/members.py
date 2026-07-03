@@ -84,6 +84,8 @@ def _serialize(doc: dict, activity: tuple | None = None) -> MemberResponse:
         activity_status=status,
         activity_source=source or fallback_source,
         joined_at=doc.get("joined_at") or doc.get("created_at") or datetime.now(timezone.utc),
+        interested_at=doc.get("interested_at"),
+        interested_campaign_name=doc.get("interested_campaign_name"),
     )
 
 
@@ -138,12 +140,14 @@ async def list_members(
     
     if target_type == "inactive":
         query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
+    elif target_type == "interested":
+        query["tags"] = "interested"
     elif target_type in tier_map:
         query["dormancy_tier"] = tier_map[target_type]
     elif target_type in ["nfc", "ecard"]:
         query["type"] = {REGEX: f"^{re.escape(target_type)}$", OPTIONS: "i"}
     # if 'all', we don't add additional filters
-    
+
     if search:
         safe_search = re.escape(search)
         search_clause = [
@@ -211,6 +215,8 @@ async def _list_members_r2(
         # Only members who HAVE visited but > 30 days ago (not Unknown)
         cutoff = now_utc() - timedelta(days=DORMANCY_DAYS)
         internal_query["last_visit"] = {"$exists": True, "$ne": None, "$lt": cutoff}
+    elif member_type == "interested":
+        internal_query["tags"] = "interested"
     elif member_type == "inactive":
         # At-Risk, Dormant, or Lost
         internal_query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
@@ -587,12 +593,14 @@ async def _process_members(
     
     if target_type == "inactive":
         query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
+    elif target_type == "interested":
+        query["tags"] = "interested"
     elif target_type in tier_map:
         query["dormancy_tier"] = tier_map[target_type]
     elif target_type in ["nfc", "ecard"]:
         query["type"] = {REGEX: f"^{re.escape(target_type)}$", OPTIONS: "i"}
     # if 'all', we don't add additional filters
-        
+
     async for doc in m_db[m_coll].find(query, {"name": 1, "phone": 1}).sort("_id", -1):
         if limit and len(valid_rows) >= limit:
             return

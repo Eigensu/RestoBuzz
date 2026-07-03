@@ -40,6 +40,10 @@ from app.models.message import (
 )
 from app.services.meta_api import send_template_message, MetaAPIError
 from app.workers.send_task import dispatch_campaign_task
+from app.services.campaign_service import (
+    resolve_waba_credentials,
+    create_child_retry_campaign,
+)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 logger = get_logger(__name__)
@@ -50,31 +54,6 @@ _GROUP = "$group"
 _SORT = "$sort"
 _CREATED_AT = "$created_at"
 _BODY_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
-
-
-async def _resolve_waba_credentials(
-    db, restaurant_id: str
-) -> tuple[str | None, str | None, str | None]:
-    """Return (phone_id, access_token, env_key) for the restaurant's primary WABA.
-
-    phone_id is read from MongoDB.
-    access_token is resolved from the env var named by access_token_env_key —
-    the token itself is never stored in the DB.
-    env_key is stamped onto message_logs so the Celery worker can re-resolve
-    the token at send time without an extra DB query.
-
-    Returns (None, None, None) if the restaurant has no wa_phones configured,
-    which causes send_template_message to fall back to the global env-var chain.
-    """
-    rest_doc = await db.restaurants.find_one({"id": restaurant_id}, {"wa_phones": 1})
-    wa_phones = (rest_doc or {}).get("wa_phones", [])
-    if not wa_phones:
-        return None, None, None
-    primary = wa_phones[0]
-    phone_id = primary.get("phone_id") or None
-    env_key = primary.get("access_token_env_key") or ""
-    access_token = settings.resolve_waba_token(env_key) if env_key else None
-    return phone_id, access_token, env_key or None
 
 
 def _template_body_var_keys(template_doc: dict | None) -> set[str]:
@@ -89,6 +68,28 @@ def _template_body_var_keys(template_doc: dict | None) -> set[str]:
         text = str(component.get("text") or "")
         keys.update(_BODY_VAR_RE.findall(text))
     return keys
+
+
+def _template_header_media_type(template_doc: dict | None) -> str | None:
+    """Return 'image' | 'video' | 'document' for the template's header, or None.
+
+    Mirrors the WhatsApp template HEADER `format` so the send payload uses the
+    matching media parameter type — Meta rejects a send whose header parameter
+    type doesn't match the declared header format.
+    """
+    if not template_doc:
+        return None
+    for component in template_doc.get("components") or []:
+        if str(component.get("type") or "").upper() != "HEADER":
+            continue
+        fmt = str(component.get("format") or "").upper()
+        if fmt == "VIDEO":
+            return "video"
+        if fmt == "DOCUMENT":
+            return "document"
+        if fmt == "IMAGE":
+            return "image"
+    return None
 
 
 def _sanitize_template_variables(
@@ -134,6 +135,8 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
             str(doc["parent_campaign_id"]) if doc.get("parent_campaign_id") else None
         ),
         has_been_retried=doc.get("has_been_retried", False),
+        smart_retries=doc.get("smart_retries", False),
+        retry_until=doc.get("retry_until"),
     )
 
 
@@ -204,6 +207,7 @@ async def create_campaign(
         {"components": 1},
     )
     allowed_var_keys = _template_body_var_keys(template_doc)
+    media_type = _template_header_media_type(template_doc)
     campaign_template_variables = _sanitize_template_variables(
         body.template_variables, allowed_var_keys
     )
@@ -217,6 +221,7 @@ async def create_campaign(
         "template_name": body.template_name,
         "template_variables": campaign_template_variables,
         "media_url": body.media_url,
+        "media_type": media_type,
         "priority": body.priority,
         "status": "draft",
         "total_count": len(contacts),
@@ -226,6 +231,8 @@ async def create_campaign(
         "failed_count": 0,
         "replies_count": 0,
         "scheduled_at": body.scheduled_at,
+        "smart_retries": body.smart_retries,
+        "retry_until": body.retry_until,
         "started_at": None,
         "completed_at": None,
         "created_by": current_user["_id"],
@@ -246,7 +253,7 @@ async def create_campaign(
     # Resolve WABA credentials once for the whole campaign — O(1) per campaign.
     # phone_id and env_key are stamped onto every message_log so _do_send()
     # can resolve the token from env at send time — no raw token ever in DB.
-    wa_phone_id, _token, wa_access_token_env_key = await _resolve_waba_credentials(
+    wa_phone_id, _token, wa_access_token_env_key = await resolve_waba_credentials(
         db, body.restaurant_id
     )
 
@@ -262,6 +269,7 @@ async def create_campaign(
                 allowed_var_keys,
             ),
             "media_url": body.media_url,
+            "media_type": media_type,
             "wa_message_id": None,
             "status": "queued",
             "status_history": [],
@@ -300,7 +308,10 @@ async def create_campaign(
             await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
         except Exception as e:
             logger.error("campaign_dispatch_failed", error=str(e))
-            raise HTTPException(status_code=503, detail="Campaign queue unavailable, please try again shortly")
+            raise HTTPException(
+                status_code=503,
+                detail="Campaign queue unavailable, please try again shortly",
+            ) from e
         job_doc["status"] = "queued"
         logger.info("campaign_dispatched_immediately", campaign_id=str(job_id))
     else:
@@ -326,9 +337,11 @@ async def send_test_message(
 
     # Reuse the template's configured language when available.
     template_doc = await db.templates.find_one(
-        {"name": body.template_name, "restaurant_id": body.restaurant_id}, {"language": 1, "components": 1}
+        {"name": body.template_name, "restaurant_id": body.restaurant_id},
+        {"language": 1, "components": 1},
     )
     language = (template_doc or {}).get("language") or "en_US"
+    media_type = _template_header_media_type(template_doc)
     allowed_var_keys = _template_body_var_keys(template_doc)
     request_variables = _sanitize_template_variables(
         body.template_variables, allowed_var_keys
@@ -339,7 +352,7 @@ async def send_test_message(
         raise ValidationError("Phone number is required")
 
     # Resolve restaurant-specific WABA credentials for the test send
-    wa_phone_id, wa_access_token, _ = await _resolve_waba_credentials(
+    wa_phone_id, wa_access_token, _ = await resolve_waba_credentials(
         db, body.restaurant_id
     )
 
@@ -352,6 +365,7 @@ async def send_test_message(
             language=language,
             phone_id=wa_phone_id,
             access_token=wa_access_token,
+            media_type=media_type,
         )
     except MetaAPIError as e:
         if e.code in ("network_error", "parse_error", "config_error", "no_endpoint"):
@@ -727,7 +741,10 @@ async def start_campaign(
         await run_in_threadpool(dispatch_campaign_task.delay, campaign_id)
     except Exception as e:
         logger.error("campaign_dispatch_failed", error=str(e))
-        raise HTTPException(status_code=503, detail="Campaign queue unavailable, please try again shortly")
+        raise HTTPException(
+            status_code=503,
+            detail="Campaign queue unavailable, please try again shortly",
+        ) from e
 
     doc["status"] = "queued"
     return _serialize_campaign(doc)
@@ -925,97 +942,29 @@ async def retry_failed(
     if claim_result.modified_count == 0:
         raise ValidationError("This campaign has already been retried")
 
-    # Walk up to find the root campaign so all retries share the same root
-    root_id = original.get("parent_campaign_id") or campaign_oid
-
-    job_doc = {
-        "restaurant_id": retry_restaurant_id,
-        "name": f"{original['name']} (retry)",
-        "template_id": original.get("template_id", ""),
-        "template_name": original["template_name"],
-        "priority": original["priority"],
-        "status": "queued",
-        "total_count": failed_count,
-        "sent_count": 0,
-        "delivered_count": 0,
-        "read_count": 0,
-        "failed_count": 0,
-        "replies_count": 0,
-        "scheduled_at": None,
-        "started_at": None,
-        "completed_at": None,
-        "created_by": current_user["_id"],
-        "include_unsubscribe": original.get("include_unsubscribe", False),
-        "media_url": original.get("media_url"),
-        "parent_campaign_id": root_id,
-        "created_at": now,
-    }
-    result = await db.campaign_jobs.insert_one(job_doc)
-    job_id = result.inserted_id
-
-    cursor = db.message_logs.find(failed_query)
-    batch_size = 1000
-    new_logs_batch = []
-
-    # Resolve WABA credentials once for the retry campaign
-    wa_phone_id, _token, wa_access_token_env_key = await _resolve_waba_credentials(
-        db, retry_restaurant_id
+    job_id_str = await create_child_retry_campaign(
+        original, failed_count, db, current_user["_id"]
     )
 
     try:
-        async for log in cursor:
-            new_logs_batch.append(
-                {
-                    "job_id": job_id,
-                    "restaurant_id": retry_restaurant_id,
-                    "recipient_phone": log["recipient_phone"],
-                    "recipient_name": log.get("recipient_name", ""),
-                    "template_name": log["template_name"],
-                    "template_variables": log.get("template_variables", {}),
-                    "media_url": log.get("media_url"),
-                    "status": "queued",
-                    "retry_count": 0,
-                    "endpoint_used": None,
-                    "fallback_used": False,
-                    "error_code": None,
-                    "error_message": None,
-                    "status_history": [],
-                    "wa_phone_id": wa_phone_id,
-                    "wa_access_token_env_key": wa_access_token_env_key,
-                    "created_at": now,
-                    "updated_at": now,
-                    "locked_until": None,
-                }
-            )
-
-            if len(new_logs_batch) >= batch_size:
-                await db.message_logs.insert_many(new_logs_batch)
-                new_logs_batch = []
-
-        if new_logs_batch:
-            await db.message_logs.insert_many(new_logs_batch)
-
-    except Exception as exc:
-        # Roll back the claim flag so the user can attempt a retry again.
+        await run_in_threadpool(dispatch_campaign_task.delay, job_id_str)
+    except Exception as e:
+        logger.error("campaign_dispatch_failed", error=str(e))
+        # Rollback parent claim and delete created child campaign
         await db.campaign_jobs.update_one(
             {"_id": campaign_oid},
             {"$unset": {"has_been_retried": "", "retry_claimed_at": ""}},
         )
-        logger.error(
-            "retry_failed_message_log_insert_error",
-            campaign_id=str(campaign_oid),
-            error=str(exc),
-        )
-        raise ServerError("Failed to create retry message logs") from exc
+        child_oid = to_object_id(job_id_str)
+        await db.campaign_jobs.delete_one({"_id": child_oid})
+        await db.message_logs.delete_many({"job_id": child_oid})
+        raise HTTPException(
+            status_code=503,
+            detail="Campaign queue unavailable, please try again shortly",
+        ) from e
 
-    try:
-        await run_in_threadpool(dispatch_campaign_task.delay, str(job_id))
-    except Exception as e:
-        logger.error("campaign_dispatch_failed", error=str(e))
-        raise HTTPException(status_code=503, detail="Campaign queue unavailable, please try again shortly")
-
-    job_doc["_id"] = job_id
-    return _serialize_campaign(job_doc)
+    new_doc = await db.campaign_jobs.find_one({"_id": to_object_id(job_id_str)})
+    return _serialize_campaign(new_doc)
 
 
 @router.delete("/{campaign_id}", status_code=204)
@@ -1084,3 +1033,131 @@ async def export_failed(
             "Content-Disposition": f"attachment; filename=failed_{campaign_id}.csv"
         },
     )
+
+
+@router.get("/{campaign_id}/smart-retry-status")
+async def get_smart_retry_status(
+    campaign_id: str,
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+):
+    """
+    Get smart retry status for a campaign including:
+    - When the last auto-retry happened
+    - When the next auto-retry will happen (if eligible)
+    - All child retry campaigns created by smart retries
+    - Time until retry_until deadline
+    """
+    from datetime import timedelta
+
+    campaign_oid = to_object_id(campaign_id)
+    doc = await db.campaign_jobs.find_one({"_id": campaign_oid})
+    if not doc:
+        raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
+
+    await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
+    now = datetime.now(timezone.utc)
+
+    # Find the root campaign (for tracking all retries in chain)
+    root_oid = doc.get("parent_campaign_id")
+    if root_oid:
+        # This is a child retry, get the root
+        root_oid = to_object_id(root_oid) if isinstance(root_oid, str) else root_oid
+    else:
+        # This is the root
+        root_oid = campaign_oid
+
+    # Get all campaigns in the retry chain
+    cursor = db.campaign_jobs.find(
+        {"$or": [{"_id": root_oid}, {"parent_campaign_id": str(root_oid)}]}
+    ).sort("created_at", 1)
+
+    campaigns = []
+    async for campaign in cursor:
+        campaigns.append(
+            {
+                "id": str(campaign["_id"]),
+                "name": campaign["name"],
+                "status": campaign["status"],
+                "created_at": campaign.get("created_at"),
+                "total_count": campaign.get("total_count", 0),
+                "sent_count": campaign.get("sent_count", 0),
+                "delivered_count": campaign.get("delivered_count", 0),
+                "failed_count": campaign.get("failed_count", 0),
+                "is_root": campaign["_id"] == root_oid,
+            }
+        )
+
+    # Smart retry metadata
+    smart_retries_enabled = doc.get("smart_retries", False)
+    retry_until = doc.get("retry_until")
+    last_auto_retry_at = doc.get("last_auto_retry_at")
+    failed_count = doc.get("failed_count", 0)
+    status = doc["status"]
+
+    # Calculate next retry time
+    next_retry_at = None
+    next_retry_in_seconds = None
+    is_eligible_for_retry = False
+    reason_not_eligible = None
+
+    if smart_retries_enabled:
+        if not retry_until:
+            reason_not_eligible = "No retry_until deadline set"
+        elif retry_until <= now:
+            reason_not_eligible = "Retry deadline has passed"
+        elif failed_count == 0:
+            reason_not_eligible = "No failed messages to retry"
+        elif status not in ["completed", "failed"]:
+            reason_not_eligible = (
+                f"Campaign status is '{status}' (must be completed or failed)"
+            )
+        else:
+            # Campaign is eligible for retry
+            is_eligible_for_retry = True
+
+            if last_auto_retry_at:
+                next_retry_at = last_auto_retry_at + timedelta(hours=2)
+                if next_retry_at > now:
+                    next_retry_in_seconds = int((next_retry_at - now).total_seconds())
+                else:
+                    # Already past 2 hours, should retry on next poll
+                    next_retry_at = now
+                    next_retry_in_seconds = 0
+            else:
+                # Never retried, will retry on next poll
+                next_retry_at = now
+                next_retry_in_seconds = 0
+    else:
+        reason_not_eligible = "Smart retries not enabled for this campaign"
+
+    # Calculate time until deadline
+    deadline_in_seconds = None
+    if retry_until:
+        deadline_in_seconds = max(0, int((retry_until - now).total_seconds()))
+
+    # Calculate time since last retry
+    last_retry_seconds_ago = None
+    if last_auto_retry_at:
+        last_retry_seconds_ago = int((now - last_auto_retry_at).total_seconds())
+
+    return {
+        "campaign_id": campaign_id,
+        "campaign_name": doc["name"],
+        "smart_retries_enabled": smart_retries_enabled,
+        "status": status,
+        "failed_count": failed_count,
+        "retry_until": retry_until,
+        "last_auto_retry_at": last_auto_retry_at,
+        "last_retry_seconds_ago": last_retry_seconds_ago,
+        "next_retry_at": next_retry_at,
+        "next_retry_in_seconds": next_retry_in_seconds,
+        "deadline_in_seconds": deadline_in_seconds,
+        "is_eligible_for_retry": is_eligible_for_retry,
+        "reason_not_eligible": reason_not_eligible,
+        "retry_chain": campaigns,
+        "total_retries": len(campaigns) - 1,  # Exclude root
+        "poller_frequency": "Every 15 minutes",
+        "retry_interval": "Every 2 hours",
+    }

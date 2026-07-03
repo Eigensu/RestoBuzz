@@ -48,6 +48,8 @@ class MemberResponse(BaseModel):
     activity_status: Literal["active", "dormant", "unknown", "at_risk", "lost"] = "unknown"
     activity_source: str | None = None
     joined_at: datetime
+    interested_at: datetime | None = None
+    interested_campaign_name: str | None = None
 
 
 class MemberListResponse(BaseModel):

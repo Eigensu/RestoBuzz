@@ -6,9 +6,19 @@ import { useSSE } from "@/lib/sse";
 import type { Campaign, CampaignProgress } from "@/types";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
-import { Download, Play, Pause, XCircle, Smartphone, Info, RefreshCw, BarChart3 } from "lucide-react";
+import {
+  Download,
+  Play,
+  Pause,
+  XCircle,
+  Smartphone,
+  Info,
+  RefreshCw,
+  BarChart3,
+} from "lucide-react";
 import { FailureChart } from "@/components/campaigns/molecules/FailureChart";
 import { MessageLogsTable } from "@/components/campaigns/molecules/MessageLogsTable";
+import { SmartRetryStatus } from "@/components/campaigns/molecules/SmartRetryStatus";
 import { CampaignStatus } from "@/types/common/enums";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { cn } from "@/lib/utils";
@@ -110,13 +120,14 @@ export default function CampaignDetailPage() {
 
   if (isCampaignLoading) {
     return (
-        <div className="h-64 flex items-center justify-center">
-            <RefreshCw className="w-8 h-8 animate-spin text-[#24422e]" />
-        </div>
+      <div className="h-64 flex items-center justify-center">
+        <RefreshCw className="w-8 h-8 animate-spin text-[#24422e]" />
+      </div>
     );
   }
 
-  const BTN_BASE = "flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition shadow-lg disabled:opacity-50 active:scale-95 whitespace-nowrap";
+  const BTN_BASE =
+    "flex items-center gap-2 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition shadow-lg disabled:opacity-50 active:scale-95 whitespace-nowrap";
 
   return (
     <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
@@ -127,35 +138,47 @@ export default function CampaignDetailPage() {
             <Smartphone className="w-6 h-6 text-[#24422e]" />
           </div>
           <div>
-             <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
-                    {campaign?.name}
-                </h1>
-                <span className={cn(
-                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm",
-                    campaign?.status === CampaignStatus.COMPLETED ? "bg-green-100 text-green-700" :
-                    campaign?.status === CampaignStatus.FAILED ? "bg-red-100 text-red-700" :
-                    campaign?.status === CampaignStatus.RUNNING ? "bg-blue-100 text-blue-700 animate-pulse" :
-                    "bg-gray-100 text-gray-700"
-                )}>
-                    {campaign?.status}
-                </span>
-             </div>
-             <p className="text-sm text-gray-500 font-medium flex items-center gap-1.5 mt-0.5">
-                Template: <span className="text-[#24422e] font-bold">{campaign?.template_name}</span>
-             </p>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-black text-gray-900 tracking-tight uppercase">
+                {campaign?.name}
+              </h1>
+              <span
+                className={cn(
+                  "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm",
+                  campaign?.status === CampaignStatus.COMPLETED
+                    ? "bg-green-100 text-green-700"
+                    : campaign?.status === CampaignStatus.FAILED
+                      ? "bg-red-100 text-red-700"
+                      : campaign?.status === CampaignStatus.RUNNING
+                        ? "bg-blue-100 text-blue-700 animate-pulse"
+                        : "bg-gray-100 text-gray-700",
+                )}
+              >
+                {campaign?.status}
+              </span>
+            </div>
+            <p className="text-sm text-gray-500 font-medium flex items-center gap-1.5 mt-0.5">
+              Template:{" "}
+              <span className="text-[#24422e] font-bold">
+                {campaign?.template_name}
+              </span>
+            </p>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {campaign?.status === CampaignStatus.DRAFT && (
+          {(campaign?.status === CampaignStatus.DRAFT ||
+            campaign?.status === CampaignStatus.PAUSED) && (
             <button
               onClick={() => startMutation.mutate()}
               disabled={startMutation.isPending}
               className={cn(BTN_BASE, "text-white shadow-green-900/20")}
               style={{ background: BRAND_GRADIENT }}
             >
-              <Play className="w-3.5 h-3.5" /> START CAMPAIGN
+              <Play className="w-3.5 h-3.5" />{" "}
+              {campaign?.status === CampaignStatus.PAUSED
+                ? "RESUME"
+                : "START CAMPAIGN"}
             </button>
           )}
 
@@ -163,7 +186,10 @@ export default function CampaignDetailPage() {
             <button
               onClick={() => pauseMutation.mutate()}
               disabled={pauseMutation.isPending}
-              className={cn(BTN_BASE, "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-900/20")}
+              className={cn(
+                BTN_BASE,
+                "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-900/20",
+              )}
             >
               <Pause className="w-3.5 h-3.5" /> PAUSE
             </button>
@@ -173,21 +199,40 @@ export default function CampaignDetailPage() {
             <button
               onClick={() => cancelMutation.mutate()}
               disabled={cancelMutation.isPending}
-              className={cn(BTN_BASE, "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm")}
+              className={cn(
+                BTN_BASE,
+                "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm",
+              )}
             >
               <XCircle className="w-3.5 h-3.5 text-red-400" /> CANCEL
             </button>
           )}
 
           {(campaign?.failed_count ?? 0) > 0 &&
-            ![CampaignStatus.RUNNING, CampaignStatus.QUEUED].includes(campaign?.status as CampaignStatus) && 
+            ![CampaignStatus.RUNNING, CampaignStatus.QUEUED].includes(
+              campaign?.status as CampaignStatus,
+            ) &&
             !campaign?.has_been_retried && (
               <button
                 onClick={() => retryMutation.mutate()}
                 disabled={retryMutation.isPending}
-                className={cn(BTN_BASE, "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-900/20")}
+                className={cn(
+                  BTN_BASE,
+                  "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-900/20",
+                )}
+                title={
+                  campaign?.smart_retries
+                    ? "Manual retry (smart retries are also enabled)"
+                    : "Retry all failed messages"
+                }
               >
-                <RefreshCw className={cn("w-3.5 h-3.5", retryMutation.isPending && "animate-spin")} /> RETRY FAILED
+                <RefreshCw
+                  className={cn(
+                    "w-3.5 h-3.5",
+                    retryMutation.isPending && "animate-spin",
+                  )}
+                />{" "}
+                RETRY FAILED
               </button>
             )}
 
@@ -207,7 +252,10 @@ export default function CampaignDetailPage() {
                 toast.error(parseApiError(e).message);
               }
             }}
-            className={cn(BTN_BASE, "bg-white border border-gray-200 text-[#24422e] hover:bg-gray-50 shadow-sm")}
+            className={cn(
+              BTN_BASE,
+              "bg-white border border-gray-200 text-[#24422e] hover:bg-gray-50 shadow-sm",
+            )}
           >
             <Download className="w-3.5 h-3.5" /> EXPORT FAILED
           </button>
@@ -221,79 +269,135 @@ export default function CampaignDetailPage() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-[#24422e]" />
-                <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">Delivery Progress</h3>
+                <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">
+                  Delivery Progress
+                </h3>
               </div>
               <div className="px-4 py-1.5 bg-gray-50 rounded-full border border-gray-100">
-                <span className="text-xs font-black text-[#24422e]">{live.sent} / {live.total} SENT</span>
-                <span className="ml-2 text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{pct}% COMPLETE</span>
+                <span className="text-xs font-black text-[#24422e]">
+                  {live.sent} / {live.total} SENT
+                </span>
+                <span className="ml-2 text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
+                  {pct}% COMPLETE
+                </span>
               </div>
             </div>
 
             <div className="relative h-4 bg-gray-100 rounded-full overflow-hidden mb-10 shadow-inner">
-                <div 
-                    className="absolute top-0 left-0 h-full transition-all duration-1000 ease-out flex items-center justify-end pr-2"
-                    style={{ background: BRAND_GRADIENT, width: `${pct}%` }}
-                >
-                    {pct > 10 && <div className="w-1.5 h-1.5 rounded-full bg-white/40 animate-pulse" />}
-                </div>
+              <div
+                className="absolute top-0 left-0 h-full transition-all duration-1000 ease-out flex items-center justify-end pr-2"
+                style={{ background: BRAND_GRADIENT, width: `${pct}%` }}
+              >
+                {pct > 10 && (
+                  <div className="w-1.5 h-1.5 rounded-full bg-white/40 animate-pulse" />
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { label: "Sent", value: live.sent, color: "text-blue-600", bg: "bg-blue-50/50" },
-                { label: "Delivered", value: live.delivered, color: "text-green-600", bg: "bg-green-50/50" },
-                { label: "Read", value: live.read, color: "text-purple-600", bg: "bg-purple-50/50" },
-                { label: "Failed", value: live.failed, color: "text-red-500", bg: "bg-red-50/50" },
+                {
+                  label: "Sent",
+                  value: live.sent,
+                  color: "text-blue-600",
+                  bg: "bg-blue-50/50",
+                },
+                {
+                  label: "Delivered",
+                  value: live.delivered,
+                  color: "text-green-600",
+                  bg: "bg-green-50/50",
+                },
+                {
+                  label: "Read",
+                  value: live.read,
+                  color: "text-purple-600",
+                  bg: "bg-purple-50/50",
+                },
+                {
+                  label: "Failed",
+                  value: live.failed,
+                  color: "text-red-500",
+                  bg: "bg-red-50/50",
+                },
               ].map(({ label, value, color, bg }) => (
-                <div key={label} className={cn("p-5 rounded-[24px] border border-white transition hover:shadow-md", bg)}>
-                  <p className={cn("text-3xl font-black tracking-tight", color)}>{value.toLocaleString()}</p>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{label}</p>
+                <div
+                  key={label}
+                  className={cn(
+                    "p-5 rounded-[24px] border border-white transition hover:shadow-md",
+                    bg,
+                  )}
+                >
+                  <p
+                    className={cn("text-3xl font-black tracking-tight", color)}
+                  >
+                    {value.toLocaleString()}
+                  </p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                    {label}
+                  </p>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="bg-white rounded-[32px] border border-gray-100 p-8 shadow-sm">
-             <div className="flex items-center gap-2 mb-6">
-                <Info className="w-5 h-5 text-[#24422e]" />
-                <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">In-Depth Metrics</h3>
-             </div>
-             <MessageLogsTable
-                campaignId={id}
-                pollMs={isActiveCampaign(campaign?.status) ? 5000 : false}
+            <div className="flex items-center gap-2 mb-6">
+              <Info className="w-5 h-5 text-[#24422e]" />
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">
+                In-Depth Metrics
+              </h3>
+            </div>
+            <MessageLogsTable
+              campaignId={id}
+              pollMs={isActiveCampaign(campaign?.status) ? 5000 : false}
             />
           </div>
         </div>
 
         {/* Sidebar / Failure Breakdown */}
         <div className="space-y-6">
-           <div className="bg-white rounded-[32px] border border-gray-100 p-8 shadow-sm h-full">
-                <div className="flex items-center gap-2 mb-8">
-                    <BarChart3 className="w-5 h-5 text-red-500" />
-                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">Failure Analysis</h3>
+          {/* Smart Retry Status — only shown when smart retries are enabled */}
+          {campaign?.smart_retries && <SmartRetryStatus campaignId={id} />}
+
+          <div className="bg-white rounded-[32px] border border-gray-100 p-8 shadow-sm h-full">
+            <div className="flex items-center gap-2 mb-8">
+              <BarChart3 className="w-5 h-5 text-red-500" />
+              <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">
+                Failure Analysis
+              </h3>
+            </div>
+
+            {failureBreakdown && failureBreakdown.length > 0 ? (
+              <div className="space-y-6">
+                <FailureChart data={failureBreakdown} />
+                <div className="space-y-3">
+                  {failureBreakdown.map((f, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100"
+                    >
+                      <span className="text-xs font-bold text-gray-600 truncate mr-4">
+                        {f.reason}
+                      </span>
+                      <span className="text-xs font-black text-red-500">
+                        {f.count}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                
-                {failureBreakdown && failureBreakdown.length > 0 ? (
-                    <div className="space-y-6">
-                        <FailureChart data={failureBreakdown} />
-                        <div className="space-y-3">
-                            {failureBreakdown.map((f, i) => (
-                                <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                    <span className="text-xs font-bold text-gray-600 truncate mr-4">{f.reason}</span>
-                                    <span className="text-xs font-black text-red-500">{f.count}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-full py-10 text-center space-y-3">
-                         <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-green-500">
-                            <Play className="w-8 h-8 opacity-20" />
-                         </div>
-                         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">No failures reported yet</p>
-                    </div>
-                )}
-           </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full py-10 text-center space-y-3">
+                <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center text-green-500">
+                  <Play className="w-8 h-8 opacity-20" />
+                </div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                  No failures reported yet
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

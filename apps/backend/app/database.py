@@ -1,10 +1,14 @@
+"""Database connection and index management."""
+# pylint: disable=global-statement
 import logging
+import time
+from urllib.parse import urlparse
+
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from pymongo.errors import OperationFailure
+
 from app.config import settings
-from urllib.parse import urlparse
-import time
 
 logger = logging.getLogger(__name__)
 MONGO_TYPE_STRING = "$type"
@@ -41,6 +45,7 @@ def _resolve_db_name() -> str:
 
 
 def get_client() -> AsyncIOMotorClient:
+    """Get the global MongoDB client instance."""
     global _client
     if _client is None:
         _client = AsyncIOMotorClient(settings.mongodb_url)
@@ -48,6 +53,7 @@ def get_client() -> AsyncIOMotorClient:
 
 
 def get_db() -> AsyncIOMotorDatabase:
+    """Get the global MongoDB database instance."""
     return get_client().get_database(_resolve_db_name())
 
 
@@ -107,8 +113,10 @@ async def _validate_unique_constraint(
     violation = await cursor.to_list(length=1)
     if violation:
         logger.error(
-            f"VALIDATION FAILED for '{idx_name}': Data violates unique constraint. "
-            f"Conflict: {violation[0]['_id']}. Migration skipped to prevent data loss."
+            "VALIDATION FAILED for '%s': Data violates unique constraint. "
+            "Conflict: %s. Migration skipped to prevent data loss.",
+            idx_name,
+            violation[0]["_id"],
         )
         return False
     return True
@@ -119,7 +127,7 @@ async def _migrate_index_additive(
 ) -> None:
     v_suffix = f"v{int(time.time())}"
     v_name = f"{idx_name}_{v_suffix}"
-    logger.info(f"Migration: Building versioned index '{v_name}'...")
+    logger.info("Migration: Building versioned index '%s'...", v_name)
 
     # Clone parameters for the versioned build
     v_params = {k: v for k, v in index.document.items() if k not in ["key", "name"]}
@@ -128,34 +136,42 @@ async def _migrate_index_additive(
     try:
         # Build versioned index
         await collection.create_indexes([v_model])
-        logger.info(f"Migration: Versioned index '{v_name}' built successfully.")
+        logger.info("Migration: Versioned index '%s' built successfully.", v_name)
 
         # Swap and Revert to Canonical
-        logger.info(f"Migration: Dropping legacy index '{conflict_name}'")
+        logger.info("Migration: Dropping legacy index '%s'", conflict_name)
         await collection.drop_index(conflict_name)
 
-        logger.info(f"Migration: Restoring canonical name '{idx_name}'")
+        logger.info("Migration: Restoring canonical name '%s'", idx_name)
         await collection.create_indexes([index])
 
-        logger.info(f"Migration: Cleaning up versioned index '{v_name}'")
+        logger.info("Migration: Cleaning up versioned index '%s'", v_name)
         await collection.drop_index(v_name)
-        logger.info(f"Migration: '{idx_name}' successfully reconciled.")
+        logger.info("Migration: '%s' successfully reconciled.", idx_name)
 
     except OperationFailure as rebuild_e:
         logger.warning(
-            f"Migration: Additive build failed for '{idx_name}' due to: {rebuild_e.details}. "
-            f"Attempting destructive swap fallback (dropping '{conflict_name}' first)..."
+            "Migration: Additive build failed for '%s' due to: %s. "
+            "Attempting destructive swap fallback (dropping '%s' first)...",
+            idx_name,
+            rebuild_e.details,
+            conflict_name,
         )
         try:
-            logger.info(f"Migration: Dropping conflicting index '{conflict_name}'")
+            logger.info("Migration: Dropping conflicting index '%s'", conflict_name)
             await collection.drop_index(conflict_name)
-            logger.info(f"Migration: Rebuilding canonical index '{idx_name}'")
+            logger.info("Migration: Rebuilding canonical index '%s'", idx_name)
             await collection.create_indexes([index])
-            logger.info(f"Migration: '{idx_name}' successfully reconciled via destructive swap.")
+            logger.info(
+                "Migration: '%s' successfully reconciled via destructive swap.",
+                idx_name,
+            )
         except OperationFailure as destructive_e:
             logger.error(
-                f"Migration CRASHED during destructive rebuild of '{idx_name}': {destructive_e.details}. "
-                "Startup proceeding in degraded state."
+                "Migration CRASHED during destructive rebuild of '%s': %s. "
+                "Startup proceeding in degraded state.",
+                idx_name,
+                destructive_e.details,
             )
 
 
@@ -186,7 +202,7 @@ async def _reconcile_conflicts(
 async def safe_create_indexes(collection, indexes: list[IndexModel]) -> None:
     """Enterprise-safe index reconciliation for Motor/PyMongo."""
     start_time = time.perf_counter()
-    logger.info(f"Indexing startup: reconciliation began for '{collection.name}'")
+    logger.info("Indexing startup: reconciliation began for '%s'", collection.name)
 
     try:
         await collection.create_indexes(indexes)
@@ -195,16 +211,17 @@ async def safe_create_indexes(collection, indexes: list[IndexModel]) -> None:
             raise e
 
         logger.warning(
-            f"Index conflict in '{collection.name}'. Initiating reconciliation..."
+            "Index conflict in '%s'. Initiating reconciliation...", collection.name
         )
         existing_indexes = await collection.index_information()
         await _reconcile_conflicts(collection, indexes, existing_indexes)
 
     duration = time.perf_counter() - start_time
-    logger.info(f"Indexing complete: '{collection.name}' in {duration:.3f}s")
+    logger.info("Indexing complete: '%s' in %.3fs", collection.name, duration)
 
 
 async def init_indexes() -> None:
+    """Initialize all MongoDB indexes."""
     db = get_db()
 
     # users
@@ -223,6 +240,15 @@ async def init_indexes() -> None:
             IndexModel(
                 [("restaurant_id", ASCENDING), ("created_at", DESCENDING)]
             ),  # dashboard list sorting
+            IndexModel(
+                [
+                    ("smart_retries", ASCENDING),
+                    ("status", ASCENDING),
+                    ("retry_until", ASCENDING),
+                    ("parent_campaign_id", ASCENDING),
+                    ("last_auto_retry_at", ASCENDING),
+                ]
+            ),  # smart retries poller
         ],
     )
 

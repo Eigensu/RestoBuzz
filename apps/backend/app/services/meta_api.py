@@ -1,11 +1,38 @@
 import httpx
 import mimetypes
+from urllib.parse import urlsplit
 from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 META_BASE = f"https://graph.facebook.com/{settings.meta_api_version}"
+
+# WhatsApp header media kinds and the file extensions that map to them. Used to
+# build the correct header parameter ("image"/"video"/"document") since Meta
+# rejects a send whose header parameter type doesn't match the template's
+# declared header format.
+_VIDEO_EXTS = (".mp4", ".3gp")
+_DOC_EXTS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt")
+
+
+def _resolve_media_kind(media_url: str, media_type: str | None) -> str:
+    """Return 'image' | 'video' | 'document' for a header media parameter.
+
+    Prefers an explicit ``media_type`` (derived from the template's header
+    format); otherwise infers from the URL's file extension, defaulting to
+    "image" for backwards compatibility with image-only templates.
+    """
+    if media_type:
+        mt = media_type.strip().lower()
+        if mt in ("image", "video", "document"):
+            return mt
+    path = urlsplit(media_url).path.lower()
+    if path.endswith(_VIDEO_EXTS):
+        return "video"
+    if path.endswith(_DOC_EXTS):
+        return "document"
+    return "image"
 
 
 class MetaAPIError(Exception):
@@ -55,14 +82,16 @@ def _build_payload(
     variables: dict,
     media_url: str | None,
     language: str = "en",
+    media_type: str | None = None,
 ) -> dict:
     components = []
 
     if media_url:
+        kind = _resolve_media_kind(media_url, media_type)
         components.append(
             {
                 "type": "header",
-                "parameters": [{"type": "image", "image": {"link": media_url}}],
+                "parameters": [{"type": kind, kind: {"link": media_url}}],
             }
         )
 
@@ -100,6 +129,7 @@ async def send_template_message(
     language: str = "en",
     phone_id: str | None = None,
     access_token: str | None = None,
+    media_type: str | None = None,
 ) -> tuple[str, str]:
     """Returns (wa_message_id, endpoint_used).
 
@@ -137,7 +167,9 @@ async def send_template_message(
             ),
         ]
 
-    payload = _build_payload(to, template_name, variables, media_url, language)
+    payload = _build_payload(
+        to, template_name, variables, media_url, language, media_type
+    )
     last_error = None
 
     async with httpx.AsyncClient(timeout=15.0) as client:

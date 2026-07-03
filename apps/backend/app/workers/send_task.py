@@ -120,7 +120,22 @@ async def _send(task: Task, message_log_id: str) -> None:
             campaign = await db.campaign_jobs.find_one(
                 {"_id": msg["job_id"]}, {"status": 1}
             )
-            if not campaign or campaign.get("status") in {"cancelled", "paused"}:
+            # If the campaign is paused, revert this message to "queued" (not
+            # "cancelled") so that resuming the campaign re-dispatches it. Only a
+            # genuinely cancelled/missing campaign should cancel the message.
+            if campaign and campaign.get("status") == "paused":
+                await db.message_logs.update_one(
+                    {"_id": ObjectId(message_log_id)},
+                    {
+                        "$set": {
+                            "status": "queued",
+                            "locked_until": None,
+                            "updated_at": datetime.now(timezone.utc),
+                        }
+                    },
+                )
+                return
+            if not campaign or campaign.get("status") == "cancelled":
                 await db.message_logs.update_one(
                     {"_id": ObjectId(message_log_id)},
                     {
@@ -151,6 +166,11 @@ async def _send(task: Task, message_log_id: str) -> None:
                 await _fail_message(
                     db, message_log_id, "suppressed", "Number is suppressed"
                 )
+                await db.campaign_jobs.update_one(
+                    {"_id": msg["job_id"]},
+                    {"$inc": {"failed_count": 1}},
+                )
+                await _auto_complete_job(db, msg["job_id"])
                 return
 
             # Rate limit
@@ -220,6 +240,7 @@ async def _do_send(
             language=language,
             phone_id=wa_phone_id,
             access_token=wa_access_token,
+            media_type=msg.get("media_type"),
         )
     except MetaAPIError as e:
         await _handle_meta_error(task, db, msg, message_log_id, e)
@@ -275,6 +296,7 @@ async def _handle_meta_error(
             {"_id": msg["job_id"]},
             {"$inc": {"failed_count": 1}},
         )
+        await _auto_complete_job(db, msg["job_id"])
 
 
 async def _auto_complete_job(db, job_id) -> None:

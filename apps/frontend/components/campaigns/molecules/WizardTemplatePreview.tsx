@@ -1,4 +1,4 @@
-import { ImageIcon, Smartphone, ExternalLink } from "lucide-react";
+import { ImageIcon, Video, FileText, Smartphone, ExternalLink } from "lucide-react";
 import type { Template } from "@/types";
 
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -64,6 +64,27 @@ export function WizardTemplatePreview({
                 ) : (
                   <ImageIcon className="w-10 h-10 text-gray-300" />
                 )}
+              </div>
+            )}
+            {header?.format === "VIDEO" && (
+              <div className="bg-black h-36 flex items-center justify-center">
+                {mediaUrl ? (
+                  <video
+                    src={mediaUrl}
+                    controls
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <Video className="w-10 h-10 text-gray-500" />
+                )}
+              </div>
+            )}
+            {header?.format === "DOCUMENT" && (
+              <div className="bg-gray-100 h-24 flex flex-col items-center justify-center gap-1 text-gray-400">
+                <FileText className="w-8 h-8" />
+                <span className="text-[10px] truncate max-w-[80%]">
+                  {mediaUrl ? "Document attached" : "Document header"}
+                </span>
               </div>
             )}
             {header?.text && (
