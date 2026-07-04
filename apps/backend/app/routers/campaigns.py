@@ -1083,6 +1083,17 @@ async def export_failed(
     )
 
 
+def _as_aware(dt: datetime | None) -> datetime | None:
+    """Coerce a possibly naive datetime (as stored in Mongo) to UTC-aware.
+
+    Datetimes written without tzinfo come back from Motor as offset-naive, which
+    can't be compared against datetime.now(timezone.utc). Treat them as UTC.
+    """
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _compute_retry_eligibility(doc: dict, now: datetime) -> tuple:
     """Derive (is_eligible, reason_not_eligible, next_retry_at, next_retry_in_seconds).
 
@@ -1091,7 +1102,7 @@ def _compute_retry_eligibility(doc: dict, now: datetime) -> tuple:
     if not doc.get("smart_retries", False):
         return False, "Smart retries not enabled for this campaign", None, None
 
-    retry_until = doc.get("retry_until")
+    retry_until = _as_aware(doc.get("retry_until"))
     if not retry_until:
         return False, "No retry_until deadline set", None, None
     if retry_until <= now:
@@ -1110,7 +1121,7 @@ def _compute_retry_eligibility(doc: dict, now: datetime) -> tuple:
 
     # Eligible. Next retry is 2h after the last auto-retry, or immediately if
     # it has never been retried / the 2h window has already elapsed.
-    last_auto_retry_at = doc.get("last_auto_retry_at")
+    last_auto_retry_at = _as_aware(doc.get("last_auto_retry_at"))
     if last_auto_retry_at:
         next_retry_at = last_auto_retry_at + timedelta(hours=2)
         if next_retry_at > now:
@@ -1188,12 +1199,12 @@ async def get_smart_retry_status(
     # Calculate time until deadline
     deadline_in_seconds = None
     if retry_until:
-        deadline_in_seconds = max(0, int((retry_until - now).total_seconds()))
+        deadline_in_seconds = max(0, int((_as_aware(retry_until) - now).total_seconds()))
 
     # Calculate time since last retry
     last_retry_seconds_ago = None
     if last_auto_retry_at:
-        last_retry_seconds_ago = int((now - last_auto_retry_at).total_seconds())
+        last_retry_seconds_ago = int((now - _as_aware(last_auto_retry_at)).total_seconds())
 
     return {
         "campaign_id": campaign_id,

@@ -18,7 +18,6 @@ Usage:
 """
 
 import asyncio
-import os
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -28,12 +27,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bson import ObjectId
 
+from app.config import settings
+
 # Only treat as "stuck" if it's been queued for at least this long (avoid racing a
 # dispatch that's legitimately in progress).
 STUCK_MINUTES = 5
 
 
-def _parse_db_name(mongo_url: str, default: str = "restobuzz") -> str:
+def _resolve_db_name(mongo_url: str, default: str = "restobuzz") -> str:
+    """Same resolution the app uses: MONGODB_DB_NAME, else the URL path."""
+    name = (settings.mongodb_db_name or "").strip()
+    if name:
+        return name
     try:
         path = urlparse(mongo_url).path.strip("/").split("?")[0].split("/")[0]
         return path or default
@@ -45,8 +50,11 @@ async def main(apply: bool, only_id: str | None) -> None:
     from motor.motor_asyncio import AsyncIOMotorClient
     from app.workers.send_task import dispatch_campaign_task
 
-    mongo_url = os.environ.get("MONGODB_URL", "mongodb://localhost:27017/restobuzz")
-    db = AsyncIOMotorClient(mongo_url).get_database(_parse_db_name(mongo_url))
+    mongo_url = settings.mongodb_url
+    db = AsyncIOMotorClient(mongo_url).get_database(_resolve_db_name(mongo_url))
+    host = urlparse(mongo_url).hostname or "?"
+    if host in ("localhost", "127.0.0.1"):
+        print("⚠️  Connected to LOCALHOST — use `railway run` to hit production.\n")
 
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=STUCK_MINUTES)
     query: dict = {

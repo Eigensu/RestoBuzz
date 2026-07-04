@@ -13,6 +13,11 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 MONGO_TYPE_STRING = "$type"
 
+# Retention window for message_logs (delivery audit rows). Tune here; the TTL
+# index below deletes rows whose created_at is older than this. Changing the
+# value re-reconciles the index on next startup via safe_create_indexes.
+MESSAGE_LOG_TTL_DAYS = 90
+
 _client: AsyncIOMotorClient | None = None
 _fielia_client: AsyncIOMotorClient | None = None
 
@@ -273,6 +278,15 @@ async def init_indexes() -> None:
                     ("status", ASCENDING),
                     ("created_at", DESCENDING),
                 ]
+            ),
+            # Retention cap: delivery logs auto-expire after MESSAGE_LOG_TTL_DAYS.
+            # message_logs are operational send records — the delivered WhatsApp
+            # messages and inbox conversations are unaffected. Keeps the
+            # collection from growing unbounded (see prune_status_history.py for
+            # the lighter-touch status_history-only cleanup).
+            IndexModel(
+                [("created_at", ASCENDING)],
+                expireAfterSeconds=60 * 60 * 24 * MESSAGE_LOG_TTL_DAYS,
             ),
         ],
     )
