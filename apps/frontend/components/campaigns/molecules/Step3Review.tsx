@@ -88,10 +88,12 @@ export function Step3Review({
     setRetryUntil(parseISTDatetimeLocal(e.target.value));
   }
 
+  const now = new Date();
+
   const retryInPast =
     smartRetries &&
     retryUntil !== null &&
-    retryUntil <= new Date();
+    retryUntil <= now;
 
   // The poller runs every 15 minutes and a first auto-retry fires on the next
   // poll as long as retry_until is still in the future — so the risk is a
@@ -100,7 +102,7 @@ export function Step3Review({
     smartRetries &&
     retryUntil &&
     !retryInPast &&
-    retryUntil.getTime() - new Date().getTime() < 15 * 60 * 1000;
+    retryUntil.getTime() - now.getTime() < 15 * 60 * 1000;
 
   const sendsAtLabel =
     sendMode === "immediate" ? "Immediately" : scheduledAtFormatted;

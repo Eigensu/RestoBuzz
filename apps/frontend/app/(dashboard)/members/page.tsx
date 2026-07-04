@@ -30,6 +30,14 @@ type Tab = string;
 
 const PAGE_SIZE = 25;
 
+// Tabs that aren't backed by a member category — we never auto-reset away from these.
+const NON_CATEGORY_TABS = new Set(["all", "inactive", "interested"]);
+
+/** True when the active category tab no longer exists after a categories update. */
+function activeCategoryRemoved(categories: string[], tab: Tab): boolean {
+  return !NON_CATEGORY_TABS.has(tab) && !categories.includes(tab);
+}
+
 export default function MembersPage() {
   const { restaurant, user, setRestaurant } = useAuthStore();
   const qc = useQueryClient();
@@ -85,12 +93,7 @@ export default function MembersPage() {
 
       setCatModal(false);
       setNewCat("");
-      if (
-        !res.data.member_categories.includes(tab) &&
-        tab !== "all" &&
-        tab !== "inactive" &&
-        tab !== "interested"
-      ) {
+      if (activeCategoryRemoved(res.data.member_categories, tab)) {
         setTab("all");
       }
     },
@@ -501,7 +504,7 @@ export default function MembersPage() {
               <span className="font-semibold text-gray-900">
                 {ecardConfirm.phone}
               </span>
-              .
+              {"."}
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button

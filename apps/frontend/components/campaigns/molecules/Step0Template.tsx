@@ -315,12 +315,14 @@ export function Step0Template({
         {selectedTemplate && headerFormat === "IMAGE" && mediaUrl && (
           <div className="space-y-2 rounded-lg border border-[#24422e]/20 bg-[#f7fbf8] p-3">
             <label
+              htmlFor="ecard-personalize"
               className={cn(
                 "flex items-start gap-2",
                 ecardEligible ? "cursor-pointer" : "cursor-not-allowed opacity-60",
               )}
             >
               <input
+                id="ecard-personalize"
                 type="checkbox"
                 checked={ecardPersonalize && ecardEligible}
                 disabled={!ecardEligible}

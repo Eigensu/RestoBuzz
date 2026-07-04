@@ -183,7 +183,7 @@ async def main(
     await _list_indexes(db, coll)
 
     print("Current TTL state:")
-    existing = await _show_ttl_state(coll)
+    await _show_ttl_state(coll)
     print()
 
     if dry:

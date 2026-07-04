@@ -46,6 +46,11 @@ TOP_N_CAMPAIGNS = 15
 DEFAULT_BATCH_SIZE = 500
 _ATLAS_QUOTA_CODE = 8000  # over-space-quota AtlasError
 
+# Repeated Mongo operator/field literals — named to avoid duplicated-literal warnings.
+_IFNULL = "$ifNull"
+_BSON_SIZE = "$bsonSize"
+_STATUS_HISTORY = "$status_history"
+
 
 def _prune_query(cutoff: datetime) -> dict:
     """Filter for prunable logs: prunable terminal status, older than cutoff, and
@@ -104,21 +109,21 @@ async def _overall_report(db) -> None:
                 "with_history": {
                     "$sum": {
                         "$cond": [
-                            {"$gt": [{"$size": {"$ifNull": ["$status_history", []]}}, 0]},
+                            {"$gt": [{"$size": {_IFNULL: [_STATUS_HISTORY, []]}}, 0]},
                             1,
                             0,
                         ]
                     }
                 },
                 "history_entries": {
-                    "$sum": {"$size": {"$ifNull": ["$status_history", []]}}
+                    "$sum": {"$size": {_IFNULL: [_STATUS_HISTORY, []]}}
                 },
                 # $bsonSize needs a document input, so wrap the array. The tiny
                 # per-doc wrapper overhead is negligible against the total.
                 "history_bytes": {
-                    "$sum": {"$bsonSize": {"h": {"$ifNull": ["$status_history", []]}}}
+                    "$sum": {_BSON_SIZE: {"h": {_IFNULL: [_STATUS_HISTORY, []]}}}
                 },
-                "doc_bytes": {"$sum": {"$bsonSize": "$$ROOT"}},
+                "doc_bytes": {"$sum": {_BSON_SIZE: "$$ROOT"}},
             }
         }
     ]
@@ -147,7 +152,7 @@ async def _per_campaign_report(db) -> None:
         {
             "$group": {
                 "_id": "$job_id",
-                "history_bytes": {"$sum": {"$bsonSize": {"h": "$status_history"}}},
+                "history_bytes": {"$sum": {_BSON_SIZE: {"h": _STATUS_HISTORY}}},
                 "docs": {"$sum": 1},
             }
         },

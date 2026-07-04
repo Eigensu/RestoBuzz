@@ -92,8 +92,8 @@ export function NewCampaignWizard() {
   // lock the configured template + base card and jump straight to contacts.
   const ecardPrefilled = useRef(false);
   useEffect(() => {
-    if (ecardPrefilled.current || typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("type") !== "ecard")
+    if (ecardPrefilled.current || typeof globalThis.window === "undefined") return;
+    if (new URLSearchParams(globalThis.location.search).get("type") !== "ecard")
       return;
     const cfg = restaurant?.ecard_config;
     if (!cfg || !apiTemplates) return;

@@ -169,6 +169,92 @@ async def list_campaigns(
     )
 
 
+async def _resolve_campaign_contacts(db, file_ref: str) -> list[dict]:
+    """Load a campaign's uploaded contacts: Redis cache first, MongoDB fallback
+    if the cache is down or the entry has expired."""
+    raw = None
+    redis = None
+    try:
+        redis = redis_from_url(settings.redis_url, decode_responses=True)
+        raw = await redis.get(f"file_ref:{file_ref}")
+    except (RedisClientError, OSError) as e:
+        logger.warning(
+            "campaign_create_cache_unavailable",
+            error=str(e),
+            file_ref=file_ref,
+        )
+        # Proceed to fallback
+    finally:
+        if redis is not None:
+            await redis.aclose()
+
+    if raw:
+        return json.loads(raw)
+
+    # FALLBACK: check MongoDB directly if Redis is down or the cache expired.
+    doc = await db.contact_files.find_one({"result.file_ref": file_ref})
+    if not doc:
+        raise ContactFileExpiredError(
+            "Contact file reference expired or not found. Please re-upload your contacts."
+        )
+    return doc["result"]["valid_rows"]
+
+
+def _build_campaign_message_docs(
+    phone_contacts: list[dict],
+    *,
+    job_id,
+    body: CampaignCreate,
+    media_type,
+    campaign_template_variables: dict,
+    allowed_var_keys,
+    wa_phone_id,
+    wa_access_token_env_key,
+    now: datetime,
+) -> list[dict]:
+    """Materialize per-recipient message_logs. Renders a personalized e-card
+    media_url per recipient when personalization is enabled, else uses the
+    campaign's static media_url. May raise (e.g. build_card_url) — the caller
+    rolls back the draft job on failure."""
+    return [
+        {
+            "job_id": job_id,
+            "restaurant_id": body.restaurant_id,
+            "recipient_phone": c["phone"],
+            "recipient_name": c.get("name", ""),
+            "template_name": body.template_name,
+            "template_variables": _sanitize_template_variables(
+                {**campaign_template_variables, **c.get("variables", {})},
+                allowed_var_keys,
+            ),
+            "media_url": (
+                build_card_url(
+                    body.personalization.base_public_id,
+                    c.get("name", ""),
+                    body.personalization.overlay,
+                )
+                if body.personalization
+                else body.media_url
+            ),
+            "media_type": media_type,
+            "wa_message_id": None,
+            "status": "queued",
+            "status_history": [],
+            "retry_count": 0,
+            "locked_until": None,
+            "endpoint_used": None,
+            "fallback_used": False,
+            "error_code": None,
+            "error_message": None,
+            "wa_phone_id": wa_phone_id,
+            "wa_access_token_env_key": wa_access_token_env_key,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for c in phone_contacts
+    ]
+
+
 @router.post("", status_code=201, responses=_QUEUE_UNAVAILABLE_RESPONSE)
 async def create_campaign(
     body: CampaignCreate,
@@ -179,34 +265,7 @@ async def create_campaign(
     # Validate access manually since restaurant_id is in the body (not a path/query param)
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
-    raw = None
-    redis = None
-    try:
-        redis = redis_from_url(settings.redis_url, decode_responses=True)
-        raw = await redis.get(f"file_ref:{body.contact_file_ref}")
-    except (RedisClientError, OSError) as e:
-        logger.warning(
-            "campaign_create_cache_unavailable",
-            error=str(e),
-            file_ref=body.contact_file_ref,
-        )
-        # Proceed to fallback
-    finally:
-        if redis is not None:
-            await redis.aclose()
-
-    if not raw:
-        # FALLBACK: Check MongoDB directly if Redis is down or cache expired
-        doc = await db.contact_files.find_one(
-            {"result.file_ref": body.contact_file_ref}
-        )
-        if not doc:
-            raise ContactFileExpiredError(
-                "Contact file reference expired or not found. Please re-upload your contacts."
-            )
-        contacts = doc["result"]["valid_rows"]
-    else:
-        contacts = json.loads(raw)
+    contacts = await _resolve_campaign_contacts(db, body.contact_file_ref)
 
     template_doc = await db.templates.find_one(
         {"name": body.template_name, "restaurant_id": body.restaurant_id},
@@ -280,43 +339,17 @@ async def create_campaign(
     )
 
     try:
-        message_docs = [
-            {
-                "job_id": job_id,
-                "restaurant_id": body.restaurant_id,
-                "recipient_phone": c["phone"],
-                "recipient_name": c.get("name", ""),
-                "template_name": body.template_name,
-                "template_variables": _sanitize_template_variables(
-                    {**campaign_template_variables, **c.get("variables", {})},
-                    allowed_var_keys,
-                ),
-                "media_url": (
-                    build_card_url(
-                        body.personalization.base_public_id,
-                        c.get("name", ""),
-                        body.personalization.overlay,
-                    )
-                    if body.personalization
-                    else body.media_url
-                ),
-                "media_type": media_type,
-                "wa_message_id": None,
-                "status": "queued",
-                "status_history": [],
-                "retry_count": 0,
-                "locked_until": None,
-                "endpoint_used": None,
-                "fallback_used": False,
-                "error_code": None,
-                "error_message": None,
-                "wa_phone_id": wa_phone_id,
-                "wa_access_token_env_key": wa_access_token_env_key,
-                "created_at": now,
-                "updated_at": now,
-            }
-            for c in phone_contacts
-        ]
+        message_docs = _build_campaign_message_docs(
+            phone_contacts,
+            job_id=job_id,
+            body=body,
+            media_type=media_type,
+            campaign_template_variables=campaign_template_variables,
+            allowed_var_keys=allowed_var_keys,
+            wa_phone_id=wa_phone_id,
+            wa_access_token_env_key=wa_access_token_env_key,
+            now=now,
+        )
     except Exception as e:
         # build_card_url (or variable sanitization) can raise while materializing
         # the message docs — don't leave the just-inserted job stranded in draft.
