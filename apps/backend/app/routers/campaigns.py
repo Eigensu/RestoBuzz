@@ -1177,7 +1177,9 @@ async def get_smart_retry_status(
     ).sort("created_at", 1)
 
     campaigns = []
+    raw_chain = []
     async for campaign in cursor:
+        raw_chain.append(campaign)
         campaigns.append(
             {
                 "id": str(campaign["_id"]),
@@ -1192,12 +1194,19 @@ async def get_smart_retry_status(
             }
         )
 
-    # Smart retry metadata
-    smart_retries_enabled = doc.get("smart_retries", False)
-    retry_until = doc.get("retry_until")
-    last_auto_retry_at = doc.get("last_auto_retry_at")
-    failed_count = doc.get("failed_count", 0)
-    status = doc["status"]
+    # Eligibility must reflect the retry chain, not just the requested campaign:
+    # children are never polled directly, and the root's failed_count never
+    # decreases after a successful retry. So key the deadline/gate fields on the
+    # ROOT (what the poller actually claims against) but source the failure count
+    # from the latest attempt in the chain (root or newest child, sorted asc).
+    root_doc = next((c for c in raw_chain if c["_id"] == root_oid), doc)
+    latest_attempt = raw_chain[-1] if raw_chain else doc
+
+    smart_retries_enabled = root_doc.get("smart_retries", False)
+    retry_until = root_doc.get("retry_until")
+    last_auto_retry_at = root_doc.get("last_auto_retry_at")
+    failed_count = latest_attempt.get("failed_count", 0)
+    status = root_doc["status"]
 
     # Eligibility + next-retry timing (extracted to keep complexity low).
     (
@@ -1205,7 +1214,7 @@ async def get_smart_retry_status(
         reason_not_eligible,
         next_retry_at,
         next_retry_in_seconds,
-    ) = _compute_retry_eligibility(doc, now)
+    ) = _compute_retry_eligibility({**root_doc, "failed_count": failed_count}, now)
 
     # Calculate time until deadline
     deadline_in_seconds = None

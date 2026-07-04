@@ -266,7 +266,14 @@ export function NewCampaignWizard() {
   })();
 
   function getCanNext(): boolean {
-    if (step === 0) return !!selectedTemplate;
+    if (step === 0) {
+      if (!selectedTemplate) return false;
+      // If personalization is toggled on but we can't resolve a Cloudinary base
+      // public_id, the payload silently collapses to a static header. Block here
+      // (Step0Template shows why) rather than send a non-personalized card.
+      if (ecardPersonalize && !ecardBasePublicId) return false;
+      return true;
+    }
     if (step === 1) return !!preflight;
     if (step === 2) return (preflight?.valid_count ?? 0) > 0;
     return !!campaignName && scheduleValid && retryValid;
