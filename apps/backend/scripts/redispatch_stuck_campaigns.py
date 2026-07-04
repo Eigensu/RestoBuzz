@@ -64,10 +64,10 @@ async def main(apply: bool, only_id: str | None) -> None:
     # Stamp a claimed_at well past the poller's 5-min stale threshold so its
     # heal branch matches on the very next run (~60s).
     stale_claimed_at = now - timedelta(minutes=10)
-    query: dict = {
-        "status": {"$in": ["queued", "dispatching"]},
-        "$or": [{"started_at": {"$exists": False}}, {"started_at": None}],
-    }
+    # No started_at filter: a job that began dispatching then stalled (started_at
+    # set, status still queued/dispatching) is exactly the kind we want to nudge —
+    # the scheduled_poller now recovers those too.
+    query: dict = {"status": {"$in": ["queued", "dispatching"]}}
     if only_id:
         query = {"_id": ObjectId(only_id)}
 

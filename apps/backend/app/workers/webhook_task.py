@@ -188,8 +188,10 @@ async def _handle_statuses(
             {"$set": {"status": status, "updated_at": now}},
         )
 
-        # Update message_logs (campaign messages) + status history
-        result = await db.message_logs.find_one_and_update(
+        # Fetch the BEFORE image so we know the message's prior status — needed to
+        # keep campaign counters consistent when a status regresses (e.g. an
+        # accepted message that Meta later drops as 'failed').
+        prev = await db.message_logs.find_one_and_update(
             {"wa_message_id": wa_id},
             {
                 "$set": {"status": status, "updated_at": now},
@@ -197,28 +199,38 @@ async def _handle_statuses(
                     "status_history": {"status": status, "timestamp": now, "meta": s}
                 },
             },
-            return_document=True,
+            return_document=False,
         )
 
-        if result:
+        if prev:
             logger.info("campaign_message_status_updated", wa_id=wa_id, status=status)
             await _store_error_details(db, wa_id, status, s)
-            await _increment_campaign_counter(db, result, status)
-            await _record_billing_event(db, wa_id, s, result, now)
+            await _apply_status_counters(db, prev["job_id"], prev.get("status"), status)
+            await _record_billing_event(db, wa_id, s, prev, now)
 
 
-async def _increment_campaign_counter(db, result: dict, status: str) -> None:
-    """Atomically increment the matching counter on campaign_jobs using $inc."""
-    counter_field = {
-        "delivered": "delivered_count",
-        "read": "read_count",
-        "failed": "failed_count",
-    }.get(status)
-    if counter_field:
-        await db.campaign_jobs.update_one(
-            {"_id": result["job_id"]},
-            {"$inc": {counter_field: 1}},
-        )
+async def _apply_status_counters(
+    db, job_id, prev_status: str | None, new_status: str
+) -> None:
+    """Move campaign_jobs counters in step with a message's status transition.
+
+    delivered/read bump their own funnel counters. Crucially, a 'failed' delivery
+    webhook for a message we already counted as sent must also back out that
+    sent_count increment (made in send_task when Meta accepted the message) —
+    otherwise a message Meta accepts and then drops (e.g. error 131049) is counted
+    as BOTH sent and failed, inflating sent_count above the true success count.
+    """
+    inc: dict[str, int] = {}
+    if new_status == "delivered":
+        inc["delivered_count"] = 1
+    elif new_status == "read":
+        inc["read_count"] = 1
+    elif new_status == "failed":
+        inc["failed_count"] = 1
+        if prev_status in ("sent", "delivered", "read"):
+            inc["sent_count"] = -1
+    if inc:
+        await db.campaign_jobs.update_one({"_id": job_id}, {"$inc": inc})
 
 
 async def _store_error_details(db, wa_id: str, status: str, s: dict) -> None:

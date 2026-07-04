@@ -124,7 +124,13 @@ export default function CampaignDetailPage() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
-  const pct = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
+  // Progress = messages actually processed (delivered-able sends + failures) over
+  // total. sent excludes messages that failed post-acceptance, so add failed back
+  // in to reflect true progress rather than just successful sends.
+  const pct =
+    live.total > 0
+      ? Math.round(((live.sent + live.failed) / live.total) * 100)
+      : 0;
 
   if (isCampaignLoading) {
     return (
