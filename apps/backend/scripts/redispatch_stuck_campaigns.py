@@ -2,18 +2,22 @@
 
 A 'Send Immediately' campaign sets status='queued' and fires dispatch_campaign_task
 WITHOUT a claimed_at field. If that task is lost (worker redeploy/crash), the beat
-poller cannot recover it (its heal query requires claimed_at), and Resume rejects a
-'queued' job. Such jobs sit frozen forever. This re-enqueues their dispatch task.
+poller cannot recover it (its self-heal branch requires claimed_at <= 5min-stale),
+and Resume rejects a 'queued' job. Such jobs sit frozen forever.
 
-Re-dispatch is safe: dispatch_campaign_task only fans out message_logs still at
-status 'queued', and send_message_task atomically claims each one — so already-sent
-messages are never re-sent.
+Recovery strategy: rather than publish dispatch_campaign_task ourselves (which needs
+a reachable Redis broker — impossible from a laptop, since Railway's Redis is on a
+private network), we simply stamp an OLD claimed_at on the stuck job. Within ~60s the
+scheduled_poller — running inside Railway where Redis resolves — matches its heal
+branch (queued + stale claimed_at + no started_at), claims it, and dispatches it.
 
-Requires a live worker consuming the marketing/utility queue (check Railway logs first).
+This is safe: dispatch_campaign_task only fans out message_logs still at status
+'queued', and send_message_task atomically claims each — so already-sent messages are
+never re-sent. Because we only need a Mongo write, this runs fine via `railway run`.
 
 Usage:
     python scripts/redispatch_stuck_campaigns.py                 # list stuck jobs (dry run)
-    python scripts/redispatch_stuck_campaigns.py --apply         # re-dispatch all stuck
+    python scripts/redispatch_stuck_campaigns.py --apply         # nudge all stuck jobs
     python scripts/redispatch_stuck_campaigns.py --apply --id <job_id>   # one specific job
 """
 
@@ -48,7 +52,6 @@ def _resolve_db_name(mongo_url: str, default: str = "restobuzz") -> str:
 
 async def main(apply: bool, only_id: str | None) -> None:
     from motor.motor_asyncio import AsyncIOMotorClient
-    from app.workers.send_task import dispatch_campaign_task
 
     mongo_url = settings.mongodb_url
     db = AsyncIOMotorClient(mongo_url).get_database(_resolve_db_name(mongo_url))
@@ -56,7 +59,11 @@ async def main(apply: bool, only_id: str | None) -> None:
     if host in ("localhost", "127.0.0.1"):
         print("⚠️  Connected to LOCALHOST — use `railway run` to hit production.\n")
 
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=STUCK_MINUTES)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=STUCK_MINUTES)
+    # Stamp a claimed_at well past the poller's 5-min stale threshold so its
+    # heal branch matches on the very next run (~60s).
+    stale_claimed_at = now - timedelta(minutes=10)
     query: dict = {
         "status": {"$in": ["queued", "dispatching"]},
         "$or": [{"started_at": {"$exists": False}}, {"started_at": None}],
@@ -65,7 +72,7 @@ async def main(apply: bool, only_id: str | None) -> None:
         query = {"_id": ObjectId(only_id)}
 
     print(f"[{'APPLY' if apply else 'DRY RUN'}] scanning for stuck campaigns...\n")
-    found = redispatched = 0
+    found = nudged = 0
     async for job in db.campaign_jobs.find(query):
         created = job.get("created_at")
         # Skip very fresh queued jobs unless an explicit id was given.
@@ -81,14 +88,19 @@ async def main(apply: bool, only_id: str | None) -> None:
             f"queued_msgs={queued}  total={job.get('total_count')}"
         )
         if apply:
-            dispatch_campaign_task.delay(jid)
-            redispatched += 1
+            # Pure Mongo write — no broker needed. The in-Railway scheduled_poller
+            # will claim + dispatch this within ~60s.
+            await db.campaign_jobs.update_one(
+                {"_id": job["_id"]}, {"$set": {"claimed_at": stale_claimed_at}}
+            )
+            nudged += 1
 
     print(f"\nStuck campaigns: {found}")
     if apply:
-        print(f"Re-dispatched: {redispatched} (watch the worker logs for 'dispatch_complete')")
+        print(f"Nudged: {nudged} — the scheduled_poller will dispatch within ~60s.")
+        print("Watch the worker logs for 'scheduled_wa_campaign_dispatched'.")
     else:
-        print("DRY RUN — nothing enqueued. Re-run with --apply (and --id to target one).")
+        print("DRY RUN — nothing changed. Re-run with --apply (and --id to target one).")
 
 
 if __name__ == "__main__":

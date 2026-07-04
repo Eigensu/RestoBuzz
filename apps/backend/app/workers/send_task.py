@@ -300,11 +300,21 @@ async def _handle_meta_error(
 
 
 async def _auto_complete_job(db, job_id) -> None:
-    """Transition job to completed once all messages are processed."""
-    updated_job = await db.campaign_jobs.find_one({"_id": job_id})
-    if updated_job and (
-        updated_job.get("sent_count", 0) + updated_job.get("failed_count", 0)
-    ) >= updated_job.get("total_count", 0):
+    """Transition job to completed once no messages remain to send.
+
+    Completion is based on the DISTINCT count of message_logs still pending
+    (queued/sending), NOT sent_count + failed_count. Those two counters overlap:
+    a message counts as 'sent' when Meta accepts it, then counts again as
+    'failed' when a delivery webhook reports failure (e.g. error 131049). Their
+    sum can therefore exceed total_count and complete the job prematurely,
+    abandoning still-queued recipients (which smart retries never pick up, since
+    it only retries failures). Counting pending message_logs is exact and can't
+    overshoot.
+    """
+    pending = await db.message_logs.count_documents(
+        {"job_id": job_id, "status": {"$in": ["queued", "sending"]}}
+    )
+    if pending == 0:
         await db.campaign_jobs.update_one(
             {"_id": job_id, "status": "running"},
             {
