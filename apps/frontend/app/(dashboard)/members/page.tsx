@@ -172,6 +172,8 @@ export default function MembersPage() {
   const to = Math.min(clampedPage * PAGE_SIZE, total);
   if (!restaurant) return null;
 
+  const memberCategories = restaurant.member_categories ?? ["nfc", "ecard"];
+
   return (
     <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
       {importMutation.isPending && (
@@ -196,7 +198,7 @@ export default function MembersPage() {
       {modal.open && (
         <MemberModal
           restaurantId={restaurant.id}
-          memberCategories={restaurant.member_categories || ["nfc", "ecard"]}
+          memberCategories={memberCategories}
           editing={modal.editing}
           defaultType={tab}
           onClose={() => setModal({ open: false, editing: null })}
@@ -206,7 +208,7 @@ export default function MembersPage() {
       {bulkModal && (
         <BulkAddMemberModal
           restaurantId={restaurant.id}
-          memberCategories={restaurant.member_categories || ["nfc", "ecard"]}
+          memberCategories={memberCategories}
           defaultType={tab}
           onClose={() => setBulkModal(false)}
         />
@@ -235,7 +237,7 @@ export default function MembersPage() {
               </div>
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  {(restaurant?.member_categories || ["nfc", "ecard"]).map(
+                  {memberCategories.map(
                     (c) => (
                       <div
                         key={c}
@@ -245,9 +247,9 @@ export default function MembersPage() {
                         <button
                           title="Remove category"
                           onClick={() => {
-                            const cats = (
-                              restaurant?.member_categories || ["nfc", "ecard"]
-                            ).filter((x) => x !== c);
+                            const cats = memberCategories.filter(
+                              (x) => x !== c,
+                            );
 
                             catMutation.mutate(cats);
                           }}
@@ -269,13 +271,7 @@ export default function MembersPage() {
                       if (e.key === "Enter") {
                         e.preventDefault();
                         if (newCat.trim()) {
-                          const cats = [
-                            ...(restaurant?.member_categories || [
-                              "nfc",
-                              "ecard",
-                            ]),
-                            newCat.trim(),
-                          ];
+                          const cats = [...memberCategories, newCat.trim()];
                           catMutation.mutate(cats);
                         }
                       }
@@ -284,10 +280,7 @@ export default function MembersPage() {
                   <button
                     disabled={!newCat.trim() || catMutation.isPending}
                     onClick={() => {
-                      const cats = [
-                        ...(restaurant?.member_categories || ["nfc", "ecard"]),
-                        newCat.trim(),
-                      ];
+                      const cats = [...memberCategories, newCat.trim()];
                       catMutation.mutate(cats);
                     }}
                     className="bg-[#24422e] text-white px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-[#3a6b47] disabled:opacity-50"
@@ -379,7 +372,7 @@ export default function MembersPage() {
             All Members
           </button>
 
-          {(restaurant?.member_categories || ["nfc", "ecard"]).map((c) => (
+          {memberCategories.map((c) => (
             <button
               key={c}
               onClick={() => {

@@ -329,11 +329,9 @@ export function Step0Template({
                 onChange={(e) => setEcardPersonalize(e.target.checked)}
                 className="mt-0.5"
               />
-              <span className="text-sm">
-                <span className="font-medium text-[#24422e]">
-                  Personalize with recipient&apos;s name (e-card)
-                </span>
-                <span className="mt-0.5 block text-xs text-gray-500">
+              <span className="text-sm font-medium text-[#24422e]">
+                Personalize with recipient&apos;s name (e-card)
+                <span className="mt-0.5 block text-xs font-normal text-gray-500">
                   Each recipient gets this card with their own name rendered on
                   it, taken from the “name” column of your contact sheet.
                 </span>
