@@ -678,14 +678,26 @@ async def _find_and_mark_replied(
     forty_eight_hours_ago = received_at - timedelta(hours=48)
     normalized = normalize_phone(from_phone)
     phone_variants = list({p for p in [normalized, from_phone, f"+{from_phone}"] if p})
+    # Match the recipient's most recent SENT campaign message within 48h of its
+    # actual send time. Keying off sent_at (not created_at) is essential: a
+    # campaign can sit queued for days, so created_at is unrelated to when the
+    # recipient actually received the message and could reply. Fall back to
+    # created_at only for legacy messages sent before sent_at was recorded.
     return await db.message_logs.find_one_and_update(
         {
             "recipient_phone": {"$in": phone_variants},
-            "created_at": {"$gte": forty_eight_hours_ago, "$lt": received_at},
+            "status": {"$in": ["sent", "delivered", "read"]},
             "replied": {"$ne": True},
+            "$or": [
+                {"sent_at": {"$gte": forty_eight_hours_ago, "$lt": received_at}},
+                {
+                    "sent_at": {"$exists": False},
+                    "created_at": {"$gte": forty_eight_hours_ago, "$lt": received_at},
+                },
+            ],
         },
         {"$set": {"replied": True}},
-        sort=[("created_at", -1)],
+        sort=[("sent_at", -1), ("created_at", -1)],
     )
 
 

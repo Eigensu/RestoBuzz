@@ -247,6 +247,7 @@ async def _do_send(
         return
 
     await mark_seen(redis, wa_id)
+    sent_now = datetime.now(timezone.utc)
     await db.message_logs.update_one(
         {"_id": ObjectId(message_log_id)},
         {
@@ -256,12 +257,16 @@ async def _do_send(
                 "endpoint_used": endpoint,
                 "fallback_used": endpoint == "fallback",
                 "locked_until": None,
-                "updated_at": datetime.now(timezone.utc),
+                # Real send time (may be much later than created_at for a campaign
+                # that sat queued). Reply-window matching keys off this, not
+                # created_at, so replies to a long-delayed send still count.
+                "sent_at": sent_now,
+                "updated_at": sent_now,
             },
             _PUSH: {
                 "status_history": {
                     "status": "sent",
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": sent_now,
                     "meta": {"endpoint": endpoint},
                 }
             },
