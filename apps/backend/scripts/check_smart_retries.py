@@ -108,7 +108,7 @@ async def _list_active_smart_retries(db) -> None:
         print("No smart retry campaigns found.")
 
 
-async def check_campaign_retries(campaign_id_str: str = None):
+async def check_campaign_retries(campaign_id_str: str | None = None):
     db = get_fresh_db()
     try:
         if campaign_id_str:

@@ -473,6 +473,16 @@ async def send_member_ecard(
         )
 
     rest = await db.restaurants.find_one({"id": restaurant_id})
+    if not rest:
+        # Some member docs store the restaurant's _id string instead of its
+        # slug-style "id"; fall back to the ObjectId lookup like elsewhere.
+        from bson import ObjectId
+        from bson.errors import InvalidId
+
+        try:
+            rest = await db.restaurants.find_one({"_id": ObjectId(restaurant_id)})
+        except (InvalidId, TypeError):
+            rest = None
     cfg = (rest or {}).get("ecard_config")
     if not cfg or not cfg.get("base_public_id") or not cfg.get("template_name"):
         raise ValidationError(

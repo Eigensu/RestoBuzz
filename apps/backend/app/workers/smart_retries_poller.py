@@ -16,6 +16,38 @@ _EXISTS = "$exists"
 _UNSET = "$unset"
 
 
+def _root_retry_eligibility(now: datetime, two_hours_ago: datetime) -> dict:
+    """Full eligibility predicate for claiming a ROOT campaign's retry slot.
+
+    Single source of truth shared by the polling prefilter (find) and the atomic
+    claim (find_one_and_update) so the two can never drift and break the claim
+    guarantee. Matches only root campaigns (no parent_campaign_id) that are
+    finished, still within retry_until, and past the 2-hour last_auto_retry_at
+    gate. Mirrors the reporting logic in _compute_retry_eligibility.
+    """
+    return {
+        "smart_retries": True,
+        "status": {"$in": ["completed", "failed"]},
+        "retry_until": {"$gt": now},
+        "$and": [
+            # Only root campaigns — children have a parent_campaign_id set
+            {
+                "$or": [
+                    {"parent_campaign_id": {_EXISTS: False}},
+                    {"parent_campaign_id": None},
+                ]
+            },
+            # 2-hour gate on the root
+            {
+                "$or": [
+                    {"last_auto_retry_at": {_EXISTS: False}},
+                    {"last_auto_retry_at": {"$lte": two_hours_ago}},
+                ]
+            },
+        ],
+    }
+
+
 async def _rollback_child_campaign(db, new_job_id_str: str | None) -> None:
     """Delete a child retry campaign (and its message_logs) that was created by
     create_child_retry_campaign but never dispatched, so it isn't stranded in
@@ -54,29 +86,7 @@ async def _poll() -> None:
         # Only poll ROOT campaigns that have actually finished running.
         # Children are never polled directly — the root tracks last_auto_retry_at
         # and we look up the latest completed child to source failures from.
-        cursor = db.campaign_jobs.find(
-            {
-                "smart_retries": True,
-                "status": {"$in": ["completed", "failed"]},
-                "retry_until": {"$gt": now},
-                "$and": [
-                    # Only root campaigns — children have a parent_campaign_id set
-                    {
-                        "$or": [
-                            {"parent_campaign_id": {_EXISTS: False}},
-                            {"parent_campaign_id": None},
-                        ]
-                    },
-                    # 2-hour gate on the root
-                    {
-                        "$or": [
-                            {"last_auto_retry_at": {_EXISTS: False}},
-                            {"last_auto_retry_at": {"$lte": two_hours_ago}},
-                        ]
-                    },
-                ],
-            }
-        )
+        cursor = db.campaign_jobs.find(_root_retry_eligibility(now, two_hours_ago))
         async for root_job in cursor:
             root_id_obj = root_job["_id"]
 
@@ -86,26 +96,7 @@ async def _poll() -> None:
             # smart_retries toggled off, or aged past retry_until between the read
             # and the claim cannot be claimed.
             claimed = await db.campaign_jobs.find_one_and_update(
-                {
-                    "_id": root_id_obj,
-                    "smart_retries": True,
-                    "status": {"$in": ["completed", "failed"]},
-                    "retry_until": {"$gt": now},
-                    "$and": [
-                        {
-                            "$or": [
-                                {"parent_campaign_id": {_EXISTS: False}},
-                                {"parent_campaign_id": None},
-                            ]
-                        },
-                        {
-                            "$or": [
-                                {"last_auto_retry_at": {_EXISTS: False}},
-                                {"last_auto_retry_at": {"$lte": two_hours_ago}},
-                            ]
-                        },
-                    ],
-                },
+                {"_id": root_id_obj, **_root_retry_eligibility(now, two_hours_ago)},
                 {"$set": {"last_auto_retry_at": now}},
                 return_document=False,
             )

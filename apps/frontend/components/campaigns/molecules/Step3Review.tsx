@@ -97,7 +97,7 @@ export function Step3Review({
     smartRetries &&
     retryUntil &&
     !retryInPast &&
-    retryUntil.getTime() - Date.now() < 2 * 60 * 60 * 1000;
+    retryUntil.getTime() - new Date().getTime() < 2 * 60 * 60 * 1000;
 
   const sendsAtLabel =
     sendMode === "immediate" ? "Immediately" : scheduledAtFormatted;

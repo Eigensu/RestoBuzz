@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
-import { buildEcardPreviewUrl } from "@/lib/cloudinary";
+import { buildEcardPreviewUrl, cloudinaryPublicId } from "@/lib/cloudinary";
 import type { Template } from "@/types";
 import { WizardTemplatePreview } from "@/components/campaigns/molecules/WizardTemplatePreview";
 
@@ -126,6 +126,10 @@ export function Step0Template({
   const mediaCfg = requiresMedia
     ? MEDIA_CONFIG[headerFormat as MediaFormat]
     : MEDIA_CONFIG.IMAGE;
+  // Personalization renders the name via Cloudinary transforms, so it only works
+  // when the media is a Cloudinary delivery URL (from which a public_id can be
+  // extracted). A pasted non-Cloudinary URL would silently skip the overlay.
+  const ecardEligible = cloudinaryPublicId(mediaUrl) !== null;
 
   return (
     <div className="flex gap-6">
@@ -295,7 +299,13 @@ export function Step0Template({
             )}
             <input
               value={mediaUrl}
-              onChange={(e) => setMediaUrl(e.target.value)}
+              onChange={(e) => {
+                // A manually typed URL invalidates any previously uploaded
+                // card's public_id — clear it like the other media flows so
+                // ecardBasePublicId never points at a stale image.
+                setMediaUrl(e.target.value);
+                setEcardPublicId("");
+              }}
               className={cn(INPUT_CLS, "bg-gray-50")}
               placeholder={mediaCfg.urlPlaceholder}
             />
@@ -304,10 +314,16 @@ export function Step0Template({
 
         {selectedTemplate && headerFormat === "IMAGE" && mediaUrl && (
           <div className="space-y-2 rounded-lg border border-[#24422e]/20 bg-[#f7fbf8] p-3">
-            <label className="flex items-start gap-2 cursor-pointer">
+            <label
+              className={cn(
+                "flex items-start gap-2",
+                ecardEligible ? "cursor-pointer" : "cursor-not-allowed opacity-60",
+              )}
+            >
               <input
                 type="checkbox"
-                checked={ecardPersonalize}
+                checked={ecardPersonalize && ecardEligible}
+                disabled={!ecardEligible}
                 onChange={(e) => setEcardPersonalize(e.target.checked)}
                 className="mt-0.5"
               />
@@ -321,7 +337,14 @@ export function Step0Template({
                 </span>
               </span>
             </label>
-            {ecardPersonalize && (
+            {!ecardEligible && (
+              <p className="text-xs text-amber-600">
+                Personalization needs a Cloudinary image URL (upload the card
+                above). A pasted external URL can&apos;t have a name rendered onto
+                it.
+              </p>
+            )}
+            {ecardPersonalize && ecardEligible && (
               <div className="space-y-1">
                 <div className="mx-auto w-full max-w-[200px] overflow-hidden rounded-lg border">
                   {/* eslint-disable-next-line @next/next/no-img-element */}

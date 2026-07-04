@@ -37,10 +37,25 @@ from pymongo.errors import OperationFailure
 from app.config import settings
 
 TERMINAL_STATUSES = ["sent", "delivered", "read", "failed", "cancelled"]
+# "read" is deliberately excluded: campaign TTR aggregation (campaigns.py) unwinds
+# status_history to find the first "read" event, so stripping it from read logs
+# would silently break time-to-read reporting for old campaigns.
+PRUNABLE_STATUSES = [s for s in TERMINAL_STATUSES if s != "read"]
 DEFAULT_OLDER_THAN_DAYS = 30
 TOP_N_CAMPAIGNS = 15
 DEFAULT_BATCH_SIZE = 500
 _ATLAS_QUOTA_CODE = 8000  # over-space-quota AtlasError
+
+
+def _prune_query(cutoff: datetime) -> dict:
+    """Filter for prunable logs: prunable terminal status, older than cutoff, and
+    still carrying a non-empty status_history. Shared by _apply and the dry-run
+    count so the two can't drift (e.g. the "read" exclusion stays in one place)."""
+    return {
+        "status": {"$in": PRUNABLE_STATUSES},
+        "created_at": {"$lt": cutoff},
+        "status_history": {"$exists": True, "$ne": []},
+    }
 
 
 def _resolve_db_name(mongo_url: str, default: str = "restobuzz") -> str:
@@ -174,11 +189,7 @@ async def _apply(db, cutoff: datetime, batch_size: int) -> None:
     up. The query itself is self-draining: once a doc's status_history is unset it
     no longer matches, so a plain find(...).limit() always returns fresh work.
     """
-    query = {
-        "status": {"$in": TERMINAL_STATUSES},
-        "created_at": {"$lt": cutoff},
-        "status_history": {"$exists": True, "$ne": []},
-    }
+    query = _prune_query(cutoff)
     to_change = await db.message_logs.count_documents(query)
     print(f"[APPLY] $unset status_history on {to_change:,} terminal logs "
           f"older than {cutoff.date()} (batches up to {batch_size})...")
@@ -240,13 +251,7 @@ async def main(apply: bool, older_than_days: int, batch_size: int) -> None:
     if apply:
         await _apply(db, cutoff, batch_size)
     else:
-        eligible = await db.message_logs.count_documents(
-            {
-                "status": {"$in": TERMINAL_STATUSES},
-                "created_at": {"$lt": cutoff},
-                "status_history": {"$exists": True, "$ne": []},
-            }
-        )
+        eligible = await db.message_logs.count_documents(_prune_query(cutoff))
         print(
             f"DRY RUN — nothing changed. {eligible:,} terminal logs older than "
             f"{cutoff.date()} would have status_history stripped by --apply."

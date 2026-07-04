@@ -430,7 +430,7 @@ async def _resolve_interested_context(
         )
         restaurant_id = (job or {}).get("restaurant_id")
         campaign_name = (job or {}).get("name")
-    elif campaign_name is None and job_id:
+    elif not campaign_name and job_id:
         job = await db.campaign_jobs.find_one({"_id": job_id}, {"name": 1})
         campaign_name = (job or {}).get("name")
 

@@ -9,7 +9,7 @@ import phonenumbers
 DEFAULT_REGION = "IN"
 
 
-def normalize_phone(raw_phone: str, region: str = DEFAULT_REGION) -> str | None:
+def normalize_phone(raw_phone: str | None, region: str = DEFAULT_REGION) -> str | None:
     """Normalize a phone number to E.164 (e.g. +919876543210).
 
     Uses libphonenumber so a bare national number gets the correct country code
@@ -21,8 +21,11 @@ def normalize_phone(raw_phone: str, region: str = DEFAULT_REGION) -> str | None:
     if not raw_phone:
         return None
 
-    # Excel stores phone cells as floats -> ".0" artifact; drop it before parsing.
-    clean = str(raw_phone).replace(".0", "").strip()
+    # Excel stores phone cells as floats -> trailing ".0" artifact; drop it before
+    # parsing. Anchor to the suffix so a legitimate mid-string ".0" is preserved.
+    clean = str(raw_phone).strip()
+    if clean.endswith(".0"):
+        clean = clean[:-2]
     if not clean:
         return None
 

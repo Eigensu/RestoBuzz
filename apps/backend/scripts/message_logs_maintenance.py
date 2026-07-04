@@ -200,7 +200,12 @@ async def main(
 
     if apply_ttl:
         print(f"Applying {ttl_days}-day TTL:")
-        await _apply_ttl(db, coll, ttl_seconds, existing)
+        # A --drop-index above can invalidate the `existing` snapshot taken
+        # before it (e.g. dropping the TTL index itself), so re-read the current
+        # state — otherwise _apply_ttl would collMod a now-missing index instead
+        # of recreating it.
+        current = (await coll.index_information()).get(TTL_INDEX_NAME)
+        await _apply_ttl(db, coll, ttl_seconds, current)
         print()
 
     if compact:

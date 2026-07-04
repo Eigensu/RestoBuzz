@@ -279,43 +279,54 @@ async def create_campaign(
         db, body.restaurant_id
     )
 
-    message_docs = [
-        {
-            "job_id": job_id,
-            "restaurant_id": body.restaurant_id,
-            "recipient_phone": c["phone"],
-            "recipient_name": c.get("name", ""),
-            "template_name": body.template_name,
-            "template_variables": _sanitize_template_variables(
-                {**campaign_template_variables, **c.get("variables", {})},
-                allowed_var_keys,
-            ),
-            "media_url": (
-                build_card_url(
-                    body.personalization.base_public_id,
-                    c.get("name", ""),
-                    body.personalization.overlay,
-                )
-                if body.personalization
-                else body.media_url
-            ),
-            "media_type": media_type,
-            "wa_message_id": None,
-            "status": "queued",
-            "status_history": [],
-            "retry_count": 0,
-            "locked_until": None,
-            "endpoint_used": None,
-            "fallback_used": False,
-            "error_code": None,
-            "error_message": None,
-            "wa_phone_id": wa_phone_id,
-            "wa_access_token_env_key": wa_access_token_env_key,
-            "created_at": now,
-            "updated_at": now,
-        }
-        for c in phone_contacts
-    ]
+    try:
+        message_docs = [
+            {
+                "job_id": job_id,
+                "restaurant_id": body.restaurant_id,
+                "recipient_phone": c["phone"],
+                "recipient_name": c.get("name", ""),
+                "template_name": body.template_name,
+                "template_variables": _sanitize_template_variables(
+                    {**campaign_template_variables, **c.get("variables", {})},
+                    allowed_var_keys,
+                ),
+                "media_url": (
+                    build_card_url(
+                        body.personalization.base_public_id,
+                        c.get("name", ""),
+                        body.personalization.overlay,
+                    )
+                    if body.personalization
+                    else body.media_url
+                ),
+                "media_type": media_type,
+                "wa_message_id": None,
+                "status": "queued",
+                "status_history": [],
+                "retry_count": 0,
+                "locked_until": None,
+                "endpoint_used": None,
+                "fallback_used": False,
+                "error_code": None,
+                "error_message": None,
+                "wa_phone_id": wa_phone_id,
+                "wa_access_token_env_key": wa_access_token_env_key,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for c in phone_contacts
+        ]
+    except Exception as e:
+        # build_card_url (or variable sanitization) can raise while materializing
+        # the message docs — don't leave the just-inserted job stranded in draft.
+        await db.campaign_jobs.delete_one({"_id": job_id})
+        logger.error(
+            "campaign_create_media_url_error",
+            campaign_id=str(job_id),
+            error=str(e),
+        )
+        raise ValidationError("Failed to build personalized e-card media") from e
     if message_docs:
         try:
             await db.message_logs.insert_many(message_docs)

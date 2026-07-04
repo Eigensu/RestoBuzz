@@ -9,6 +9,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CampaignStatus } from "@/types/common/enums";
 
 interface RetryChainItem {
   id: string;
@@ -66,9 +67,9 @@ interface Props {
 }
 
 function retryStatusColor(status: string): string {
-  if (status === "completed") return "text-green-500";
-  if (status === "failed") return "text-red-500";
-  if (status === "running") return "text-blue-500";
+  if (status === CampaignStatus.COMPLETED) return "text-green-500";
+  if (status === CampaignStatus.FAILED) return "text-red-500";
+  if (status === CampaignStatus.RUNNING) return "text-blue-500";
   return "text-gray-400";
 }
 

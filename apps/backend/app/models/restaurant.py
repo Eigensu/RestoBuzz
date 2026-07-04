@@ -42,8 +42,8 @@ class EcardConfig(BaseModel):
     ecard_service text-overlay defaults when set.
     """
 
-    template_name: str
-    base_public_id: str
+    template_name: str = ""
+    base_public_id: str = ""
     base_url: str = ""
     language: str = "en"
     overlay: dict = {}
