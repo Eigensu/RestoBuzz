@@ -31,6 +31,9 @@ logger = get_logger(__name__)
 
 STOP_KEYWORDS = {"stop", "unsubscribe", "opt out", "optout", "cancel"}
 
+# Reused Mongo operator literal — named to avoid duplicated-literal warnings.
+_SET_ON_INSERT = "$setOnInsert"
+
 # Positive-intent replies that flag a campaign respondent as an "interested"
 # member. Matched case-insensitively against the trimmed message body.
 INTERESTED_KEYWORDS = {
@@ -185,8 +188,10 @@ async def _handle_statuses(
             {"$set": {"status": status, "updated_at": now}},
         )
 
-        # Update message_logs (campaign messages) + status history
-        result = await db.message_logs.find_one_and_update(
+        # Fetch the BEFORE image so we know the message's prior status — needed to
+        # keep campaign counters consistent when a status regresses (e.g. an
+        # accepted message that Meta later drops as 'failed').
+        prev = await db.message_logs.find_one_and_update(
             {"wa_message_id": wa_id},
             {
                 "$set": {"status": status, "updated_at": now},
@@ -194,28 +199,38 @@ async def _handle_statuses(
                     "status_history": {"status": status, "timestamp": now, "meta": s}
                 },
             },
-            return_document=True,
+            return_document=False,
         )
 
-        if result:
+        if prev:
             logger.info("campaign_message_status_updated", wa_id=wa_id, status=status)
             await _store_error_details(db, wa_id, status, s)
-            await _increment_campaign_counter(db, result, status)
-            await _record_billing_event(db, wa_id, s, result, now)
+            await _apply_status_counters(db, prev["job_id"], prev.get("status"), status)
+            await _record_billing_event(db, wa_id, s, prev, now)
 
 
-async def _increment_campaign_counter(db, result: dict, status: str) -> None:
-    """Atomically increment the matching counter on campaign_jobs using $inc."""
-    counter_field = {
-        "delivered": "delivered_count",
-        "read": "read_count",
-        "failed": "failed_count",
-    }.get(status)
-    if counter_field:
-        await db.campaign_jobs.update_one(
-            {"_id": result["job_id"]},
-            {"$inc": {counter_field: 1}},
-        )
+async def _apply_status_counters(
+    db, job_id, prev_status: str | None, new_status: str
+) -> None:
+    """Move campaign_jobs counters in step with a message's status transition.
+
+    delivered/read bump their own funnel counters. Crucially, a 'failed' delivery
+    webhook for a message we already counted as sent must also back out that
+    sent_count increment (made in send_task when Meta accepted the message) —
+    otherwise a message Meta accepts and then drops (e.g. error 131049) is counted
+    as BOTH sent and failed, inflating sent_count above the true success count.
+    """
+    inc: dict[str, int] = {}
+    if new_status == "delivered":
+        inc["delivered_count"] = 1
+    elif new_status == "read":
+        inc["read_count"] = 1
+    elif new_status == "failed":
+        inc["failed_count"] = 1
+        if prev_status in ("sent", "delivered", "read"):
+            inc["sent_count"] = -1
+    if inc:
+        await db.campaign_jobs.update_one({"_id": job_id}, {"$inc": inc})
 
 
 async def _store_error_details(db, wa_id: str, status: str, s: dict) -> None:
@@ -267,7 +282,7 @@ async def _record_billing_event(
     await db.meta_billing_events.update_one(
         {"wa_message_id": wa_id},
         {
-            "$setOnInsert": {
+            _SET_ON_INSERT: {
                 "wa_message_id": wa_id,
                 "restaurant_id": restaurant_id,
                 "job_id": job_id,
@@ -356,7 +371,7 @@ async def _process_inbound_message(
 
     result = await db.inbound_messages.update_one(
         {"wa_message_id": wa_id},
-        {"$setOnInsert": doc},
+        {_SET_ON_INSERT: doc},
         upsert=True,
     )
 
@@ -408,6 +423,32 @@ async def _handle_reply_tracking(
     return orig_msg
 
 
+async def _resolve_interested_context(
+    db, orig_msg: dict
+) -> tuple[str | None, str | None, object]:
+    """Resolve (restaurant_id, campaign_name, job_id) for an interested reply.
+
+    restaurant_id isn't always denormalized onto message_logs — fall back to the
+    campaign job, which always carries it. campaign_name likewise falls back to
+    the job's name when the message log doesn't have it.
+    """
+    restaurant_id = orig_msg.get("restaurant_id")
+    job_id = orig_msg.get("job_id")
+    campaign_name = orig_msg.get("campaign_name")
+
+    if not restaurant_id and job_id:
+        job = await db.campaign_jobs.find_one(
+            {"_id": job_id}, {"restaurant_id": 1, "name": 1}
+        )
+        restaurant_id = (job or {}).get("restaurant_id")
+        campaign_name = (job or {}).get("name")
+    elif not campaign_name and job_id:
+        job = await db.campaign_jobs.find_one({"_id": job_id}, {"name": 1})
+        campaign_name = (job or {}).get("name")
+
+    return restaurant_id, campaign_name, job_id
+
+
 async def _handle_interested_reply(
     db,
     orig_msg: dict | None,
@@ -427,25 +468,9 @@ async def _handle_interested_reply(
     if body.strip().lower() not in INTERESTED_KEYWORDS:
         return
 
-    restaurant_id = orig_msg.get("restaurant_id")
-    job_id = orig_msg.get("job_id")
-
-    # restaurant_id isn't always denormalized onto message_logs — fall back to
-    # the campaign job, which always carries it.
-    if not restaurant_id and job_id:
-        job = await db.campaign_jobs.find_one(
-            {"_id": job_id}, {"restaurant_id": 1, "name": 1}
-        )
-        if job:
-            restaurant_id = job.get("restaurant_id")
-            campaign_name = job.get("name")
-        else:
-            campaign_name = None
-    else:
-        campaign_name = orig_msg.get("campaign_name")
-        if campaign_name is None and job_id:
-            job = await db.campaign_jobs.find_one({"_id": job_id}, {"name": 1})
-            campaign_name = (job or {}).get("name")
+    restaurant_id, campaign_name, job_id = await _resolve_interested_context(
+        db, orig_msg
+    )
 
     if not restaurant_id:
         logger.warning("interested_reply_no_restaurant", from_phone=from_phone)
@@ -469,7 +494,7 @@ async def _handle_interested_reply(
                 "interested_campaign_name": campaign_name,
                 "interested_reply_text": body.strip(),
             },
-            "$setOnInsert": {
+            _SET_ON_INSERT: {
                 "restaurant_id": restaurant_id,
                 "type": "interested",
                 "name": name,
@@ -653,14 +678,26 @@ async def _find_and_mark_replied(
     forty_eight_hours_ago = received_at - timedelta(hours=48)
     normalized = normalize_phone(from_phone)
     phone_variants = list({p for p in [normalized, from_phone, f"+{from_phone}"] if p})
+    # Match the recipient's most recent SENT campaign message within 48h of its
+    # actual send time. Keying off sent_at (not created_at) is essential: a
+    # campaign can sit queued for days, so created_at is unrelated to when the
+    # recipient actually received the message and could reply. Fall back to
+    # created_at only for legacy messages sent before sent_at was recorded.
     return await db.message_logs.find_one_and_update(
         {
             "recipient_phone": {"$in": phone_variants},
-            "created_at": {"$gte": forty_eight_hours_ago, "$lt": received_at},
+            "status": {"$in": ["sent", "delivered", "read"]},
             "replied": {"$ne": True},
+            "$or": [
+                {"sent_at": {"$gte": forty_eight_hours_ago, "$lt": received_at}},
+                {
+                    "sent_at": {"$exists": False},
+                    "created_at": {"$gte": forty_eight_hours_ago, "$lt": received_at},
+                },
+            ],
         },
         {"$set": {"replied": True}},
-        sort=[("created_at", -1)],
+        sort=[("sent_at", -1), ("created_at", -1)],
     )
 
 

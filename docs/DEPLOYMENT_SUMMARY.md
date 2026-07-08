@@ -99,7 +99,7 @@ Look at the `retry_count` field - it shows how many child campaigns were created
 
 Add a badge to the campaign detail page showing:
 
-```
+```text
 🔄 Smart Retries Active
 Next retry in: 45 minutes
 Auto-retries done: 2
@@ -116,7 +116,7 @@ Deadline: 3 days 14 hours
 - [x] Created comprehensive documentation
 - [ ] **TODO: Deploy to Railway** (API and celery-worker services)
 - [ ] **TODO: Test with real campaign**
-- [ ] **TODO: Add frontend UI component**
+- [x] Added frontend UI component (`SmartRetryStatus` on the campaign detail page)
 
 ---
 

@@ -11,6 +11,7 @@ from app.dependencies import (
 )
 from app.models.user_restaurant import AssignUserRequest, UserRestaurantRole
 from app.models.restaurant import (
+    EcardConfig,
     RestaurantResponse,
     UpdateCategoriesRequest,
     UpdateWaPhonesRequest,
@@ -19,6 +20,21 @@ from app.core.errors import NotFoundError, ValidationError
 from app.core.utils import to_object_id
 
 router = APIRouter(prefix="/restaurants", tags=["restaurants"])
+
+
+def _safe_ecard_config(raw) -> EcardConfig | None:
+    """Coerce a stored ecard_config into EcardConfig, dropping invalid payloads.
+
+    A partially-populated or malformed ecard_config must never break restaurant
+    serialization (which would 500 the whole list endpoint), so anything that
+    fails validation is treated as "no e-card configured".
+    """
+    if not raw:
+        return None
+    try:
+        return EcardConfig.model_validate(raw)
+    except Exception:
+        return None
 
 
 def _serialize_restaurant(doc: dict) -> RestaurantResponse:
@@ -33,6 +49,7 @@ def _serialize_restaurant(doc: dict) -> RestaurantResponse:
         or ["nfc", "ecard"],
         wa_phone_ids=doc.get("wa_phone_ids", []),
         wa_phones=doc.get("wa_phones", []),
+        ecard_config=_safe_ecard_config(doc.get("ecard_config")),
     )
 
 

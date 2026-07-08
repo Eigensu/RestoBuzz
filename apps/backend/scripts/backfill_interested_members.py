@@ -91,6 +91,49 @@ def _match_outbound(
     return candidates[-1] if candidates else None
 
 
+def _matched_outbound_for(msg: dict, wa_lookup: dict, recipient_map: dict) -> dict | None:
+    """Resolve the campaign message a reply belongs to, or None (no timestamp/match)."""
+    received_at = msg.get("received_at")
+    if not received_at:
+        return None
+    return _match_outbound(wa_lookup, recipient_map, msg, _to_utc(received_at))
+
+
+def _print_would_tag(orig_msg: dict, msg: dict, body: str) -> None:
+    phone = orig_msg.get("recipient_phone") or msg.get("from_phone")
+    print(f"  would tag: phone={phone} reply={body!r} job_id={orig_msg.get('job_id')}")
+
+
+async def _scan_inbound(db, wa_lookup: dict, recipient_map: dict, apply: bool) -> tuple:
+    """Scan inbound_messages, tag matched interested replies, return counts."""
+    positive = matched = upserted = 0
+    unmatched: list[str] = []
+
+    async for msg in db.inbound_messages.find():
+        body = (msg.get("body") or "").strip()
+        if body.lower() not in INTERESTED_KEYWORDS:
+            continue
+        positive += 1
+
+        orig_msg = _matched_outbound_for(msg, wa_lookup, recipient_map)
+        if orig_msg is None:
+            # Only count as unmatched if it was actually eligible (had a timestamp).
+            if msg.get("received_at"):
+                unmatched.append(msg.get("from_phone") or "?")
+            continue
+
+        matched += 1
+        if apply:
+            await _handle_interested_reply(
+                db, orig_msg, body, msg.get("from_phone"), msg.get("sender_name")
+            )
+            upserted += 1
+        else:
+            _print_would_tag(orig_msg, msg, body)
+
+    return positive, matched, unmatched, upserted
+
+
 async def backfill(apply: bool) -> None:
     from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -104,36 +147,9 @@ async def backfill(apply: bool) -> None:
     print("Building message_logs lookups...")
     wa_lookup, recipient_map = await _build_lookups(db)
 
-    positive = matched = upserted = 0
-    unmatched: list[str] = []
-
-    async for msg in db.inbound_messages.find():
-        body = (msg.get("body") or "").strip()
-        if body.lower() not in INTERESTED_KEYWORDS:
-            continue
-        positive += 1
-
-        received_at = msg.get("received_at")
-        if not received_at:
-            continue
-        received_at = _to_utc(received_at)
-
-        orig_msg = _match_outbound(wa_lookup, recipient_map, msg, received_at)
-        if orig_msg is None:
-            unmatched.append(msg.get("from_phone") or "?")
-            continue
-        matched += 1
-
-        if apply:
-            await _handle_interested_reply(
-                db, orig_msg, body, msg.get("from_phone"), msg.get("sender_name")
-            )
-            upserted += 1
-        else:
-            print(
-                f"  would tag: phone={orig_msg.get('recipient_phone') or msg.get('from_phone')} "
-                f"reply={body!r} job_id={orig_msg.get('job_id')}"
-            )
+    positive, matched, unmatched, upserted = await _scan_inbound(
+        db, wa_lookup, recipient_map, apply
+    )
 
     print("\n── Summary ─────────────────────────────")
     print(f"  positive-keyword replies scanned : {positive}")

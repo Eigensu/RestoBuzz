@@ -7,6 +7,7 @@ interface MembersTableProps {
   onEdit: (m: Member) => void;
   onDelete: (m: Member) => void;
   onAddFirst: () => void;
+  onSendEcard?: (m: Member) => void;
 }
 
 const HEADERS = [
@@ -26,6 +27,7 @@ export function MembersTable({
   onEdit,
   onDelete,
   onAddFirst,
+  onSendEcard,
 }: Readonly<MembersTableProps>) {
   if (members.length === 0) {
     return (
@@ -63,6 +65,7 @@ export function MembersTable({
               member={m}
               onEdit={onEdit}
               onDelete={onDelete}
+              onSendEcard={onSendEcard}
             />
           ))}
         </tbody>

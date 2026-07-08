@@ -1,11 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
+import { cloudinaryPublicId, buildEcardPreviewUrl } from "@/lib/cloudinary";
 import type { PreflightResult, Template } from "@/types";
 import { useDropzone } from "react-dropzone";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -38,6 +39,9 @@ export function NewCampaignWizard() {
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [mediaUrl, setMediaUrl] = useState("");
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  // E-card personalization: render each recipient's name onto the header image.
+  const [ecardPersonalize, setEcardPersonalize] = useState(false);
+  const [ecardPublicId, setEcardPublicId] = useState("");
 
   // Step 1
   const [file, setFile] = useState<File | null>(null);
@@ -83,6 +87,26 @@ export function NewCampaignWizard() {
     enabled: step === 1 && !!restaurant?.id,
   });
   const reservegoCount = analytics?.totals?.reservego_members ?? 0;
+
+  // E-card campaign entry: when opened via "New E-card campaign" (?type=ecard),
+  // lock the configured template + base card and jump straight to contacts.
+  const ecardPrefilled = useRef(false);
+  useEffect(() => {
+    if (ecardPrefilled.current || globalThis.window === undefined) return;
+    if (new URLSearchParams(globalThis.location.search).get("type") !== "ecard")
+      return;
+    const cfg = restaurant?.ecard_config;
+    if (!cfg || !apiTemplates) return;
+    const tpl = apiTemplates.find((t) => t.name === cfg.template_name);
+    if (!tpl) return;
+    ecardPrefilled.current = true;
+    setSelectedTemplate(tpl);
+    setVariables({});
+    setMediaUrl(cfg.base_url);
+    setEcardPublicId(cfg.base_public_id);
+    setEcardPersonalize(true);
+    setStep(1);
+  }, [apiTemplates, restaurant]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -156,6 +180,20 @@ export function NewCampaignWizard() {
     }
   };
 
+  // Resolve the base card's public_id (from the upload response, or derived from
+  // a Cloudinary URL for template/pasted cards) and whether personalization is
+  // actually usable. When active, each recipient's name is rendered server-side.
+  const ecardBasePublicId =
+    ecardPublicId || (mediaUrl ? cloudinaryPublicId(mediaUrl) : null);
+  const ecardActive = ecardPersonalize && !!ecardBasePublicId;
+  const personalizationPayload = ecardActive
+    ? {
+        type: "ecard_name_overlay",
+        base_public_id: ecardBasePublicId,
+        overlay: {},
+      }
+    : null;
+
   const createMutation = useMutation({
     mutationFn: () =>
       api.post("/campaigns", {
@@ -165,6 +203,7 @@ export function NewCampaignWizard() {
         template_name: selectedTemplate?.name ?? "",
         template_variables: variables,
         media_url: mediaUrl || null,
+        personalization: personalizationPayload,
         include_unsubscribe: includeUnsub,
         contact_file_ref: preflight?.file_ref,
         scheduled_at:
@@ -190,7 +229,10 @@ export function NewCampaignWizard() {
         to_phone: testPhone.trim(),
         template_name: selectedTemplate?.name ?? "",
         template_variables: variables,
-        media_url: mediaUrl || null,
+        // Personalized test shows a sample name so the operator sees the real card.
+        media_url: ecardActive
+          ? buildEcardPreviewUrl(mediaUrl, "Aarav Mehta")
+          : mediaUrl || null,
       }),
     onSuccess: (res) => {
       toast.success(
@@ -224,7 +266,14 @@ export function NewCampaignWizard() {
   })();
 
   function getCanNext(): boolean {
-    if (step === 0) return !!selectedTemplate;
+    if (step === 0) {
+      if (!selectedTemplate) return false;
+      // If personalization is toggled on but we can't resolve a Cloudinary base
+      // public_id, the payload silently collapses to a static header. Block here
+      // (Step0Template shows why) rather than send a non-personalized card.
+      if (ecardPersonalize && !ecardBasePublicId) return false;
+      return true;
+    }
     if (step === 1) return !!preflight;
     if (step === 2) return (preflight?.valid_count ?? 0) > 0;
     return !!campaignName && scheduleValid && retryValid;
@@ -257,6 +306,9 @@ export function NewCampaignWizard() {
               uploadingMedia={uploadingMedia}
               setUploadingMedia={setUploadingMedia}
               bodyVars={bodyVars}
+              ecardPersonalize={ecardPersonalize}
+              setEcardPersonalize={setEcardPersonalize}
+              setEcardPublicId={setEcardPublicId}
             />
           )}
           {step === 1 && (

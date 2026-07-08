@@ -23,12 +23,30 @@ class WaPhone(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("Env key cannot be empty")
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v):
+        if not re.fullmatch(r"[A-Za-z_]\w*", v, re.ASCII):
             raise ValueError(
                 "Env key must be a valid environment variable name "
                 "(letters, digits, underscores; cannot start with a digit)"
             )
         return v
+
+
+class EcardConfig(BaseModel):
+    """Per-restaurant personalized e-card setup.
+
+    Lets the app send a membership e-card with the recipient's name rendered
+    onto a fixed base image, without re-selecting a template or re-uploading the
+    card each time. `base_public_id` is the Cloudinary public_id of the blank
+    card; `base_url` is its delivery URL (kept so the frontend can preview it
+    without knowing the Cloudinary cloud name). `overlay` overrides the
+    ecard_service text-overlay defaults when set.
+    """
+
+    template_name: str = ""
+    base_public_id: str = ""
+    base_url: str = ""
+    language: str = "en"
+    overlay: dict = {}
 
 
 class RestaurantResponse(BaseModel):
@@ -40,6 +58,7 @@ class RestaurantResponse(BaseModel):
     member_categories: list[str] = ["nfc", "ecard"]
     wa_phone_ids: list[str] = []
     wa_phones: list[WaPhone] = []
+    ecard_config: EcardConfig | None = None
 
 
 class UpdateCategoriesRequest(BaseModel):

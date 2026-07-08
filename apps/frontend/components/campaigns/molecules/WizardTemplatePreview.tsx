@@ -73,7 +73,9 @@ export function WizardTemplatePreview({
                     src={mediaUrl}
                     controls
                     className="w-full h-full object-contain"
-                  />
+                  >
+                    <track kind="captions" />
+                  </video>
                 ) : (
                   <Video className="w-10 h-10 text-gray-500" />
                 )}

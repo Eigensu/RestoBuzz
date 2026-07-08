@@ -5,7 +5,7 @@ import { useAuthStore } from "@/store/auth";
 import type { Campaign } from "@/types";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import Link from "next/link";
-import { Plus, Send } from "lucide-react";
+import { Plus, Send, IdCard } from "lucide-react";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { CampaignTable } from "@/components/campaigns/organisms/CampaignTable";
@@ -65,14 +65,25 @@ export default function CampaignsPage() {
             Manage and monitor your automated messaging performance
           </p>
         </div>
-        <Link
-          href="/campaigns/whatsapp/new"
-          className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
-          style={{ background: BRAND_GRADIENT }}
-        >
-          <Plus className="w-4 h-4" />
-          NEW CAMPAIGN
-        </Link>
+        <div className="flex items-center gap-3">
+          {restaurant?.ecard_config && (
+            <Link
+              href="/campaigns/whatsapp/new?type=ecard"
+              className="inline-flex items-center gap-2 text-[#24422e] text-sm font-bold px-6 py-3 rounded-xl border-2 border-[#24422e]/20 bg-white transition hover:scale-[1.02] active:scale-[0.98] hover:border-[#24422e]/40"
+            >
+              <IdCard className="w-4 h-4" />
+              NEW E-CARD CAMPAIGN
+            </Link>
+          )}
+          <Link
+            href="/campaigns/whatsapp/new"
+            className="inline-flex items-center gap-2 text-white text-sm font-bold px-6 py-3 rounded-xl transition hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-green-900/10"
+            style={{ background: BRAND_GRADIENT }}
+          >
+            <Plus className="w-4 h-4" />
+            NEW CAMPAIGN
+          </Link>
+        </div>
       </div>
 
       {isLoading ? (

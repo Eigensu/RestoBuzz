@@ -122,7 +122,7 @@ python check_smart_retries.py 507f1f77bcf86cd799439011
 
 **Output Example:**
 
-```
+```text
 === Campaign: Soraia Campaign ===
 ID: 507f1f77bcf86cd799439011
 Status: completed
@@ -237,7 +237,7 @@ Look at `is_eligible_for_retry` and `reason_not_eligible` fields.
 - ❌ `"Retry deadline has passed"` → Past the deadline
 - ❌ `"No failed messages to retry"` → All messages succeeded
 - ❌ `"Campaign status is 'running'"` → Wait for campaign to complete
-- ❌ `"Smart retries not enabled"` → Campaign created without smart retries
+- ❌ `"Smart retries not enabled for this campaign"` → Campaign created without smart retries
 
 ### Verifying Poller is Running
 

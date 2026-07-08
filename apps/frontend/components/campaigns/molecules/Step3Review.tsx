@@ -88,16 +88,21 @@ export function Step3Review({
     setRetryUntil(parseISTDatetimeLocal(e.target.value));
   }
 
+  const now = new Date();
+
   const retryInPast =
     smartRetries &&
     retryUntil !== null &&
-    retryUntil <= new Date();
+    retryUntil <= now;
 
+  // The poller runs every 15 minutes and a first auto-retry fires on the next
+  // poll as long as retry_until is still in the future — so the risk is a
+  // deadline that lands before the next poll, not the 2-hour retry interval.
   const isRetryWarning =
     smartRetries &&
     retryUntil &&
     !retryInPast &&
-    retryUntil.getTime() - new Date().getTime() < 2 * 60 * 60 * 1000;
+    retryUntil.getTime() - now.getTime() < 15 * 60 * 1000;
 
   const sendsAtLabel =
     sendMode === "immediate" ? "Immediately" : scheduledAtFormatted;
@@ -310,7 +315,7 @@ export function Step3Review({
                 </div>
                 {isRetryWarning && (
                   <p className="text-xs text-amber-500 mt-1">
-                    Warning: Time is less than 2 hours away. A retry will likely not trigger.
+                    Warning: the deadline is under 15 minutes away — it may pass before the next retry poll runs.
                   </p>
                 )}
                 {retryInPast && (

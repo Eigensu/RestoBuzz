@@ -445,6 +445,95 @@ async def record_visit(
     return _serialize(doc)
 
 
+@router.post("/{member_id}/send-ecard")
+async def send_member_ecard(
+    member_id: str,
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+    db: Annotated[Any, Depends(get_db)],
+) -> dict:
+    """Send a personalized membership e-card to a single member.
+
+    Renders the member's name onto the restaurant's configured base card and
+    sends it via the restaurant's WABA using the configured e-card template.
+    Reuses the same send path as campaigns, so delivery/read webhooks apply.
+    """
+    doc = await db.members.find_one({"_id": to_object_id(member_id)})
+    if not doc:
+        raise NotFoundError(f"Member '{member_id}' not found")
+    restaurant_id = doc["restaurant_id"]
+    await validate_restaurant_access(current_user, restaurant_id, db)
+
+    name = (doc.get("name") or "").strip()
+    phone = normalize_phone(doc.get("phone") or "")
+    if not phone:
+        raise ValidationError("This member has no valid phone number.")
+    if not name:
+        raise ValidationError(
+            "This member has no name — the e-card needs a name to render."
+        )
+
+    rest = await db.restaurants.find_one({"id": restaurant_id})
+    if not rest:
+        # Some member docs store the restaurant's _id string instead of its
+        # slug-style "id"; fall back to the ObjectId lookup like elsewhere.
+        from bson import ObjectId
+        from bson.errors import InvalidId
+
+        try:
+            rest = await db.restaurants.find_one({"_id": ObjectId(restaurant_id)})
+        except (InvalidId, TypeError):
+            rest = None
+    cfg = (rest or {}).get("ecard_config")
+    if not cfg or not cfg.get("base_public_id") or not cfg.get("template_name"):
+        raise ValidationError(
+            "This restaurant has no e-card configured. Set up the e-card base "
+            "image and template first."
+        )
+
+    from app.services.ecard_service import build_card_url
+    from app.services.meta_api import send_template_message, MetaAPIError
+    from app.services.campaign_service import resolve_waba_credentials
+
+    media_url = build_card_url(cfg["base_public_id"], name, cfg.get("overlay") or {})
+    wa_phone_id, wa_access_token, _ = await resolve_waba_credentials(db, restaurant_id)
+
+    try:
+        wa_message_id, endpoint_used = await send_template_message(
+            to=phone,
+            template_name=cfg["template_name"],
+            variables={},
+            media_url=media_url,
+            language=cfg.get("language") or "en",
+            phone_id=wa_phone_id,
+            access_token=wa_access_token,
+            media_type="image",
+        )
+    except MetaAPIError as e:
+        raise ValidationError(f"WhatsApp rejected the e-card: {e.message}") from e
+
+    await db.outbound_messages.insert_one(
+        {
+            "wa_message_id": wa_message_id,
+            "to_phone": phone,
+            "body": f"E-card sent to {name}",
+            "status": "sent",
+            "sent_at": now_utc(),
+            "restaurant_id": restaurant_id,
+            "wa_phone_id": wa_phone_id,
+            "sender_name": "System (E-card)",
+            "channel": "whatsapp",
+            "media_url": media_url,
+        }
+    )
+    logger.info(
+        "member_ecard_sent",
+        member_id=member_id,
+        restaurant_id=restaurant_id,
+        wa_message_id=wa_message_id,
+    )
+    return {"wa_message_id": wa_message_id, "endpoint_used": endpoint_used}
+
+
 @router.post("/as-contacts")
 async def members_as_contacts(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
