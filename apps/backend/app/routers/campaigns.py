@@ -626,7 +626,10 @@ async def get_analytics(
                 "$addFields": {
                     "sent_locs": {
                         "$filter": {
-                            "input": "$status_history",
+                            # Guard against documents where status_history is
+                            # missing/null: $filter returns null for a null input,
+                            # and $size below then errors (Location17124).
+                            "input": {"$ifNull": ["$status_history", []]},
                             "as": "sh",
                             "cond": {"$in": ["$$sh.status", ["sent", "delivered"]]},
                         }
