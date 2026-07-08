@@ -5,15 +5,52 @@ import type { Campaign } from "@/types";
 import { DashboardAnalytics, TTRStat, HourlyStat } from "../types";
 import { GREEN as GREEN_PALETTE } from "@/lib/brand";
 
+const CAMPAIGN_PAGE_SIZE = 100;
+
+/**
+ * Fetch every campaign for a restaurant, not just the first page.
+ *
+ * The dashboard totals (replies, sent, delivered, ...) are summed client-side
+ * over this list, so fetching a single capped page silently under-counts once a
+ * restaurant has more than one page of campaigns — and, because the list is
+ * sorted newest-first, the totals *shrink* over time as older (reply-rich)
+ * campaigns fall off the end. Page through all of them using `total`.
+ */
+async function fetchAllCampaigns(
+  restaurantId: string,
+): Promise<{ items: Campaign[]; total: number }> {
+  const first = await api
+    .get(
+      `/campaigns?restaurant_id=${restaurantId}&page=1&page_size=${CAMPAIGN_PAGE_SIZE}`,
+    )
+    .then((r) => r.data);
+
+  const total: number = first?.total ?? 0;
+  let items: Campaign[] = first?.items ?? [];
+  const pageCount = Math.ceil(total / CAMPAIGN_PAGE_SIZE);
+
+  if (pageCount > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: pageCount - 1 }, (_, i) =>
+        api
+          .get(
+            `/campaigns?restaurant_id=${restaurantId}&page=${i + 2}&page_size=${CAMPAIGN_PAGE_SIZE}`,
+          )
+          .then((r) => (r.data?.items ?? []) as Campaign[]),
+      ),
+    );
+    items = items.concat(...rest);
+  }
+
+  return { items, total };
+}
+
 export function useDashboardAnalytics(restaurantId?: string) {
   const [activeChannel, setActiveChannel] = useState<"whatsapp" | "email">("whatsapp");
 
   const { data, isLoading: campaignsLoading } = useQuery({
     queryKey: ["dashboard-campaigns", restaurantId],
-    queryFn: () =>
-      api
-        .get(`/campaigns?restaurant_id=${restaurantId}&page=1&page_size=100`)
-        .then((r) => r.data),
+    queryFn: () => fetchAllCampaigns(restaurantId!),
     enabled: !!restaurantId,
   });
 
