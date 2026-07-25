@@ -1,10 +1,10 @@
 "use client";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "@/lib/api";
 import type { MessageLog } from "@/types";
 import { MESSAGE_STATUS_COLORS } from "@/types/common/constants";
+import { Pagination } from "@/components/ui/Pagination";
 
 const PAGE_SIZE = 50;
 
@@ -96,58 +96,7 @@ export function MessageLogsTable({
           )}
         </tbody>
       </table>
-      {totalPages > 1 && (
-        <div className="px-4 py-3 border-t flex items-center justify-between text-xs text-gray-500">
-          <span>
-            Page {page} of {totalPages}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter(
-                (p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2,
-              )
-              .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-                if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
-                acc.push(p);
-                return acc;
-              }, [])
-              .map((p, i) => {
-                if (p === "…") {
-                  return (
-                    <span key={`e-${i}`} className="px-1">
-                      …
-                    </span>
-                  );
-                }
-                return (
-                  <button
-                    key={p}
-                    onClick={() => setPage(p as number)}
-                    className={`w-7 h-7 rounded text-xs font-medium transition ${page === p ? "bg-gray-900 text-white" : "hover:bg-gray-100"}`}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
-              aria-label="Next page"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
@@ -10,6 +11,7 @@ import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { CampaignTable } from "@/components/campaigns/organisms/CampaignTable";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
 import { CampaignStatus } from "@/types/common/enums";
 
 const ACTIVE_STATUSES = new Set([
@@ -18,17 +20,34 @@ const ACTIVE_STATUSES = new Set([
   CampaignStatus.PAUSED,
 ]);
 
+// Root campaigns per page. Retry children ride along with their root and do not
+// count against this, so a page always shows exactly this many campaign rows.
+const PAGE_SIZE = 20;
+
 export default function CampaignsPage() {
   const qc = useQueryClient();
   const { restaurant } = useAuthStore();
+  const [page, setPage] = useState(1);
+
+  // Page numbers are meaningless across restaurants — start over on switch.
+  // Adjusted during render rather than in an effect, per the React docs on
+  // resetting state when a prop changes.
+  const [pagedRestaurantId, setPagedRestaurantId] = useState(restaurant?.id);
+  if (restaurant?.id !== pagedRestaurantId) {
+    setPagedRestaurantId(restaurant?.id);
+    setPage(1);
+  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ["campaigns", restaurant?.id],
+    queryKey: ["campaigns", restaurant?.id, page],
     queryFn: () =>
       api
-        .get(`/campaigns?restaurant_id=${restaurant!.id}&page=1&page_size=50`)
+        .get(
+          `/campaigns?restaurant_id=${restaurant!.id}&page=${page}&page_size=${PAGE_SIZE}&roots_only=true`,
+        )
         .then((r) => r.data),
     enabled: !!restaurant,
+    placeholderData: (prev) => prev,
     refetchInterval: (query) => {
       const campaigns: Campaign[] = query.state.data?.items ?? [];
       const hasActive = campaigns.some((c) =>
@@ -38,16 +57,23 @@ export default function CampaignsPage() {
     },
   });
 
+  const campaigns: Campaign[] = data?.items ?? [];
+  const total: number = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Only roots occupy a row; retry children are nested inside one.
+  const rootCount = campaigns.filter((c) => !c.parent_campaign_id).length;
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/campaigns/${id}`),
     onSuccess: () => {
+      // Deleting the last campaign on a trailing page leaves it empty, so fall
+      // back a page rather than showing a blank table.
+      if (rootCount === 1 && page > 1) setPage((p) => p - 1);
       qc.invalidateQueries({ queryKey: ["campaigns", restaurant?.id] });
       toast.success("Campaign deleted");
     },
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
-
-  const campaigns: Campaign[] = data?.items ?? [];
 
   return (
     <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
@@ -99,10 +125,18 @@ export default function CampaignsPage() {
           />
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-3xl border border-gray-100 shadow-sm custom-scrollbar">
-          <CampaignTable
-            campaigns={campaigns}
-            onDelete={(id) => deleteMutation.mutate(id)}
+        <div className="rounded-3xl border border-gray-100 shadow-sm bg-white overflow-hidden">
+          <div className="overflow-x-auto custom-scrollbar">
+            <CampaignTable
+              campaigns={campaigns}
+              onDelete={(id) => deleteMutation.mutate(id)}
+            />
+          </div>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            label={`Page ${page} of ${totalPages} · ${total} campaign${total === 1 ? "" : "s"}`}
           />
         </div>
       )}
