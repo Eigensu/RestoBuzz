@@ -65,10 +65,14 @@ export default function CampaignsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/campaigns/${id}`),
-    onSuccess: () => {
-      // Deleting the last campaign on a trailing page leaves it empty, so fall
-      // back a page rather than showing a blank table.
-      if (rootCount === 1 && page > 1) setPage((p) => p - 1);
+    onSuccess: (_data, deletedId) => {
+      // Deleting the last root on a trailing page leaves it empty, so fall back
+      // a page rather than showing a blank table. Retries are nested inside a
+      // root's row, so deleting one never empties the page.
+      const deletedRoot = campaigns.some(
+        (c) => c.id === deletedId && !c.parent_campaign_id,
+      );
+      if (deletedRoot && rootCount === 1 && page > 1) setPage((p) => p - 1);
       qc.invalidateQueries({ queryKey: ["campaigns", restaurant?.id] });
       toast.success("Campaign deleted");
     },

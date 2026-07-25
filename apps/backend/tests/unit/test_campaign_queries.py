@@ -30,6 +30,7 @@ def _matches(flt: dict, doc: dict) -> bool:
 
 
 def test_root_filter_matches_campaigns_without_a_parent():
+    """A campaign is a root whether parent_campaign_id is absent or null."""
     # Field absent entirely (campaigns created before smart retries existed)
     assert _matches(_ROOT_ONLY_FILTER, {"name": "launch"})
     # Field present but null
@@ -37,25 +38,28 @@ def test_root_filter_matches_campaigns_without_a_parent():
 
 
 def test_root_filter_excludes_retry_children():
+    """Retry children must not consume a slot in the root pagination window."""
     child = {"name": "launch (retry)", "parent_campaign_id": str(ObjectId())}
     assert not _matches(_ROOT_ONLY_FILTER, child)
 
 
 def test_chain_filter_matches_root_by_object_id():
+    """The chain includes the root itself, matched on its ObjectId _id."""
     root_oid = ObjectId()
     flt = _retry_chain_filter(root_oid)
     assert _matches(flt, {"_id": root_oid})
 
 
 def test_chain_filter_matches_children_by_string_parent_id():
-    # The regression: children store parent_campaign_id as a string, so the
-    # filter must compare against str(root_oid), not the ObjectId itself.
+    """The regression: children store parent_campaign_id as a string, so the
+    filter must compare against str(root_oid), not the ObjectId itself."""
     root_oid = ObjectId()
     flt = _retry_chain_filter(root_oid)
     assert _matches(flt, {"_id": ObjectId(), "parent_campaign_id": str(root_oid)})
 
 
 def test_chain_filter_uses_correct_types_on_each_branch():
+    """Each half of the $or needs its own type for the same id."""
     root_oid = ObjectId()
     branches = _retry_chain_filter(root_oid)["$or"]
     id_branch = next(b for b in branches if "_id" in b)
@@ -65,7 +69,7 @@ def test_chain_filter_uses_correct_types_on_each_branch():
 
 
 def test_chain_filter_accepts_a_string_root_id():
-    # Callers resolve the root from parent_campaign_id, which is a string.
+    """Callers resolve the root from parent_campaign_id, which is a string."""
     root_oid = ObjectId()
     flt = _retry_chain_filter(str(root_oid))
     assert _matches(flt, {"_id": root_oid})
@@ -73,6 +77,7 @@ def test_chain_filter_accepts_a_string_root_id():
 
 
 def test_chain_filter_excludes_unrelated_campaigns():
+    """A campaign from a different chain never leaks into the results."""
     flt = _retry_chain_filter(ObjectId())
     other = {"_id": ObjectId(), "parent_campaign_id": str(ObjectId())}
     assert not _matches(flt, other)

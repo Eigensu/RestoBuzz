@@ -98,6 +98,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                     <div className="flex items-center gap-2">
                       {hasRetries ? (
                         <button
+                          type="button"
                           onClick={() =>
                             setExpanded((e) => ({
                               ...e,
@@ -209,6 +210,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                   <td className="px-4 py-3 text-right">
                     {root.status !== "running" && (
                       <button
+                        type="button"
                         onClick={() => {
                           if (confirm(`Delete "${root.name}"?`))
                             onDelete(root.id);
@@ -274,6 +276,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       <td className="px-4 py-2.5 text-right">
                         {retry.status !== "running" && (
                           <button
+                            type="button"
                             onClick={() => {
                               if (confirm(`Delete "${retry.name}"?`))
                                 onDelete(retry.id);
