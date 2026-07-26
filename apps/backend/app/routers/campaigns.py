@@ -54,7 +54,32 @@ _MATCH = "$match"
 _GROUP = "$group"
 _SORT = "$sort"
 _CREATED_AT = "$created_at"
+_EXISTS = "$exists"
 _BODY_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
+
+# Matches only root campaigns. Retry children carry a parent_campaign_id (stored
+# as the string form of the root's ObjectId — see create_child_retry_campaign).
+_ROOT_ONLY_FILTER = {
+    "$or": [
+        {"parent_campaign_id": {_EXISTS: False}},
+        {"parent_campaign_id": None},
+    ]
+}
+
+
+def _retry_chain_filter(root_oid) -> dict:
+    """Match a root campaign plus every retry in its chain.
+
+    The two halves need different types for the same id: `_id` is an ObjectId,
+    while `parent_campaign_id` is persisted as a string. Mixing them up makes
+    the query silently match nothing, so both call sites share this helper.
+    """
+    return {
+        "$or": [
+            {"_id": to_object_id(root_oid)},
+            {"parent_campaign_id": str(root_oid)},
+        ]
+    }
 
 # Returned when the Celery broker can't accept a dispatch (HTTP 503).
 _QUEUE_UNAVAILABLE_DETAIL = "Campaign queue unavailable, please try again shortly"
@@ -155,15 +180,45 @@ async def list_campaigns(
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+    roots_only: Annotated[bool, Query()] = False,
 ) -> CampaignListResponse:
-    """Return a paginated list of campaigns for the active restaurant."""
+    """Return a paginated list of campaigns for the active restaurant.
+
+    By default every campaign document is paginated, retry children included.
+    Because smart retries create a new child document every couple of hours,
+    that makes a page of N documents collapse to far fewer real campaigns in the
+    UI.
+
+    With ``roots_only=true`` the pagination window applies to ROOT campaigns
+    only, and each returned root is accompanied by its full retry chain. So
+    ``total``/``page``/``page_size`` describe roots, while ``items`` holds those
+    roots plus their children — meaning ``len(items)`` may exceed ``page_size``.
+    Callers that group children under their parent (the campaigns table) then
+    render exactly ``page_size`` rows per page with no chain split across pages.
+    """
     skip = (page - 1) * page_size
-    query = {"restaurant_id": restaurant["id"]}
+    query: dict = {"restaurant_id": restaurant["id"]}
+    if roots_only:
+        query.update(_ROOT_ONLY_FILTER)
+
     total = await db.campaign_jobs.count_documents(query)
     cursor = (
         db.campaign_jobs.find(query).sort("created_at", -1).skip(skip).limit(page_size)
     )
-    items = [_serialize_campaign(doc) async for doc in cursor]
+    docs = [doc async for doc in cursor]
+
+    if roots_only and docs:
+        # Pull the retry children for this page of roots in a single round trip
+        # so the table can still show expanders and effective-reach totals.
+        child_cursor = db.campaign_jobs.find(
+            {
+                "restaurant_id": restaurant["id"],
+                "parent_campaign_id": {"$in": [str(d["_id"]) for d in docs]},
+            }
+        ).sort("created_at", -1)
+        docs.extend([child async for child in child_cursor])
+
+    items = [_serialize_campaign(doc) for doc in docs]
     return CampaignListResponse(
         items=items, total=total, page=page, page_size=page_size
     )
@@ -754,12 +809,12 @@ async def get_campaign_group(
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
 
     # Resolve root
-    root_oid = doc.get("parent_campaign_id") or campaign_oid
+    root_oid = to_object_id(doc.get("parent_campaign_id") or campaign_oid)
 
     # Fetch root + all retries
-    cursor = db.campaign_jobs.find(
-        {"$or": [{"_id": root_oid}, {"parent_campaign_id": root_oid}]}
-    ).sort("created_at", 1)
+    cursor = db.campaign_jobs.find(_retry_chain_filter(root_oid)).sort(
+        "created_at", 1
+    )
     chain = [_serialize_campaign(d) async for d in cursor]
 
     if not chain:
@@ -1199,18 +1254,12 @@ async def get_smart_retry_status(
     now = datetime.now(timezone.utc)
 
     # Find the root campaign (for tracking all retries in chain)
-    root_oid = doc.get("parent_campaign_id")
-    if root_oid:
-        # This is a child retry, get the root
-        root_oid = to_object_id(root_oid) if isinstance(root_oid, str) else root_oid
-    else:
-        # This is the root
-        root_oid = campaign_oid
+    root_oid = to_object_id(doc.get("parent_campaign_id") or campaign_oid)
 
     # Get all campaigns in the retry chain
-    cursor = db.campaign_jobs.find(
-        {"$or": [{"_id": root_oid}, {"parent_campaign_id": str(root_oid)}]}
-    ).sort("created_at", 1)
+    cursor = db.campaign_jobs.find(_retry_chain_filter(root_oid)).sort(
+        "created_at", 1
+    )
 
     campaigns = []
     raw_chain = []

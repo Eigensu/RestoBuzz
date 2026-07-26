@@ -7,17 +7,25 @@ import { CampaignStatusBadge } from "@/components/campaigns/atoms/CampaignStatus
 interface CampaignGroup {
   root: Campaign;
   retries: Campaign[];
+  /** True when `root` is really a retry whose parent isn't on this page. */
+  isOrphan: boolean;
 }
 
 function groupCampaigns(campaigns: Campaign[]): CampaignGroup[] {
+  const present = new Set(campaigns.map((c) => c.id));
   const roots: Campaign[] = [];
+  const orphans = new Set<string>();
   const retryMap: Record<string, Campaign[]> = {};
 
   for (const c of campaigns) {
-    if (c.parent_campaign_id) {
+    // A retry can only be nested if its parent is on this page too. Otherwise
+    // it is promoted to a top-level row — bucketing it under an absent parent
+    // would drop it from the table entirely.
+    if (c.parent_campaign_id && present.has(c.parent_campaign_id)) {
       if (!retryMap[c.parent_campaign_id]) retryMap[c.parent_campaign_id] = [];
       retryMap[c.parent_campaign_id].push(c);
     } else {
+      if (c.parent_campaign_id) orphans.add(c.id);
       roots.push(c);
     }
   }
@@ -29,6 +37,7 @@ function groupCampaigns(campaigns: Campaign[]): CampaignGroup[] {
       (a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     ),
+    isOrphan: orphans.has(root.id),
   }));
 }
 
@@ -71,13 +80,11 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
-          {groups.map(({ root, retries }) => {
+          {groups.map((group) => {
+            const { root, retries, isOrphan } = group;
             const hasRetries = retries.length > 0;
             const isOpen = expanded[root.id];
-            const { originalTotal, effectiveSent, pct } = effectiveStats({
-              root,
-              retries,
-            });
+            const { originalTotal, effectiveSent, pct } = effectiveStats(group);
 
             return (
               <Fragment key={root.id}>
@@ -91,6 +98,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                     <div className="flex items-center gap-2">
                       {hasRetries ? (
                         <button
+                          type="button"
                           onClick={() =>
                             setExpanded((e) => ({
                               ...e,
@@ -109,12 +117,22 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                         <span className="w-5 shrink-0" />
                       )}
                       <div>
-                        <a
-                          href={`/campaigns/whatsapp/${root.id}`}
-                          className="font-semibold text-gray-900 hover:text-[#24422e]"
-                        >
-                          {root.name}
-                        </a>
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={`/campaigns/whatsapp/${root.id}`}
+                            className="font-semibold text-gray-900 hover:text-[#24422e]"
+                          >
+                            {root.name}
+                          </a>
+                          {isOrphan && (
+                            <span
+                              title="Retry of a campaign that is not on this page"
+                              className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500 border border-gray-200"
+                            >
+                              ↳ retry
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-400">
                           {root.template_name}
                         </p>
@@ -192,6 +210,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                   <td className="px-4 py-3 text-right">
                     {root.status !== "running" && (
                       <button
+                        type="button"
                         onClick={() => {
                           if (confirm(`Delete "${root.name}"?`))
                             onDelete(root.id);
@@ -257,6 +276,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       <td className="px-4 py-2.5 text-right">
                         {retry.status !== "running" && (
                           <button
+                            type="button"
                             onClick={() => {
                               if (confirm(`Delete "${retry.name}"?`))
                                 onDelete(retry.id);
