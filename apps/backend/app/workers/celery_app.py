@@ -65,9 +65,9 @@ celery_app.conf.update(
             "task": "app.workers.scheduled_poller.poll_scheduled_campaigns",
             "schedule": crontab(minute="*"),
         },
-        "poll-smart-retries-every-15m": {
+        "poll-smart-retries-every-30m": {
             "task": "app.workers.smart_retries_poller.poll_smart_retries",
-            "schedule": crontab(minute="*/15"),
+            "schedule": crontab(minute="*/30"),
         },
     },
 )
