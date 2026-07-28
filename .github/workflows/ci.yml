@@ -68,7 +68,7 @@ jobs:
       # skips signature verification entirely when this is unset (see
       # app/routers/webhooks.py:_verify_signature), which would make both the
       # valid- and invalid-signature tests pass for the wrong reason.
-      META_WEBHOOK_SECRET: test_secret
+      META_WEBHOOK_SECRET: test_secret # NOSONAR - fixed fixture value, must match tests/integration/test_webhook.py's SECRET constant, not a real credential
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
