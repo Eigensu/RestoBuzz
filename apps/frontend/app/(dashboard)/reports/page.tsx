@@ -24,7 +24,7 @@ import { InboxTab } from "@/components/reports/molecules/InboxTab";
 import { LogsTab } from "@/components/reports/molecules/LogsTab";
 import { BillingTab } from "@/components/reports/molecules/BillingTab";
 import { ReserveGoTab } from "@/components/reports/molecules/ReserveGoTab";
-import type { LogItem, LogsResponse, ReportTab } from "@/components/reports/types";
+import type { BillingCategoryRow, LogItem, LogsResponse, ReportTab } from "@/components/reports/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -241,7 +241,7 @@ export default function ReportsPage() {
       if (tab === "billing" && billingQuery.data) {
         const { summary, by_category } = billingQuery.data;
         const highestSpendCategory = by_category?.length > 0
-          ? by_category.reduce((prev: any, curr: any) =>
+          ? by_category.reduce((prev: BillingCategoryRow, curr: BillingCategoryRow) =>
               prev.spend > curr.spend ? prev : curr,
             ).category
           : "N/A";

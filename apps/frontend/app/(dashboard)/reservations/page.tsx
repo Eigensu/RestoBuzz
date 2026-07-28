@@ -43,8 +43,8 @@ const COLORS = [
 ];
 
 const LegendLabel = (v: string) => <span className="text-xs text-gray-600">{v}</span>;
-const ChartTooltipFormatter = (v: any) => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v ?? ""));
-const GuestTooltipFormatter = (v: any) => (typeof v === "number" ? `${v.toLocaleString("en-IN")} guests` : String(v ?? ""));
+const ChartTooltipFormatter = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v ?? ""));
+const GuestTooltipFormatter = (v: unknown) => (typeof v === "number" ? `${v.toLocaleString("en-IN")} guests` : String(v ?? ""));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number) {
