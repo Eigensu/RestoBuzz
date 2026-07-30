@@ -16,7 +16,7 @@ MONGO_TYPE_STRING = "$type"
 # Retention window for message_logs (delivery audit rows). Tune here; the TTL
 # index below deletes rows whose created_at is older than this. Changing the
 # value re-reconciles the index on next startup via safe_create_indexes.
-MESSAGE_LOG_TTL_DAYS = 90
+MESSAGE_LOG_TTL_DAYS = 30
 
 _client: AsyncIOMotorClient | None = None
 _fielia_client: AsyncIOMotorClient | None = None
