@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from celery import Celery
 from celery.schedules import crontab
 from app.config import settings
@@ -65,9 +67,13 @@ celery_app.conf.update(
             "task": "app.workers.scheduled_poller.poll_scheduled_campaigns",
             "schedule": crontab(minute="*"),
         },
-        "poll-smart-retries-every-15m": {
+        "poll-smart-retries-every-45m": {
             "task": "app.workers.smart_retries_poller.poll_smart_retries",
-            "schedule": crontab(minute="*/15"),
+            # Interval, not crontab: cron's minute field is 0-59, so "*/45"
+            # expands to [0, 45] — 48 runs/day with uneven 45/15min gaps, i.e.
+            # no fewer runs than */30. 45 doesn't divide 60, so a true 45-minute
+            # cadence can only be expressed as an interval.
+            "schedule": timedelta(minutes=45),
         },
     },
 )
