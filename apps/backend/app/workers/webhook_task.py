@@ -68,6 +68,8 @@ class _WebhookTask(Task):
         exhausted.
         """
         raw_payload = args[0] if args else {}
+        db = None
+        loop = None
         try:
             db = get_fresh_db()
             loop = asyncio.new_event_loop()
@@ -82,7 +84,6 @@ class _WebhookTask(Task):
                     }
                 )
             )
-            loop.close()
             logger.error(
                 "webhook_dead_lettered",
                 task_id=task_id,
@@ -95,6 +96,13 @@ class _WebhookTask(Task):
                 original_error=str(exc),
                 persist_error=str(persist_exc),
             )
+        finally:
+            # Both were leaked when insert_one raised: loop.close() sat on the
+            # success path only, and the client was never closed at all.
+            if loop is not None:
+                loop.close()
+            if db is not None:
+                db.client.close()
 
 
 @celery_app.task(
@@ -140,7 +148,10 @@ async def _process(payload: dict) -> None:
                 )
                 await _handle_messages(db, redis, value, restaurant_id, phone_number_id)
     finally:
-        await redis.aclose()
+        try:
+            await redis.aclose()
+        finally:
+            db.client.close()
 
 
 # ── Restaurant resolution ─────────────────────────────────────────────────────

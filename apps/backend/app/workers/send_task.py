@@ -43,45 +43,48 @@ def dispatch_campaign_task(_task: Task, job_id: str) -> None:
 
 async def _dispatch(job_id: str) -> None:
     db = get_fresh_db()
-    job = await db.campaign_jobs.find_one({"_id": ObjectId(job_id)})
-    if not job:
-        logger.error("dispatch_job_not_found", job_id=job_id)
-        return
+    try:
+        job = await db.campaign_jobs.find_one({"_id": ObjectId(job_id)})
+        if not job:
+            logger.error("dispatch_job_not_found", job_id=job_id)
+            return
 
-    if job.get("status") in {"cancelled", "paused"}:
-        logger.info("dispatch_skipped", job_id=job_id, status=job.get("status"))
-        return
+        if job.get("status") in {"cancelled", "paused"}:
+            logger.info("dispatch_skipped", job_id=job_id, status=job.get("status"))
+            return
 
-    await db.campaign_jobs.update_one(
-        {"_id": ObjectId(job_id)},
-        {"$set": {"status": "running", "started_at": datetime.now(timezone.utc)}},
-    )
-
-    queue = "utility" if job["priority"] == "UTILITY" else "marketing"
-    cursor = db.message_logs.find({"job_id": ObjectId(job_id), "status": "queued"})
-
-    async for msg in cursor:
-        send_message_task.apply_async(
-            args=[str(msg["_id"])],
-            queue=queue,
-        )
-
-    logger.info("dispatch_complete", job_id=job_id, queue=queue)
-
-    # Mark completed if nothing was queued (all already sent/failed)
-    remaining = await db.message_logs.count_documents(
-        {"job_id": ObjectId(job_id), "status": "queued"}
-    )
-    if remaining == 0:
         await db.campaign_jobs.update_one(
             {"_id": ObjectId(job_id)},
-            {
-                "$set": {
-                    "status": "completed",
-                    "completed_at": datetime.now(timezone.utc),
-                }
-            },
+            {"$set": {"status": "running", "started_at": datetime.now(timezone.utc)}},
         )
+
+        queue = "utility" if job["priority"] == "UTILITY" else "marketing"
+        cursor = db.message_logs.find({"job_id": ObjectId(job_id), "status": "queued"})
+
+        async for msg in cursor:
+            send_message_task.apply_async(
+                args=[str(msg["_id"])],
+                queue=queue,
+            )
+
+        logger.info("dispatch_complete", job_id=job_id, queue=queue)
+
+        # Mark completed if nothing was queued (all already sent/failed)
+        remaining = await db.message_logs.count_documents(
+            {"job_id": ObjectId(job_id), "status": "queued"}
+        )
+        if remaining == 0:
+            await db.campaign_jobs.update_one(
+                {"_id": ObjectId(job_id)},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "completed_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+    finally:
+        db.client.close()
 
 
 @celery_app.task(
@@ -187,7 +190,10 @@ async def _send(task: Task, message_log_id: str) -> None:
             await _do_send(task, db, redis, msg, message_log_id)
 
     finally:
-        await redis.aclose()
+        try:
+            await redis.aclose()
+        finally:
+            db.client.close()
 
 
 async def _do_send(
