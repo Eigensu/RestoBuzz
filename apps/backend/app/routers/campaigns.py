@@ -14,6 +14,7 @@ from redis.asyncio import from_url as redis_from_url
 from redis.exceptions import RedisError as RedisClientError
 
 from app.config import settings
+from app.constants.meta_errors import RETRYABLE_FAILED_MATCH
 from app.database import get_db
 from app.dependencies import (
     require_role,
@@ -1075,7 +1076,7 @@ async def retry_failed(
 
     await validate_restaurant_access(current_user, retry_restaurant_id, db)
 
-    failed_query = {"job_id": campaign_oid, "status": "failed"}
+    failed_query = {"job_id": campaign_oid, **RETRYABLE_FAILED_MATCH}
     failed_count = await db.message_logs.count_documents(failed_query)
 
     if failed_count == 0:

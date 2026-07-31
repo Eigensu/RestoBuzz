@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 import kombu.exceptions
 from bson import ObjectId
 from app.workers.celery_app import celery_app
+from app.constants.meta_errors import RETRYABLE_FAILED_MATCH
 from app.database import get_fresh_db
 from app.core.logging import get_logger
 from app.services.campaign_service import create_child_retry_campaign
@@ -143,9 +144,11 @@ async def _poll() -> None:
 
             source_id_obj = source_job["_id"]
 
-            # Count actual failures in the source campaign
+            # Count actual failures in the source campaign. Must use the same
+            # filter as the copy in create_child_retry_campaign, or we spawn a
+            # child sized for failures it then declines to carry over.
             actual_failed = await db.message_logs.count_documents(
-                {"job_id": source_id_obj, "status": "failed"}
+                {"job_id": source_id_obj, **RETRYABLE_FAILED_MATCH}
             )
 
             if actual_failed == 0:
