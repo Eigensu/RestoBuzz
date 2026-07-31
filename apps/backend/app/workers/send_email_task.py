@@ -33,44 +33,47 @@ def dispatch_email_campaign_task(self: Task, campaign_id: str) -> None:
 
 async def _dispatch(campaign_id: str) -> None:
     db = get_fresh_db()
-    job = await db.email_campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
-    if not job:
-        logger.error("email_dispatch_job_not_found", campaign_id=campaign_id)
-        return
+    try:
+        job = await db.email_campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+        if not job:
+            logger.error("email_dispatch_job_not_found", campaign_id=campaign_id)
+            return
 
-    # Check if cancelled before starting
-    if job["status"] == "cancelled":
-        return
+        # Check if cancelled before starting
+        if job["status"] == "cancelled":
+            return
 
-    await db.email_campaign_jobs.update_one(
-        {"_id": ObjectId(campaign_id)},
-        {"$set": {"status": "sending", "started_at": datetime.now(timezone.utc)}},
-    )
-
-    cursor = db.email_logs.find(
-        {"campaign_id": ObjectId(campaign_id), "status": "queued"}
-    )
-    count = 0
-    async for msg in cursor:
-        send_single_email_task.apply_async(
-            args=[str(msg["_id"])],
-            queue="email",
-        )
-        count += 1
-
-    logger.info("email_dispatch_complete", campaign_id=campaign_id, enqueued=count)
-
-    # If nothing was queued (edge case), mark completed immediately
-    if count == 0:
         await db.email_campaign_jobs.update_one(
             {"_id": ObjectId(campaign_id)},
-            {
-                "$set": {
-                    "status": "completed",
-                    "completed_at": datetime.now(timezone.utc),
-                }
-            },
+            {"$set": {"status": "sending", "started_at": datetime.now(timezone.utc)}},
         )
+
+        cursor = db.email_logs.find(
+            {"campaign_id": ObjectId(campaign_id), "status": "queued"}
+        )
+        count = 0
+        async for msg in cursor:
+            send_single_email_task.apply_async(
+                args=[str(msg["_id"])],
+                queue="email",
+            )
+            count += 1
+
+        logger.info("email_dispatch_complete", campaign_id=campaign_id, enqueued=count)
+
+        # If nothing was queued (edge case), mark completed immediately
+        if count == 0:
+            await db.email_campaign_jobs.update_one(
+                {"_id": ObjectId(campaign_id)},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "completed_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
+    finally:
+        db.client.close()
 
 
 @celery_app.task(
@@ -227,7 +230,10 @@ async def _send_one(task: Task, email_log_id: str) -> None:
                 await _check_completion(db, campaign_id)
 
     finally:
-        await redis.aclose()
+        try:
+            await redis.aclose()
+        finally:
+            db.client.close()
 
 
 async def _fail_email(db, email_log_id: str, reason: str) -> None:
