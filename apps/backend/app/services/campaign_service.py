@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from app.constants.meta_errors import RETRYABLE_FAILED_MATCH
 from app.core.errors import ServerError
 from app.core.logging import get_logger
 
@@ -91,7 +92,7 @@ async def create_child_retry_campaign(
     result = await db.campaign_jobs.insert_one(job_doc)
     job_id = result.inserted_id
 
-    failed_query = {"job_id": campaign_oid, "status": "failed"}
+    failed_query = {"job_id": campaign_oid, **RETRYABLE_FAILED_MATCH}
     cursor = db.message_logs.find(failed_query)
     batch_size = 1000
     new_logs_batch = []
