@@ -59,6 +59,10 @@ export default function SelectRestaurantPage() {
 
     if (user) return;
 
+    // Deliberately synchronous: must flip to "resolving" in the same tick the
+    // effect decides to call getMe(), so the loading spinner (isLoading ||
+    // isResolvingSession) never has a frame where both are false mid-fetch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsResolvingSession(true);
     getMe()
       .then((u) => {
@@ -95,7 +99,7 @@ export default function SelectRestaurantPage() {
     statusContent = (
       <div className="flex flex-col items-center justify-center py-12 border border-red-200 bg-red-50 rounded-xl w-full">
         <p className="text-sm font-medium text-red-700 text-center">
-          We couldn't load your restaurants right now.
+          We couldn&apos;t load your restaurants right now.
         </p>
         <p className="text-xs text-red-600 text-center mt-1">
           Please try again in a moment.

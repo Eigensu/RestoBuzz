@@ -1,0 +1,17 @@
+[run]
+source = app
+branch = true
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:
+show_missing = true
+skip_covered = false
+# Ratchet floor at today's measured branch-coverage baseline (10.6%), not an
+# aspirational target. Raise this as real coverage is added — it exists to catch
+# wholesale regressions (e.g. a test file getting deleted or skipped), not to
+# certify the app is "well tested".
+fail_under = 10
