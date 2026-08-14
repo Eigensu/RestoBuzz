@@ -15,7 +15,7 @@ redis==5.2.1
 python-jose[cryptography]==3.5.0
 passlib==1.7.4
 bcrypt==4.0.1
-python-multipart==0.0.20
+python-multipart==0.0.31
 
 # Validation
 pydantic==2.11.4
@@ -41,7 +41,7 @@ svix==1.62.0
 cloudinary==1.44.0
 
 # Utilities
-python-dotenv==1.1.0
+python-dotenv==1.2.2
 structlog==25.3.0
 
 # Testing
