@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 
 from app.workers.smart_retries_poller import (
     PENDING_CHILD_STALE_MINUTES,
+    ROOT_RETRY_GATE_MINUTES,
     _pending_child_filter,
     _stale_child_filter,
     _child_age_clauses,
@@ -30,7 +31,7 @@ def test_pending_and_stale_filters_are_exact_complements():
     stale = _child_age_clauses(_now(), still_fresh=False)
 
     assert [set(c.keys()) for c in fresh] == [set(c.keys()) for c in stale]
-    for f, s in zip(fresh, stale):
+    for f, s in zip(fresh, stale, strict=True):
         field = "started_at" if "$gt" in str(f.get("started_at")) else "created_at"
         assert f[field] == {"$gt": _cutoff()}
         assert s[field] == {"$lte": _cutoff()}
@@ -72,7 +73,75 @@ def test_both_filters_match_only_unfinished_children_of_the_root():
         assert flt["status"] == {"$in": ["queued", "dispatching", "running"]}
 
 
-def test_stale_threshold_exceeds_root_retry_gate():
-    # The root is gated to one retry per 2 hours; reaping sooner than that could
-    # kill a child that is still legitimately working.
-    assert PENDING_CHILD_STALE_MINUTES >= 120
+class _FakeCursor:
+    def __init__(self, docs):
+        self._docs = docs
+
+    async def to_list(self, length=None):
+        return self._docs
+
+
+class _FakeCollection:
+    def __init__(self, docs=None):
+        self._docs = docs or []
+        self.updates = []
+
+    def find(self, flt, projection=None):
+        return _FakeCursor(self._docs)
+
+    async def update_many(self, flt, update):
+        self.updates.append((flt, update))
+
+
+class _FakeDB:
+    def __init__(self, children):
+        self.campaign_jobs = _FakeCollection(children)
+        self.message_logs = _FakeCollection()
+
+
+async def test_reap_cancels_rather_than_fails_so_live_sends_abort():
+    # The load-bearing safety property. _send in send_task.py aborts only on
+    # 'cancelled' — it ignores 'failed' and delivers anyway. If this ever
+    # regresses to 'failed', a reaped-but-still-live child keeps sending while the
+    # next cycle spawns a duplicate for the same recipients.
+    from app.workers.smart_retries_poller import _reap_stale_children
+
+    db = _FakeDB([{"_id": "child1"}])
+    count = await _reap_stale_children(db, "root1", _now())
+
+    assert count == 1
+    _, job_update = db.campaign_jobs.updates[0]
+    assert job_update["$set"]["status"] == "cancelled"
+
+
+async def test_reap_also_cancels_outstanding_message_logs():
+    # Rows stranded by a fan-out that died partway through must not sit 'queued'
+    # forever waiting on a worker that is never coming.
+    from app.workers.smart_retries_poller import _reap_stale_children
+
+    db = _FakeDB([{"_id": "child1"}])
+    await _reap_stale_children(db, "root1", _now())
+
+    log_filter, log_update = db.message_logs.updates[0]
+    assert log_filter["job_id"] == {"$in": ["child1"]}
+    assert log_filter["status"] == {"$in": ["queued", "sending"]}
+    assert log_update["$set"]["status"] == "cancelled"
+
+
+async def test_reap_is_a_noop_when_nothing_is_stale():
+    from app.workers.smart_retries_poller import _reap_stale_children
+
+    db = _FakeDB([])
+    assert await _reap_stale_children(db, "root1", _now()) == 0
+    assert db.campaign_jobs.updates == []
+    assert db.message_logs.updates == []
+
+
+def test_stale_threshold_strictly_exceeds_root_retry_gate():
+    # Must be STRICTLY greater, not equal. At equality the reaper fires on exactly
+    # the cycle the root becomes eligible again, so a child still legitimately
+    # sending gets reaped and the next cycle spawns a duplicate for the same
+    # recipients. A child can legitimately run for hours: a single message can
+    # take ~10 min alone (max_retries=3 at 30·4ⁿ backoff) on top of RATE_LIMIT_MPS
+    # pacing through the recipient list.
+    assert PENDING_CHILD_STALE_MINUTES > ROOT_RETRY_GATE_MINUTES

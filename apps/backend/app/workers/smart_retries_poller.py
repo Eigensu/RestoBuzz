@@ -19,6 +19,10 @@ _UNSET = "$unset"
 # Statuses that mean "this child has not finished yet".
 _PENDING_STATUSES = ["queued", "dispatching", "running"]
 
+# How often a root may spawn a retry. Shared by the eligibility predicate and by
+# the staleness bound below, so the two can never drift apart.
+ROOT_RETRY_GATE_MINUTES = 120
+
 # How long a pending child may sit before we stop believing it is in flight.
 #
 # A pending child blocks its root from spawning another retry, which is what
@@ -28,9 +32,18 @@ _PENDING_STATUSES = ["queued", "dispatching", "running"]
 # and scheduled_poller deliberately never touches 'running'. Without an age bound
 # that child wedges its whole retry chain permanently.
 #
-# Sized well above any real fan-out and above the 2-hour root retry gate, so a
-# genuinely slow campaign is never reaped out from under itself.
-PENDING_CHILD_STALE_MINUTES = 120
+# Must sit STRICTLY above both the root gate and the longest a child can
+# legitimately stay 'running'. A child stays running until its last message
+# settles, and a message can take ~10 min on its own (max_retries=3 at a 30·4ⁿ
+# backoff) on top of however long RATE_LIMIT_MPS takes to work through the
+# recipient list — so a large campaign can legitimately run for hours. Reaping at
+# the gate itself would collide with exactly that case.
+#
+# Reaping is still made safe rather than merely unlikely: _reap_stale_children
+# marks the child 'cancelled', which is the one status the send path honours as
+# "stop" (see _send in send_task.py). Even a misjudged reap therefore cannot
+# double-send.
+PENDING_CHILD_STALE_MINUTES = 360
 
 
 def _child_age_clauses(now: datetime, still_fresh: bool) -> list[dict]:
@@ -80,6 +93,46 @@ def _stale_child_filter(root_id: str, now: datetime) -> dict:
         "status": {"$in": _PENDING_STATUSES},
         "$or": _child_age_clauses(now, still_fresh=False),
     }
+
+
+async def _reap_stale_children(db, root_id: str, now: datetime) -> int:
+    """Terminate pending children whose dispatch was lost. Returns how many.
+
+    Marks them 'cancelled' rather than 'failed' deliberately. 'cancelled' is the
+    only campaign status the send path treats as "stop": _send in send_task.py
+    re-reads the parent's status *after* atomically claiming a message log, so a
+    send task still alive for this child aborts instead of delivering. That makes
+    reaping safe rather than merely unlikely to collide — even a misjudged reap
+    cannot double-send. 'failed' would not do this; _send ignores it and delivers.
+
+    Outstanding message logs are cancelled too, so rows stranded by a fan-out that
+    died partway through don't sit 'queued' forever waiting on a worker that is
+    never coming.
+    """
+    stale = await db.campaign_jobs.find(
+        _stale_child_filter(root_id, now), {"_id": 1}
+    ).to_list(length=None)
+    if not stale:
+        return 0
+
+    stale_ids = [doc["_id"] for doc in stale]
+    await db.campaign_jobs.update_many(
+        {"_id": {"$in": stale_ids}},
+        {"$set": {"status": "cancelled", "completed_at": now}},
+    )
+    # message_logs reference their campaign via job_id, not campaign_id.
+    await db.message_logs.update_many(
+        {"job_id": {"$in": stale_ids}, "status": {"$in": ["queued", "sending"]}},
+        {"$set": {"status": "cancelled", "locked_until": None, "updated_at": now}},
+    )
+    logger.warning(
+        "smart_retry_reaped_stale_children",
+        root_id=root_id,
+        child_ids=[str(cid) for cid in stale_ids],
+        count=len(stale_ids),
+        stale_after_minutes=PENDING_CHILD_STALE_MINUTES,
+    )
+    return len(stale_ids)
 
 
 def _root_retry_eligibility(now: datetime, two_hours_ago: datetime) -> dict:
@@ -147,7 +200,7 @@ async def _poll() -> None:
     db = get_fresh_db()
     try:
         now = datetime.now(timezone.utc)
-        two_hours_ago = now - timedelta(hours=2)
+        two_hours_ago = now - timedelta(minutes=ROOT_RETRY_GATE_MINUTES)
 
         # Only poll ROOT campaigns that have actually finished running.
         # Children are never polled directly — the root tracks last_auto_retry_at
@@ -182,19 +235,9 @@ async def _poll() -> None:
 
             # Reap children whose dispatch was lost. Without this a child stuck in
             # 'running' blocks the pending guard below forever and the root can
-            # never retry again. Marked failed (not deleted) so the chain keeps an
-            # accurate history and the child can serve as a retry source.
-            reaped = await db.campaign_jobs.update_many(
-                _stale_child_filter(str(root_id_obj), now),
-                {"$set": {"status": "failed", "completed_at": now}},
-            )
-            if reaped.modified_count:
-                logger.warning(
-                    "smart_retry_reaped_stale_children",
-                    root_id=str(root_id_obj),
-                    count=reaped.modified_count,
-                    stale_after_minutes=PENDING_CHILD_STALE_MINUTES,
-                )
+            # never retry again.
+            reaped_count = await _reap_stale_children(db, str(root_id_obj), now)
+            if reaped_count:
                 # latest_child was read before the reap, so it may now be stale.
                 # Release the claim and let the next cycle re-read clean state.
                 await db.campaign_jobs.update_one(
