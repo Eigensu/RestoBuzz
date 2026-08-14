@@ -33,6 +33,18 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
+    # Ceilings so a wedged task is eventually reclaimed instead of holding a
+    # worker slot forever. Deliberately generous: the longest real task is a
+    # campaign fan-out, which is a cursor scan plus one apply_async per message
+    # (seconds, even for large campaigns) — individual sends are separate tasks.
+    #
+    # These are enforced by signals to pool child processes, which means they
+    # bind under the prefork pool but NOT under --pool=threads (a thread cannot
+    # be interrupted). Dockerfile.celery runs the threads pool, so treat these
+    # as a backstop only; the staleness reaper in smart_retries_poller is the
+    # pool-independent guarantee that a lost dispatch cannot wedge a chain.
+    task_soft_time_limit=1800,
+    task_time_limit=2100,
     task_queues={
         "utility": {"exchange": "utility", "routing_key": "utility"},
         "marketing": {"exchange": "marketing", "routing_key": "marketing"},
