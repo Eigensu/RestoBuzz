@@ -129,7 +129,7 @@ export function TemplateFormModal({
     setComponents((prev) => prev.filter((_, idx) => idx !== i));
 
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const payload = {
         components: components.filter(componentHasPayload).map((c) => ({
           type: c.type,
@@ -138,10 +138,15 @@ export function TemplateFormModal({
           ...(c.example ? { example: c.example } : {}),
         })),
       };
+      // Awaited rather than returned. The response body is unused (onSuccess
+      // ignores it), and axios now carries the request-body type in
+      // AxiosResponse, so returning the patch and post branches directly gives
+      // two response types that no longer unify into one MutationFunction.
       if (isEdit) {
-        return api.patch(`/templates/${editing!.name}`, payload);
+        await api.patch(`/templates/${editing!.name}`, payload);
+        return;
       }
-      return api.post("/templates", {
+      await api.post("/templates", {
         name: name.toLowerCase().replace(/\s+/g, "_"),
         category: "MARKETING",
         language,
