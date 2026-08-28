@@ -170,6 +170,14 @@ export interface Member {
   /** Set when the member was captured by replying positively to a campaign. */
   interested_at?: string | null;
   interested_campaign_name?: string | null;
+  /**
+   * Lifetime messaging rollup. Durable counters, NOT derived from message_logs
+   * (which expire after 30 days). Optional so older API responses don't crash.
+   */
+  messages_sent?: number;
+  messages_received?: number;
+  messages_read?: number;
+  last_message_at?: string | null;
 }
 
 export interface MemberListResponse {

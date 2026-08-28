@@ -117,6 +117,22 @@ export default function ReportsPage() {
     enabled: !!restaurant && tab === "members",
   });
 
+  // Member acquisition — how many new members marketing actually produced
+  const acquisitionQuery = useQuery({
+    queryKey: ["reports", "acquisition", restaurant?.id, fromDate, toDate],
+    queryFn: () =>
+      api
+        .get(
+          `/reports/members/acquisition?${new URLSearchParams({
+            from_date: fromDate,
+            to_date: toDate,
+            restaurant_id: restaurant!.id,
+          })}`,
+        )
+        .then((r) => r.data),
+    enabled: !!restaurant && tab === "members",
+  });
+
   // Inbox summary
   const inboxQuery = useQuery({
     queryKey: ["reports", "inbox", restaurant?.id, fromDate, toDate],
@@ -469,7 +485,12 @@ export default function ReportsPage() {
         />
       )}
       {tab === "members" && (
-        <MemberTab data={memberQuery.data} loading={memberQuery.isLoading} />
+        <MemberTab
+          data={memberQuery.data}
+          loading={memberQuery.isLoading}
+          acquisition={acquisitionQuery.data}
+          acquisitionLoading={acquisitionQuery.isLoading}
+        />
       )}
       {tab === "inbox" && (
         <InboxTab data={inboxQuery.data} loading={inboxQuery.isLoading} />

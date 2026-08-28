@@ -3,6 +3,7 @@ import type { Member } from "@/types";
 import { relativeIST } from "@/lib/date";
 import { MemberTypeBadge } from "@/components/members/atoms/MemberTypeBadge";
 import { DormancyBadge } from "@/components/members/atoms/DormancyBadge";
+import { MessageStatsCell } from "@/components/members/atoms/MessageStatsCell";
 
 interface MemberRowProps {
   member: Member;
@@ -51,6 +52,16 @@ export function MemberRow({
         <DormancyBadge
           status={m.dormancy_tier ?? m.activity_status ?? "UNKNOWN"}
           source={m.activity_source}
+        />
+      </td>
+
+      {/* Lifetime messaging counts */}
+      <td className="px-6 py-4">
+        <MessageStatsCell
+          received={m.messages_received}
+          read={m.messages_read}
+          sent={m.messages_sent}
+          lastMessageAt={m.last_message_at}
         />
       </td>
 

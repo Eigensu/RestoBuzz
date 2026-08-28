@@ -4,7 +4,13 @@ import { EmptyState } from "../atoms/EmptyState";
 import { SectionCard } from "../atoms/SectionCard";
 import { StatCard } from "../atoms/StatCard";
 import { TabSkeleton } from "../atoms/TabSkeleton";
-import type { CategoryCount, MemberData, TopVisitor } from "../types";
+import { AcquisitionSection } from "./AcquisitionSection";
+import type {
+  AcquisitionData,
+  CategoryCount,
+  MemberData,
+  TopVisitor,
+} from "../types";
 
 const PIE_COLORS = [
   "#24422e",
@@ -18,9 +24,13 @@ const PIE_COLORS = [
 export function MemberTab({
   data,
   loading,
+  acquisition,
+  acquisitionLoading,
 }: {
   readonly data: MemberData | null | undefined;
   readonly loading: boolean;
+  readonly acquisition?: AcquisitionData | null;
+  readonly acquisitionLoading?: boolean;
 }) {
   if (loading) return <TabSkeleton />;
   if (!data)
@@ -77,6 +87,12 @@ export function MemberTab({
           </div>
         </div>
       )}
+
+      {/* Where new members came from */}
+      <AcquisitionSection
+        data={acquisition}
+        loading={!!acquisitionLoading}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Growth Chart */}

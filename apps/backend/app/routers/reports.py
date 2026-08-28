@@ -30,6 +30,7 @@ from app.core.errors import ValidationError, ForbiddenError
 from app.core.logging import get_logger
 from app.core.time import now_utc, date_range_to_utc, ist_month_start_utc
 from app.services.fielia_members_service import fielia_service
+from app.services import member_stats_service
 from app.database import get_db
 from app.dependencies import get_active_restaurant, require_role
 from app.config import settings
@@ -610,6 +611,165 @@ async def member_summary(
     return result
 
 
+async def _collect_joiners(
+    db: AsyncIOMotorDatabase, rid: str, rids: list[str], from_dt, to_dt
+) -> list[dict]:
+    """Every member who joined in the window, from all sources this restaurant
+    uses. Returns lightweight rows: phone, joined_at, source, and the campaign
+    already stamped on reply-driven signups."""
+    rows: list[dict] = []
+
+    # r2's NFC members live in Fielia's database, not ours.
+    if rid == "r2":
+        rows.extend(await fielia_service.list_joined_between(from_dt, to_dt))
+
+    cursor = db.members.find(
+        {
+            "restaurant_id": {_MONGO_IN: rids},
+            "joined_at": {_MONGO_GTE: from_dt, _MONGO_LTE: to_dt},
+        },
+        {
+            "phone": 1,
+            "name": 1,
+            "joined_at": 1,
+            "source": 1,
+            "interested_campaign_id": 1,
+            "interested_campaign_name": 1,
+        },
+    )
+    async for doc in cursor:
+        rows.append(
+            {
+                "phone": doc.get("phone"),
+                "name": doc.get("name"),
+                "joined_at": doc.get("joined_at"),
+                "source": doc.get("source"),
+                "interested_campaign_id": doc.get("interested_campaign_id"),
+                "interested_campaign_name": doc.get("interested_campaign_name"),
+            }
+        )
+    return rows
+
+
+async def _resolve_campaign_names(
+    db: AsyncIOMotorDatabase, campaign_ids: set
+) -> dict[str, str]:
+    """Map campaign ObjectIds to their names in one query."""
+    ids = [c for c in campaign_ids if isinstance(c, ObjectId)]
+    if not ids:
+        return {}
+    names = {}
+    async for job in db.campaign_jobs.find({"_id": {_MONGO_IN: ids}}, {"name": 1}):
+        names[str(job["_id"])] = job.get("name") or "Untitled campaign"
+    return names
+
+
+@router.get("/members/acquisition")
+async def member_acquisition(
+    restaurant: Annotated[dict, Depends(get_active_restaurant)],
+    current_user: Annotated[dict, Depends(require_role("viewer"))],
+    db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    from_date: Annotated[date | None, Query()] = None,
+    to_date: Annotated[date | None, Query()] = None,
+):
+    """How many members joined because of marketing, split by confidence.
+
+    Two buckets, deliberately kept apart because they are not equally certain:
+
+    - `direct`   — the member was created by their own reply to a campaign
+                   (source='campaign_reply'). Causal, no inference.
+    - `assisted` — they joined by some other route within
+                   ATTRIBUTION_WINDOW_DAYS of a campaign reaching their phone.
+                   Correlational: a strong signal, not proof.
+
+    Attribution can only see campaign touches recorded since this rollup
+    started collecting — `tracking_started_at` in the response says when that
+    was, so an early, artificially low number isn't mistaken for poor
+    marketing performance.
+    """
+    from_dt, to_dt = _resolve_dates(from_date, to_date, current_user)
+    rid = restaurant["id"]
+    rids = list({rid, str(restaurant.get("_id"))} - {None})
+
+    cache_key = f"reports:acquisition:{rid}:{_date_hash(from_dt, to_dt)}"
+    cached = await _cache_get(cache_key)
+    if cached:
+        return cached
+
+    rows = await _collect_joiners(db, rid, rids, from_dt, to_dt)
+    touches = await member_stats_service.get_attribution_touches(
+        db, rid, [r.get("phone") for r in rows]
+    )
+
+    counts = {"direct": 0, "assisted": 0, "organic": 0}
+    per_campaign: dict = defaultdict(lambda: {"direct": 0, "assisted": 0})
+
+    for row in rows:
+        if row.get("source") == "campaign_reply":
+            counts["direct"] += 1
+            per_campaign[row.get("interested_campaign_id")]["direct"] += 1
+            continue
+
+        key = member_stats_service.phone_key(row.get("phone"))
+        touch = member_stats_service.find_attributing_touch(
+            touches.get(key) if key else None, row.get("joined_at")
+        )
+        if touch:
+            counts["assisted"] += 1
+            per_campaign[touch["campaign_id"]]["assisted"] += 1
+        else:
+            counts["organic"] += 1
+
+    names = await _resolve_campaign_names(db, set(per_campaign.keys()))
+    breakdown = sorted(
+        (
+            {
+                "campaign_id": str(cid) if cid else None,
+                "campaign_name": names.get(str(cid), "Unknown campaign"),
+                "direct": v["direct"],
+                "assisted": v["assisted"],
+                "total": v["direct"] + v["assisted"],
+            }
+            for cid, v in per_campaign.items()
+        ),
+        key=lambda r: r["total"],
+        reverse=True,
+    )
+
+    total_new = len(rows)
+    from_marketing = counts["direct"] + counts["assisted"]
+
+    # When tracking began — attribution is blind to anything before this.
+    earliest = await db[member_stats_service.COLLECTION].find_one(
+        {"restaurant_id": rid, "first_sent_at": {"$exists": True}},
+        {"first_sent_at": 1},
+        sort=[("first_sent_at", 1)],
+    )
+
+    result = {
+        "summary": {
+            "new_members": total_new,
+            "from_marketing": from_marketing,
+            "direct": counts["direct"],
+            "assisted": counts["assisted"],
+            "organic": counts["organic"],
+            "marketing_share": (
+                round(from_marketing / total_new * 100, 1) if total_new else 0
+            ),
+        },
+        "by_campaign": breakdown[:20],
+        "attribution_window_days": member_stats_service.ATTRIBUTION_WINDOW_DAYS,
+        "tracking_started_at": (
+            earliest["first_sent_at"].isoformat()
+            if earliest and earliest.get("first_sent_at")
+            else None
+        ),
+    }
+
+    await _cache_set(cache_key, result)
+    return result
+
+
 @router.get("/members/export")
 async def member_export(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
@@ -661,8 +821,15 @@ async def _export_internal_members(db, user, restaurant, from_dt, to_dt, categor
     if category:
         query["type"] = category
 
+    docs = await db.members.find(query).sort("joined_at", -1).to_list(length=None)
+    stats_map = await member_stats_service.get_bulk_stats(
+        db, rid, [d.get("phone") for d in docs]
+    )
+
     rows = []
-    async for doc in db.members.find(query).sort("joined_at", -1):
+    for doc in docs:
+        key = member_stats_service.phone_key(doc.get("phone"))
+        stats = (stats_map.get(key) if key else None) or {}
         rows.append([
             doc.get("name", ""),
             doc.get("phone", ""),
@@ -676,11 +843,15 @@ async def _export_internal_members(db, user, restaurant, from_dt, to_dt, categor
             doc.get("ecard_code", "") or "",
             ", ".join(doc.get("tags", [])),
             doc.get("notes", "") or "",
+            stats.get("sent_count", 0) or 0,
+            stats.get("received_count", 0) or 0,
+            stats.get("read_count", 0) or 0,
         ])
 
     headers = [
         "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
-        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes"
+        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes",
+        "Messages Sent", "Messages Received", "Messages Read"
     ]
     filename = f"member_report_{from_dt.date()}_{to_dt.date()}"
     await _audit_export(db, user, rid, "members", fmt, {
