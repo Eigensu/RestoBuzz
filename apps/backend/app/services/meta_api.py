@@ -203,24 +203,91 @@ async def send_template_message(
     raise last_error or MetaAPIError("no_endpoint", "No valid WABA endpoint configured")
 
 
+# Safety valve for the pagination loop below. 100 templates/page, so this caps
+# a sync at 5000 templates — far beyond Meta's per-WABA limit.
+MAX_TEMPLATE_PAGES = 50
+
+
 async def fetch_templates(waba_id: str, token: str) -> list[dict]:
-    url = f"{META_BASE}/{waba_id}/message_templates"
-    params = {"limit": 100, "fields": "name,status,category,language,components"}
+    """Fetch every message template on a WABA, following cursor pagination.
+
+    `id` must be requested explicitly — it is what PATCH /templates keys off to
+    edit a template on Meta.
+    """
+    url: str | None = f"{META_BASE}/{waba_id}/message_templates"
+    # Only sent for the first page. Meta's `paging.next` already carries the
+    # cursor in its query string, and httpx REPLACES a URL's query when
+    # `params` is passed (it does not merge) — so re-sending params on later
+    # pages strips the cursor and refetches page 1 forever.
+    params: dict | None = {
+        "limit": 100,
+        "fields": "id,name,status,category,language,components",
+    }
     headers = {"Authorization": f"Bearer {token}"}
-    templates = []
+    templates: list[dict] = []
+    pages = 0
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        while url:
-            resp = await client.get(url, params=params, headers=headers)
-            data = resp.json()
+        while url and pages < MAX_TEMPLATE_PAGES:
+            pages += 1
+            try:
+                resp = await client.get(
+                    url, headers=headers, **({"params": params} if params else {})
+                )
+            except httpx.TimeoutException as e:
+                raise MetaAPIError(
+                    "timeout", f"Meta did not respond within 15s (page {pages})"
+                ) from e
+            except httpx.RequestError as e:
+                raise MetaAPIError("network_error", str(e) or type(e).__name__) from e
+
+            try:
+                data = resp.json()
+            except Exception as esc:
+                raise MetaAPIError(
+                    "invalid_response",
+                    f"Non-JSON response from Meta (status {resp.status_code})",
+                ) from esc
+
             if resp.status_code != 200:
                 error = data.get("error", {})
-                raise MetaAPIError(
-                    str(error.get("code", "unknown")), error.get("message", str(data))
+                code = str(error.get("code", "unknown"))
+                message = error.get("error_user_msg") or error.get(
+                    "message", str(data)
                 )
-            templates.extend(data.get("data", []))
+                logger.error(
+                    "meta_fetch_templates_failed",
+                    waba_id=waba_id,
+                    status_code=resp.status_code,
+                    code=code,
+                    message=message,
+                    page=pages,
+                )
+                raise MetaAPIError(code, message)
+            page = data.get("data", [])
+            if not page:
+                # Meta keeps returning `paging.next` past the last page; an
+                # empty page is the real terminator.
+                break
+            templates.extend(page)
             url = data.get("paging", {}).get("next")
-            params = {}
+            params = None
+
+    if url and pages >= MAX_TEMPLATE_PAGES:
+        logger.error(
+            "meta_fetch_templates_page_limit_reached",
+            waba_id=waba_id,
+            pages=pages,
+            fetched=len(templates),
+        )
+        # Both callers prune local templates against whatever this returns, so
+        # handing back a partial list would delete valid templates. Hitting the
+        # cap means pagination is misbehaving — fail the sync instead.
+        raise MetaAPIError(
+            "pagination_limit",
+            f"Meta returned more than {MAX_TEMPLATE_PAGES} pages of templates; "
+            "refusing to sync from a partial result",
+        )
 
     return templates
 

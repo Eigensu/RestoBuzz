@@ -66,15 +66,20 @@ async def _sync() -> None:
                 if lang:
                     key["language"] = lang
 
+                update_fields = {
+                    **t,
+                    "restaurant_id": rid,
+                    "synced_at": datetime.now(timezone.utc),
+                }
+                # Meta returns the template id as "id"; store it as "meta_id"
+                # so PATCH /templates/{name} can push edits back to Meta.
+                meta_id = update_fields.pop("id", None)
+                if meta_id:
+                    update_fields["meta_id"] = str(meta_id)
+
                 await db.templates.update_one(
                     key,
-                    {
-                        "$set": {
-                            **t,
-                            "restaurant_id": rid,
-                            "synced_at": datetime.now(timezone.utc),
-                        }
-                    },
+                    {"$set": update_fields},
                     upsert=True,
                 )
                 synced_keys.append(key)
