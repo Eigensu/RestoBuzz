@@ -174,6 +174,39 @@ async def _resolve_media_header_handles(components: list[dict], access_token: st
     return resolved
 
 
+def _preserve_unmanaged_components(
+    components: list[dict], stored: dict
+) -> list[dict]:
+    """Carry over BUTTONS components the editor cannot express.
+
+    Meta's edit endpoint REPLACES the whole component set, and the template
+    editor has no buttons UI — it strips BUTTONS on load. Without this, editing
+    the body of a template whose buttons were added in Meta Business Manager
+    would silently delete those buttons. Buttons must stay last: Meta requires
+    HEADER, BODY, FOOTER, BUTTONS order.
+    """
+    if any(str(c.get("type", "")).upper() == "BUTTONS" for c in components):
+        return components
+
+    stored_buttons = [
+        c
+        for c in (stored.get("components") or [])
+        if isinstance(c, dict)
+        and str(c.get("type", "")).upper() == "BUTTONS"
+        and c.get("buttons")
+    ]
+    if not stored_buttons:
+        return components
+
+    logger.info(
+        "template_edit_preserved_buttons",
+        template=stored.get("name"),
+        restaurant_id=stored.get("restaurant_id"),
+        count=len(stored_buttons),
+    )
+    return components + stored_buttons
+
+
 def _resolve_restaurant_waba(restaurant: dict) -> tuple[str, str]:
     """Return (waba_id, access_token) for the restaurant.
 
@@ -337,11 +370,34 @@ async def edit_existing_template(
 
     _, token = _resolve_restaurant_waba(restaurant)
     components = [_normalize_component_for_meta(c) for c in body.components]
-    await edit_template(meta_id, token, components)
+    # Same upload step as create: Meta only accepts an uploaded handle in
+    # example.header_handle, never a raw https:// URL.
+    components = await _resolve_media_header_handles(components, token)
+    components = _preserve_unmanaged_components(components, doc)
+    try:
+        await edit_template(meta_id, token, components)
+    except MetaAPIError as exc:
+        raise ValidationError(f"Meta rejected template edit: {exc.message}") from exc
+
+    update: dict = {
+        "components": components,
+        "synced_at": datetime.now(timezone.utc),
+    }
+    # Keep the displayable media URL in sync — components now hold the opaque
+    # Meta handle, which the UI cannot render.
+    for comp in body.components:
+        if (comp.type or "").upper() == "HEADER" and (
+            comp.format or ""
+        ).upper() in {"IMAGE", "VIDEO", "DOCUMENT"}:
+            if isinstance(comp.example, dict):
+                media_url = comp.example.get("media_url")
+                if isinstance(media_url, str) and media_url.strip():
+                    update["media_url"] = media_url.strip()
+            break
 
     await db.templates.update_one(
         {"meta_id": meta_id, "restaurant_id": restaurant["id"]},
-        {"$set": {"components": components, "synced_at": datetime.now(timezone.utc)}},
+        {"$set": update},
     )
     updated = await db.templates.find_one(
         {"meta_id": meta_id, "restaurant_id": restaurant["id"]}, {"_id": 0}
@@ -362,11 +418,24 @@ async def sync_templates(
 
     try:
         templates = await fetch_templates(waba_id, token)
-    except Exception as e:
+    except MetaAPIError as exc:
+        logger.error(
+            "template_sync_failed",
+            restaurant_id=rid,
+            waba_id=waba_id,
+            code=exc.code,
+            message=exc.message,
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to fetch templates from Meta: {e}"
-        )
+            detail=f"Meta refused the template fetch [{exc.code}]: {exc.message}",
+        ) from exc
+    except Exception as e:
+        logger.exception("template_sync_unexpected_error", restaurant_id=rid)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch templates from Meta: {type(e).__name__}: {e}",
+        ) from e
 
     keys: list[dict] = []
     for t in templates:
@@ -404,6 +473,11 @@ async def _sync_single_template(
         "restaurant_id": restaurant_id,
         "synced_at": datetime.now(timezone.utc),
     }
+    # Meta returns the template id as "id"; store it as "meta_id" — that is the
+    # field PATCH /templates/{name} needs to push an edit back to Meta.
+    meta_id = update_fields.pop("id", None)
+    if meta_id:
+        update_fields["meta_id"] = str(meta_id)
     await db.templates.update_one(key, {"$set": update_fields}, upsert=True)
 
     if not was_approved and is_approved and not already_alerted:
