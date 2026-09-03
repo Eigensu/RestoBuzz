@@ -43,17 +43,34 @@ def test_every_referenced_template_is_covered_by_this_test():
 
 @pytest.mark.parametrize("template_name", sorted(TEMPLATE_CONTEXTS))
 def test_alert_template_renders(template_name):
-    """Renders under StrictUndefined, so a missing context var fails too."""
+    """Renders through the real send path under StrictUndefined, so a missing
+    context variable fails as loudly as a missing file."""
     _, email_context = AlertService._build_email_context(
         "Test Subject",
         {"name": "Test Restaurant"},
         TEMPLATE_CONTEXTS[template_name],
     )
 
-    html = templates_env.get_template(f"email/{template_name}").render(**email_context)
+    html, text = AlertService._render_template(
+        template_name, "Test Subject", email_context
+    )
 
+    assert html is not None, f"{template_name} failed to render: {text}"
     assert "Test Restaurant" in html
-    assert "<html" in html.lower(), "template did not inherit from base.html"
+
+    # Markers only email/base.html supplies. A standalone template that lost its
+    # `{% extends %}` still emits valid HTML and still sends — it just silently
+    # drops the shared header, styling, CTA and footer — so asserting on generic
+    # markup would not catch it.
+    assert 'class="restaurant-tag"' in html, "did not inherit from base.html"
+    assert "Operational Alerts" in html, "base.html footer missing"
+
+
+@pytest.mark.parametrize("template_name", sorted(TEMPLATE_CONTEXTS))
+def test_alert_template_declares_base_inheritance(template_name):
+    """The `{% extends %}` line itself, independent of rendered output."""
+    source = Path(templates_env.get_template(f"email/{template_name}").filename).read_text()
+    assert '{% extends "email/base.html" %}' in source
 
 
 def test_render_template_fails_soft_on_missing_file():

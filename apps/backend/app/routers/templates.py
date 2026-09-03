@@ -405,7 +405,11 @@ async def edit_existing_template(
     return updated
 
 
-@router.post("/sync", status_code=200)
+@router.post(
+    "/sync",
+    status_code=200,
+    responses={502: {"description": "Meta refused or failed the template fetch"}},
+)
 async def sync_templates(
     background_tasks: BackgroundTasks,
     restaurant: Annotated[dict, Depends(get_active_restaurant)],

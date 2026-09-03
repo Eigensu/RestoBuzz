@@ -79,9 +79,12 @@ async def test_fetch_templates_requests_id_field(patched_client):
 
 
 @pytest.mark.asyncio
-async def test_fetch_templates_terminates_on_endless_next(patched_client):
-    """Meta keeps returning `paging.next` past the last page — an empty data
-    array is the real terminator, and the page cap is the backstop."""
+async def test_fetch_templates_fails_rather_than_returning_partial(patched_client):
+    """Hitting the page cap must raise, never return a short list.
+
+    Both callers prune local templates against whatever fetch_templates
+    returns, so a partial result would delete valid templates.
+    """
     calls = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -98,10 +101,12 @@ async def test_fetch_templates_terminates_on_endless_next(patched_client):
         )
 
     patched_client(handler)
-    templates = await meta_api.fetch_templates("W", "tok")
 
+    with pytest.raises(meta_api.MetaAPIError) as exc:
+        await meta_api.fetch_templates("W", "tok")
+
+    assert exc.value.code == "pagination_limit"
     assert calls["n"] == meta_api.MAX_TEMPLATE_PAGES
-    assert len(templates) == meta_api.MAX_TEMPLATE_PAGES
 
 
 @pytest.mark.asyncio

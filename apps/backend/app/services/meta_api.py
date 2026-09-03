@@ -274,11 +274,19 @@ async def fetch_templates(waba_id: str, token: str) -> list[dict]:
             params = None
 
     if url and pages >= MAX_TEMPLATE_PAGES:
-        logger.warning(
+        logger.error(
             "meta_fetch_templates_page_limit_reached",
             waba_id=waba_id,
             pages=pages,
             fetched=len(templates),
+        )
+        # Both callers prune local templates against whatever this returns, so
+        # handing back a partial list would delete valid templates. Hitting the
+        # cap means pagination is misbehaving — fail the sync instead.
+        raise MetaAPIError(
+            "pagination_limit",
+            f"Meta returned more than {MAX_TEMPLATE_PAGES} pages of templates; "
+            "refusing to sync from a partial result",
         )
 
     return templates
