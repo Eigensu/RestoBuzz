@@ -324,7 +324,17 @@ async def create_template(waba_id: str, token: str, payload: dict) -> dict:
         raise MetaAPIError("network_error", str(e)) from e
 
 
-MAX_MEDIA_BYTES = 10 * 1024 * 1024  # 10MB limit
+# Per-format ceilings for template header media, keyed by the top-level content
+# type. Meta caps image headers at 5 MB and video headers at 16 MB; documents it
+# allows far more, but /media/upload never stores anything above 16 MB, so the
+# same limit here keeps a pasted URL from streaming an unbounded file into
+# memory. Keep in sync with cloudinary_service's MAX_*_BYTES.
+MAX_MEDIA_BYTES_BY_TYPE = {
+    "image": 5 * 1024 * 1024,         # 5 MB
+    "video": 16 * 1024 * 1024,        # 16 MB
+    "application": 16 * 1024 * 1024,  # 16 MB (PDF documents)
+}
+MAX_MEDIA_BYTES = 16 * 1024 * 1024  # fallback for unrecognised content types
 
 
 async def create_media_handle_from_url(
@@ -344,20 +354,24 @@ async def create_media_handle_from_url(
                         f"Unable to fetch media from URL (status {fetch_resp.status_code})",
                     )
 
-                content = b""
-                async for chunk in fetch_resp.aiter_bytes():
-                    content += chunk
-                    if len(content) > MAX_MEDIA_BYTES:
-                        raise MetaAPIError(
-                            "media_too_large",
-                            f"Media exceeds limit of {MAX_MEDIA_BYTES} bytes",
-                        )
-
                 content_type = (
                     fetch_resp.headers.get("content-type", "application/octet-stream")
                     .split(";")[0]
                     .strip()
                 )
+                max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
+                    content_type.split("/")[0], MAX_MEDIA_BYTES
+                )
+
+                content = b""
+                async for chunk in fetch_resp.aiter_bytes():
+                    content += chunk
+                    if len(content) > max_bytes:
+                        raise MetaAPIError(
+                            "media_too_large",
+                            f"{content_type} media exceeds the "
+                            f"{max_bytes // (1024 * 1024)} MB limit",
+                        )
 
             ext = mimetypes.guess_extension(content_type) or ".bin"
             filename = f"template_header{ext}"
