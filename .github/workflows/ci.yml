@@ -9,6 +9,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Every job here only reads the checkout; none comment, tag or publish.
+permissions:
+  contents: read
+
 jobs:
   backend-unit:
     name: Backend / unit tests
@@ -64,11 +68,6 @@ jobs:
       MONGODB_URL: mongodb://localhost:27017
       MONGODB_DB_NAME: dishpatch_ci
       REDIS_URL: redis://localhost:6379/0
-      # Must match tests/integration/test_webhook.py's SECRET constant: the app
-      # skips signature verification entirely when this is unset (see
-      # app/routers/webhooks.py:_verify_signature), which would make both the
-      # valid- and invalid-signature tests pass for the wrong reason.
-      META_WEBHOOK_SECRET: test_secret # NOSONAR - fixed fixture value, must match tests/integration/test_webhook.py's SECRET constant, not a real credential
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -79,6 +78,15 @@ jobs:
           cache-dependency-path: apps/backend/requirements.txt
 
       - run: pip install -r requirements.txt
+
+      # tests/integration/test_webhook.py signs its payloads with whatever this
+      # is set to. It has to be set to something: the app skips signature
+      # verification entirely when it's empty (see
+      # app/routers/webhooks.py:_verify_signature), which would make both the
+      # valid- and invalid-signature tests pass for the wrong reason. Minting a
+      # throwaway value per run keeps a credential literal out of the repo.
+      - name: Mint a throwaway webhook secret for this run
+        run: echo "META_WEBHOOK_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
       - run: pytest tests/integration -v
 

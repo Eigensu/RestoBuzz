@@ -46,6 +46,9 @@ coverage/
 coverage.xml
 htmlcov/
 
+# TypeScript incremental build cache, rewritten by every `pnpm type-check`
+tsconfig.tsbuildinfo
+
 # Pytest
 .pytest_cache/
 

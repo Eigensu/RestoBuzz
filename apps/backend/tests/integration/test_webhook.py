@@ -11,7 +11,21 @@ pytestmark = pytest.mark.skipif(
     reason="Set INTEGRATION=1 to run integration tests",
 )
 
-SECRET = "test_secret"  # NOSONAR
+# Supplied by the environment — CI mints a throwaway value per run — so no
+# credential literal lives in the repo.
+SECRET = os.getenv("META_WEBHOOK_SECRET", "")
+
+
+@pytest.fixture(autouse=True)
+def _require_webhook_secret():
+    """The app skips signature verification entirely when META_WEBHOOK_SECRET is
+    unset (see app/routers/webhooks.py:_verify_signature), so both the valid- and
+    invalid-signature cases below would pass for the wrong reason. Fail loudly
+    rather than report a green run that proved nothing.
+    """
+    assert SECRET, (
+        "META_WEBHOOK_SECRET must be set to run the webhook signature tests"
+    )
 
 
 def _sign(body: bytes) -> str:
