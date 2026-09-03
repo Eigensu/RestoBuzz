@@ -386,6 +386,20 @@ async def init_indexes() -> None:
         ],
     )
 
+    # member_message_stats
+    # Durable per-member messaging rollup. Deliberately has NO TTL: message_logs
+    # expire after MESSAGE_LOG_TTL_DAYS, so this collection is the only lasting
+    # record of how much marketing a given member has received and read.
+    await safe_create_indexes(
+        db.member_message_stats,
+        [
+            IndexModel(
+                [("restaurant_id", ASCENDING), ("phone_key", ASCENDING)],
+                unique=True,
+            ),
+        ],
+    )
+
     # suppression_list
     await safe_create_indexes(
         db.suppression_list, [IndexModel([("phone", ASCENDING)], unique=True)]

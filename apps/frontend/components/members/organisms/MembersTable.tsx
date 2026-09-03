@@ -15,6 +15,7 @@ const HEADERS = [
   { key: "type", label: "Type" },
   { key: "last_visit", label: "Last Visit" },
   { key: "dormancy", label: "Dormancy Status" },
+  { key: "messaging", label: "Messages" },
   { key: "card_id", label: "Card ID" },
   { key: "visits", label: "Visits" },
   { key: "joined", label: "Joined" },

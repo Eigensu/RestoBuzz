@@ -74,6 +74,31 @@ export interface MemberData {
   top_visitors: TopVisitor[];
 }
 
+export interface AcquisitionCampaignRow {
+  campaign_id: string | null;
+  campaign_name: string;
+  direct: number;
+  assisted: number;
+  total: number;
+}
+
+export interface AcquisitionData {
+  summary: {
+    new_members: number;
+    from_marketing: number;
+    /** Joined by replying to a campaign — causal, not inferred. */
+    direct: number;
+    /** Joined some other way within the attribution window of a campaign. */
+    assisted: number;
+    organic: number;
+    marketing_share: number;
+  };
+  by_campaign: AcquisitionCampaignRow[];
+  attribution_window_days: number;
+  /** When touch tracking began; attribution is blind to anything earlier. */
+  tracking_started_at: string | null;
+}
+
 export interface EngagedCustomer {
   phone: string;
   name: string;

@@ -10,6 +10,7 @@ from app.services.meta_api import send_template_message, MetaAPIError
 from app.services.rate_limiter import acquire_token
 from app.services.suppression import is_suppressed
 from app.services.deduplication import mark_seen
+from app.services import member_stats_service
 import redis as sync_redis
 
 logger = get_logger(__name__)
@@ -281,6 +282,14 @@ async def _do_send(
     await db.campaign_jobs.update_one(
         {"_id": msg["job_id"]},
         {"$inc": {"sent_count": 1}},
+    )
+    # Durable per-member rollup — message_logs expire, this doesn't.
+    await member_stats_service.record_sent(
+        db,
+        msg.get("restaurant_id"),
+        msg.get("recipient_phone"),
+        campaign_id=msg.get("job_id"),
+        at=sent_now,
     )
     await _auto_complete_job(db, msg["job_id"])
     logger.info("message_sent", id=message_log_id, wa_id=wa_id)

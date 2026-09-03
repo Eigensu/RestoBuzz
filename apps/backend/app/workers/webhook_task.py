@@ -22,6 +22,7 @@ from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
 from app.services.deduplication import is_duplicate, mark_seen
+from app.services import member_stats_service
 from app.services.suppression import add_suppression
 from app.services.message_types import normalize_message_type
 from app.services.meta_api import send_text_message
@@ -217,6 +218,18 @@ async def _handle_statuses(
             logger.info("campaign_message_status_updated", wa_id=wa_id, status=status)
             await _store_error_details(db, wa_id, status, s)
             await _apply_status_counters(db, prev["job_id"], prev.get("status"), status)
+            # Lifetime per-member received/read rollup. Driven by the BEFORE
+            # image so a redelivered 'delivered' webhook can't double-count.
+            # restaurant_id isn't denormalized onto every message_log (older
+            # rows predate it) — fall back to the webhook's own resolution.
+            await member_stats_service.record_status_change(
+                db,
+                prev.get("restaurant_id") or restaurant_id,
+                prev.get("recipient_phone"),
+                prev.get("status"),
+                status,
+                now,
+            )
             await _record_billing_event(db, wa_id, s, prev, now)
 
 

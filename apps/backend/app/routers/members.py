@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 
 from app.core.time import now_utc, normalize_external_dt
 from app.services.member_match_service import member_match_service
+from app.services import member_stats_service
 
 from app.config import settings
 from app.database import get_db
@@ -89,10 +90,34 @@ def _serialize(doc: dict, activity: tuple | None = None) -> MemberResponse:
     )
 
 
-async def _bulk_serialize(
-    docs: list[dict], restaurant_id: str, db: Any
+async def _attach_message_stats(
+    db: Any, restaurant_id: str, items: list[MemberResponse]
 ) -> list[MemberResponse]:
-    """Serialize a batch of member docs with bulk activity lookup."""
+    """Merge each member's lifetime messaging rollup onto the response.
+
+    One query for the whole page. Members with no rollup keep the zero defaults,
+    which is the honest answer for someone we have never messaged.
+    """
+    if not items:
+        return items
+    stats_map = await member_stats_service.get_bulk_stats(
+        db, restaurant_id, [i.phone for i in items]
+    )
+    for item in items:
+        key = member_stats_service.phone_key(item.phone)
+        member_stats_service.apply_stats(item, stats_map.get(key) if key else None)
+    return items
+
+
+async def _bulk_serialize(
+    docs: list[dict], restaurant_id: str, db: Any, *, with_stats: bool = True
+) -> list[MemberResponse]:
+    """Serialize a batch of member docs with bulk activity lookup.
+
+    `with_stats=False` skips the messaging rollup lookup — used by the r2 merge
+    path, which over-fetches thousands of candidates and attaches stats once to
+    the final page instead.
+    """
     phones = [d.get("phone") for d in docs]
     uuids = [d.get("card_uid") for d in docs]
     activity_map = await dormancy_service.get_bulk_activity(
@@ -104,7 +129,9 @@ async def _bulk_serialize(
         uuid_val = doc.get("card_uid")
         activity = activity_map.get(uuid_val) or activity_map.get(norm_phone)
         items.append(_serialize(doc, activity))
-    return items
+    if not with_stats:
+        return items
+    return await _attach_message_stats(db, restaurant_id, items)
 
 
 @router.get("")
@@ -238,7 +265,7 @@ async def _list_members_r2(
         .limit(fetch_limit)
         .to_list(length=fetch_limit)
     )
-    internal_items = await _bulk_serialize(internal_docs, "r2", db)
+    internal_items = await _bulk_serialize(internal_docs, "r2", db, with_stats=False)
 
     # 2. Merge Streams using heapq for efficiency
     # Since both streams are sorted by joined_at descending, we can merge them in O(N).
@@ -291,6 +318,11 @@ async def _list_members_r2(
         results.append(item)
         if len(results) >= page_size:
             break
+
+    # Messaging rollups are attached only to the page we actually return —
+    # both source streams over-fetch by design, and stats for rows that get
+    # filtered out would be thrown away.
+    await _attach_message_stats(db, "r2", results)
 
     # Estimate total (this is tricky with deduplication across pages)
     total = fielia_total + internal_total 
@@ -382,7 +414,9 @@ async def get_member(
     if not doc:
         raise NotFoundError(f"Member '{member_id}' not found")
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
-    return _serialize(doc)
+    item = _serialize(doc)
+    await _attach_message_stats(db, doc["restaurant_id"], [item])
+    return item
 
 
 @router.patch("/{member_id}")
@@ -407,7 +441,9 @@ async def update_member(
         {"$set": updates},
         return_document=True,
     )
-    return _serialize(doc)
+    item = _serialize(doc)
+    await _attach_message_stats(db, doc["restaurant_id"], [item])
+    return item
 
 
 @router.delete("/{member_id}", status_code=204)
@@ -442,7 +478,9 @@ async def record_visit(
         {"$inc": {"visit_count": 1}, "$set": {"last_visit": now}},
         return_document=True,
     )
-    return _serialize(doc)
+    item = _serialize(doc)
+    await _attach_message_stats(db, doc["restaurant_id"], [item])
+    return item
 
 
 @router.post("/{member_id}/send-ecard")

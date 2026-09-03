@@ -51,6 +51,13 @@ class MemberResponse(BaseModel):
     interested_at: datetime | None = None
     interested_campaign_name: str | None = None
 
+    # Lifetime messaging rollup (app/services/member_stats_service.py). These
+    # are NOT derived from message_logs, which expire after 30 days.
+    messages_sent: int = 0
+    messages_received: int = 0
+    messages_read: int = 0
+    last_message_at: datetime | None = None
+
 
 class MemberListResponse(BaseModel):
     items: list[MemberResponse]

@@ -213,6 +213,48 @@ class FieliaMembersService:
             logger.exception("fielia_list_members_unexpected_error")
             return {"items": [], "total": 0, "warning": "External member service unavailable"}
 
+    async def list_joined_between(
+        self, from_dt: datetime, to_dt: datetime, limit: int = 20000
+    ) -> list[dict]:
+        """Return lightweight {phone, name, joined_at} rows for members who
+        joined in a window. Used by acquisition attribution, which only needs
+        each member's phone and join date — not the full mapped member shape.
+        """
+        db_handle = self.get_db_handle()
+        if db_handle is None:
+            return []
+
+        try:
+            cursor = (
+                db_handle[self.collection_name]
+                .find(
+                    {"createdAt": {"$gte": from_dt, "$lte": to_dt}},
+                    {"phone": 1, "createdAt": 1, "content": 1, "firstName": 1, "lastName": 1},
+                )
+                .sort("createdAt", -1)
+                .limit(limit)
+            )
+            rows = []
+            async for doc in cursor:
+                joined_at = self._normalize_dt(doc.get("createdAt"))
+                if not joined_at:
+                    continue
+                rows.append(
+                    {
+                        "phone": doc.get("phone"),
+                        "name": self._resolve_name(doc),
+                        "joined_at": joined_at,
+                        "source": "nfc",
+                    }
+                )
+            return rows
+        except (ServerSelectionTimeoutError, AutoReconnect) as exc:
+            logger.error("fielia_list_joined_between_failed", error=str(exc))
+            return []
+        except Exception:
+            logger.exception("fielia_list_joined_between_unexpected_error")
+            return []
+
     async def check_phone_exists(self, phone: str) -> bool:
         """Return True if a document with the given phone exists in Fielia."""
         db_handle = self.get_db_handle()
