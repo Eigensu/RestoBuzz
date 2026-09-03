@@ -291,7 +291,7 @@ export default function ProfilePage() {
   );
 }
 
-function DetailItem({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+function DetailItem({ icon: Icon, label, value }: Readonly<{ icon: LucideIcon; label: string; value: string }>) {
   return (
     <div className="space-y-1">
       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -305,7 +305,7 @@ function DetailItem({ icon: Icon, label, value }: { icon: LucideIcon; label: str
   );
 }
 
-function CompactActivityRow({ icon: Icon, title, time }: { icon: LucideIcon; title: string; time: string }) {
+function CompactActivityRow({ icon: Icon, title, time }: Readonly<{ icon: LucideIcon; title: string; time: string }>) {
   return (
     <div className="px-6 py-3 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition duration-300">
       <div className="flex items-center gap-3 min-w-0">

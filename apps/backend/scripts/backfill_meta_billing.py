@@ -12,25 +12,27 @@ sys.path.append(str(ROOT))
 from app.config import settings
 from motor.motor_asyncio import AsyncIOMotorClient
 
+def _as_utc(ts):
+    """Attach UTC to a naive timestamp. None and already-aware values pass through."""
+    if ts and ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts
+
+
+def _first_billable(log):
+    """First billable pricing entry in the status history, with its timestamp."""
+    for status_item in log.get("status_history", []):
+        pricing = status_item.get("meta", {}).get("pricing")
+        if pricing and pricing.get("billable"):
+            return pricing, status_item.get("timestamp")
+    return None, None
+
+
 def _resolve_pricing_and_ts(log):
     """Extract pricing and timestamp from log status history."""
-    pricing = None
-    recorded_at = None
-    for status_item in log.get("status_history", []):
-        meta = status_item.get("meta", {})
-        p = meta.get("pricing")
-        if p and p.get("billable"):
-            pricing = p
-            ts = status_item.get("timestamp")
-            if ts:
-                recorded_at = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
-            break
-    
-    if not recorded_at:
-        recorded_at = log.get("updated_at") or log.get("created_at")
-        if recorded_at and recorded_at.tzinfo is None:
-            recorded_at = recorded_at.replace(tzinfo=timezone.utc)
-            
+    pricing, ts = _first_billable(log)
+    # Fall back to the log's own timestamps when the billable entry carried none.
+    recorded_at = _as_utc(ts) or _as_utc(log.get("updated_at") or log.get("created_at"))
     return pricing, recorded_at
 
 

@@ -43,8 +43,11 @@ const COLORS = [
 ];
 
 const LegendLabel = (v: string) => <span className="text-xs text-gray-600">{v}</span>;
-const ChartTooltipFormatter = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v ?? ""));
-const GuestTooltipFormatter = (v: unknown) => (typeof v === "number" ? `${v.toLocaleString("en-IN")} guests` : String(v ?? ""));
+// Recharts types a tooltip value as unknown. Only primitives have a sensible
+// display form, so anything else renders empty rather than "[object Object]".
+const toDisplayString = (v: unknown) => (typeof v === "string" ? v : "");
+const ChartTooltipFormatter = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-IN") : toDisplayString(v));
+const GuestTooltipFormatter = (v: unknown) => (typeof v === "number" ? `${v.toLocaleString("en-IN")} guests` : toDisplayString(v));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number) {

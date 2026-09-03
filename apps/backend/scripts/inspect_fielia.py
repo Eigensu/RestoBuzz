@@ -101,7 +101,7 @@ async def inspect():
         print("Error: FIELIA_MONGO_URI environment variable is not set.")
         sys.exit(1)
 
-    print(f"Connecting to MongoDB...")
+    print("Connecting to MongoDB...")
     client = AsyncIOMotorClient(URI, serverSelectionTimeoutMS=5000)
     db = client[DB_NAME]
     collection = db[COLLECTION_NAME]

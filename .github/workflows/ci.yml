@@ -29,7 +29,9 @@ jobs:
           cache: pip
           cache-dependency-path: apps/backend/requirements.txt
 
-      - run: pip install -r requirements.txt
+      # --only-binary :all: keeps pip from building any sdist, so no
+      # dependency's setup.py executes on the runner.
+      - run: "pip install --only-binary :all: -r requirements.txt"
 
       # No INTEGRATION env var, so the gated integration tests are collected
       # and skipped here, not run against a real DB. See backend-integration.
@@ -77,7 +79,9 @@ jobs:
           cache: pip
           cache-dependency-path: apps/backend/requirements.txt
 
-      - run: pip install -r requirements.txt
+      # --only-binary :all: keeps pip from building any sdist, so no
+      # dependency's setup.py executes on the runner.
+      - run: "pip install --only-binary :all: -r requirements.txt"
 
       # tests/integration/test_webhook.py signs its payloads with whatever this
       # is set to. It has to be set to something: the app skips signature
