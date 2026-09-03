@@ -149,11 +149,16 @@ const ERROR_TYPE_MAP: Record<string, new (message: string) => AppError> = {
   resend_api_error: ServerError,
 };
 
+interface ApiErrorResponse {
+  status?: number;
+  data?: { detail?: string; type?: string };
+}
+
 /**
  * Converts any thrown value (axios error, plain Error, unknown) into a typed
  * AppError subclass. Safe to use in every catch block.
  */
-function fromApiResponse(response: any): AppError {
+function fromApiResponse(response: ApiErrorResponse): AppError {
   const { detail, type } = response.data ?? {};
   const status = response.status ?? 500;
   const message = detail ?? "An unexpected error occurred";
@@ -176,13 +181,13 @@ function fromApiResponse(response: any): AppError {
   }
 }
 
-function fromNativeError(err: any): AppError {
+function fromNativeError(err: unknown): AppError {
   if (err instanceof AppError) return err;
   return new ServerError(err instanceof Error ? err.message : "An unexpected error occurred");
 }
 
 export function parseApiError(err: unknown): AppError {
-  const response = (err as any)?.response;
+  const response = (err as { response?: ApiErrorResponse } | undefined)?.response;
   if (response) return fromApiResponse(response);
   return fromNativeError(err);
 }

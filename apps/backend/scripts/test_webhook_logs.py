@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 # Standard root-relative import bootstrap
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT / "app"))
 
 from config import settings

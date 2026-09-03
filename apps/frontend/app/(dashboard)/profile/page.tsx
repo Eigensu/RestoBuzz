@@ -5,17 +5,18 @@ import { useQuery } from "@tanstack/react-query";
 import { getRestaurants } from "@/lib/restaurants";
 import { api } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
-import { 
-  User, 
-  Mail, 
-  Phone, 
-  Calendar, 
-  Shield, 
-  Store, 
+import {
+  User,
+  Mail,
+  Phone,
+  Calendar,
+  Shield,
+  Store,
   Activity,
   Clock,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  type LucideIcon
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { User as UserType } from "@/lib/auth";
@@ -183,7 +184,7 @@ export default function ProfilePage() {
                 </div>
               ) : restaurants.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {restaurants.map((r: any) => (
+                  {restaurants.map((r) => (
                     <div 
                       key={r.id}
                       className="flex items-center gap-4 p-4 rounded-2xl border border-gray-100 hover:border-[#24422e]/20 hover:bg-[#24422e]/5 transition group"
@@ -290,7 +291,7 @@ export default function ProfilePage() {
   );
 }
 
-function DetailItem({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+function DetailItem({ icon: Icon, label, value }: Readonly<{ icon: LucideIcon; label: string; value: string }>) {
   return (
     <div className="space-y-1">
       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -304,7 +305,7 @@ function DetailItem({ icon: Icon, label, value }: { icon: any; label: string; va
   );
 }
 
-function CompactActivityRow({ icon: Icon, title, time }: { icon: any; title: string; time: string }) {
+function CompactActivityRow({ icon: Icon, title, time }: Readonly<{ icon: LucideIcon; title: string; time: string }>) {
   return (
     <div className="px-6 py-3 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition duration-300">
       <div className="flex items-center gap-3 min-w-0">
