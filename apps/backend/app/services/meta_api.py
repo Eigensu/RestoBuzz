@@ -3,6 +3,7 @@ import mimetypes
 from urllib.parse import urlsplit
 from app.config import settings
 from app.core.logging import get_logger
+from app.services.wa_identity import is_bsuid
 
 logger = get_logger(__name__)
 
@@ -33,6 +34,19 @@ def _resolve_media_kind(media_url: str, media_type: str | None) -> str:
     if path.endswith(_DOC_EXTS):
         return "document"
     return "image"
+
+
+
+def _addressing_fields(to: str) -> dict:
+    """Address a send by phone number or by BSUID.
+
+    Meta routes a business-scoped user ID through `recipient`, not `to`. Sending
+    a BSUID as `to` is rejected. If both fields are present `to` wins, so they
+    are mutually exclusive here.
+    """
+    if is_bsuid(to):
+        return {"recipient": to}
+    return {"recipient_type": "individual", "to": to}
 
 
 class MetaAPIError(Exception):
@@ -114,8 +128,7 @@ def _build_payload(
 
     return {
         "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
+        **_addressing_fields(to),
         "type": "template",
         "template": template_obj,
     }
@@ -536,8 +549,7 @@ async def send_text_message(to: str, body: str, phone_id: str, token: str) -> st
     url = f"{META_BASE}/{phone_id}/messages"
     payload = {
         "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
+        **_addressing_fields(to),
         "type": "text",
         "text": {"body": body},
     }

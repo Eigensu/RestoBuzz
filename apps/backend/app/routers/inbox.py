@@ -38,6 +38,23 @@ _MONGO_GTE = "$gte"
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 
+
+def _conversation_match(contact_key: str) -> dict:
+    """Match inbound messages belonging to one conversation.
+
+    Documents written before BSUID support have no `contact_key`, so they are
+    matched on `from_phone` instead. New documents always carry `contact_key` —
+    the phone when known, otherwise the BSUID — which is what keeps a
+    username-only user in a single thread.
+    """
+    return {
+        "$or": [
+            {"contact_key": contact_key},
+            {"contact_key": {"$exists": False}, "from_phone": contact_key},
+        ]
+    }
+
+
 @router.get("/unread-count")
 async def get_unread_count(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
@@ -72,10 +89,19 @@ async def list_conversations(
                 "is_resolved": {_MONGO_NE: True},
             }
         },
-        {_MONGO_SORT: {"from_phone": 1, "received_at": -1}},
+        # Legacy rows predate contact_key; fall back to from_phone so historical
+        # conversations keep grouping the way they always did.
+        {
+            _MONGO_ADD_FIELDS: {
+                "contact_key": {"$ifNull": ["$contact_key", "$from_phone"]}
+            }
+        },
+        {_MONGO_SORT: {"contact_key": 1, "received_at": -1}},
         {
             _MONGO_GROUP: {
-                "_id": "$from_phone",
+                "_id": "$contact_key",
+                "bsuid": {_MONGO_FIRST: "$bsuid"},
+                "username": {_MONGO_FIRST: "$username"},
                 "sender_name": {_MONGO_FIRST: "$sender_name"},
                 "last_message": {_MONGO_FIRST: "$body"},
                 "last_message_type": {_MONGO_FIRST: "$message_type"},
@@ -101,6 +127,8 @@ async def list_conversations(
     items = [
         ConversationResponse(
             from_phone=d["_id"],
+            bsuid=d.get("bsuid"),
+            username=d.get("username"),
             sender_name=d.get("sender_name"),
             last_message=d.get("last_message"),
             last_message_type=normalize_message_type(d.get("last_message_type")),
@@ -153,7 +181,7 @@ async def get_conversation(
     pipeline = [
         {
             _MONGO_MATCH: {
-                "from_phone": phone,
+                **_conversation_match(phone),
                 "restaurant_id": rid,
                 "received_at": {_MONGO_GTE: since},
             }
@@ -238,7 +266,11 @@ async def mark_read(
 ):
     """Mark all messages from a phone number as read for the active restaurant."""
     await db.inbound_messages.update_many(
-        {"from_phone": phone, "restaurant_id": restaurant["id"], "is_read": False},
+        {
+            **_conversation_match(phone),
+            "restaurant_id": restaurant["id"],
+            "is_read": False,
+        },
         {_MONGO_SET: {"is_read": True}},
     )
     return {"status": "ok"}
@@ -252,7 +284,7 @@ async def resolve_conversation(
 ):
     """Resolve a conversation for the active restaurant."""
     await db.inbound_messages.update_many(
-        {"from_phone": phone, "restaurant_id": restaurant["id"]},
+        {**_conversation_match(phone), "restaurant_id": restaurant["id"]},
         {_MONGO_SET: {"is_resolved": True}},
     )
     return {"status": "ok"}

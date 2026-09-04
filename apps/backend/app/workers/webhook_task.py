@@ -27,6 +27,13 @@ from app.services.suppression import add_suppression
 from app.services.message_types import normalize_message_type
 from app.services.meta_api import send_text_message
 from app.utils.phone import normalize_phone
+from app.services.wa_identity import (
+    build_contact_index,
+    is_bsuid,
+    link_identity,
+    message_identifiers,
+    resolve_contact_key,
+)
 
 logger = get_logger(__name__)
 
@@ -140,6 +147,10 @@ async def _process(payload: dict) -> None:
 
                 # Skip template status updates — handled inline by the router.
                 if value.get("event") == "message_template_status_update":
+                    continue
+
+                if change.get("field") == "user_id_update":
+                    await _handle_user_id_update(db, value)
                     continue
 
                 restaurant_id, phone_number_id = await _resolve_restaurant(db, value)
@@ -331,15 +342,13 @@ async def _handle_messages(
     phone_number_id: str | None,
 ) -> None:
     messages = value.get("messages", [])
-    contacts = {
-        c["wa_id"]: c.get("profile", {}).get("name") for c in value.get("contacts", [])
-    }
+    contact_index = build_contact_index(value.get("contacts", []))
 
     messages_saved = 0
 
     for msg in messages:
         saved = await _process_inbound_message(
-            db, redis, msg, contacts, restaurant_id, phone_number_id
+            db, redis, msg, contact_index, restaurant_id, phone_number_id
         )
         if saved:
             messages_saved += 1
@@ -355,7 +364,7 @@ async def _process_inbound_message(
     db,
     redis,
     msg: dict,
-    contacts: dict,
+    contact_index: dict,
     restaurant_id: str | None,
     phone_number_id: str | None,
 ) -> bool:
@@ -369,8 +378,20 @@ async def _process_inbound_message(
         return False
     await mark_seen(redis, wa_id)
 
-    from_phone = msg.get("from")
-    sender_name = contacts.get(from_phone)
+    # A user who has adopted a username arrives with a BSUID and no phone
+    # number, so neither identifier can be assumed present. Whichever the
+    # message carries is used to look the contact up, and the contact entry
+    # fills in the other where Meta included it.
+    from_phone, from_bsuid = message_identifiers(msg)
+    contact = contact_index.get(from_phone) or contact_index.get(from_bsuid) or {}
+    from_phone = from_phone or contact.get("phone")
+    from_bsuid = from_bsuid or contact.get("bsuid")
+    sender_name = contact.get("name")
+    username = contact.get("username")
+
+    await link_identity(db, from_phone, from_bsuid, username, restaurant_id)
+    contact_key = await resolve_contact_key(db, from_phone, from_bsuid)
+
     msg_type = normalize_message_type(msg.get("type"))
     body, media_url, media_mime, media_id, location = _parse_message_content(
         msg, msg_type
@@ -379,6 +400,12 @@ async def _process_inbound_message(
     doc = {
         "wa_message_id": wa_id,
         "from_phone": from_phone,
+        "bsuid": from_bsuid,
+        "username": username,
+        # Canonical identifier for grouping this conversation: the phone when we
+        # have one, otherwise the BSUID. Legacy documents predate this field, so
+        # readers must fall back to from_phone.
+        "contact_key": contact_key,
         "sender_name": sender_name,
         "message_type": msg_type,
         "body": body,
@@ -405,30 +432,37 @@ async def _process_inbound_message(
     logger.info(
         "inbound_message_saved",
         from_phone=from_phone,
+        bsuid=from_bsuid,
         type=msg_type,
         wa_id=wa_id,
         restaurant_id=restaurant_id,
     )
 
-    orig_msg = await _handle_reply_tracking(db, msg, from_phone, doc["received_at"])
+    orig_msg = await _handle_reply_tracking(db, msg, contact_key, doc["received_at"])
 
     if body and body.strip().lower() in STOP_KEYWORDS:
-        await add_suppression(db, from_phone, reason="opt_out")
-        logger.info("auto_suppressed", phone=from_phone)
+        # Suppress on the canonical key so an opt-out from a BSUID-only user is
+        # still honoured. Guarded because a webhook carrying neither identifier
+        # would otherwise write a null-keyed suppression row.
+        if contact_key:
+            await add_suppression(db, contact_key, reason="opt_out")
+            logger.info("auto_suppressed", contact_key=contact_key)
+        else:
+            logger.warning("stop_keyword_without_identifier", wa_id=wa_id)
     else:
         # A positive reply to a campaign message flags the respondent as an
         # "interested" member (skipped above for STOP keywords on purpose).
-        await _handle_interested_reply(db, orig_msg, body, from_phone, sender_name)
+        await _handle_interested_reply(db, orig_msg, body, contact_key, sender_name)
 
     await _handle_auto_replies(
-        db, msg, msg_type, from_phone, restaurant_id, phone_number_id
+        db, msg, msg_type, contact_key, restaurant_id, phone_number_id
     )
 
     return True
 
 
 async def _handle_reply_tracking(
-    db, msg: dict, from_phone: str, received_at: datetime
+    db, msg: dict, contact_key: str | None, received_at: datetime
 ) -> dict | None:
     """Mark the original outbound message as replied and increment replies_count.
 
@@ -437,7 +471,7 @@ async def _handle_reply_tracking(
     """
     replied_to_wa_id = msg.get("context", {}).get("id")
     orig_msg = await _find_and_mark_replied(
-        db, replied_to_wa_id, from_phone, received_at
+        db, replied_to_wa_id, contact_key, received_at
     )
     if orig_msg and orig_msg.get("job_id"):
         await db.campaign_jobs.update_one(
@@ -477,7 +511,7 @@ async def _handle_interested_reply(
     db,
     orig_msg: dict | None,
     body: str | None,
-    from_phone: str,
+    contact_key: str | None,
     sender_name: str | None,
 ) -> None:
     """Upsert the campaign respondent as an 'interested' member.
@@ -497,13 +531,15 @@ async def _handle_interested_reply(
     )
 
     if not restaurant_id:
-        logger.warning("interested_reply_no_restaurant", from_phone=from_phone)
+        logger.warning("interested_reply_no_restaurant", contact_key=contact_key)
         return
 
+    # recipient_phone comes off the matched outbound log and is a real phone in
+    # practice; the contact_key fallbacks only matter for legacy rows.
     phone = (
         orig_msg.get("recipient_phone")
-        or normalize_phone(from_phone)
-        or from_phone
+        or normalize_phone(contact_key)
+        or contact_key
     )
     name = orig_msg.get("recipient_name") or sender_name or "Unknown"
     now = datetime.now(timezone.utc)
@@ -596,7 +632,7 @@ async def _handle_auto_replies(
     db,
     msg: dict,
     msg_type: str,
-    from_phone: str,
+    contact_key: str | None,
     restaurant_id: str | None,
     phone_number_id: str | None,
 ) -> None:
@@ -615,8 +651,8 @@ async def _handle_auto_replies(
         if btn_payload == "get_benefits" or btn_text == "get the benefits":
             is_benefits = True
 
-    if is_benefits:
-        await _send_benefits_reply(db, from_phone, restaurant_id, phone_number_id)
+    if is_benefits and contact_key:
+        await _send_benefits_reply(db, contact_key, restaurant_id, phone_number_id)
 
 
 async def _send_benefits_reply(
@@ -689,7 +725,7 @@ async def _send_benefits_reply(
 async def _find_and_mark_replied(
     db,
     replied_to_wa_id: str | None,
-    from_phone: str,
+    contact_key: str | None,
     received_at: datetime,
 ) -> dict | None:
     """Find the original outbound message this inbound is replying to and mark it replied."""
@@ -699,9 +735,18 @@ async def _find_and_mark_replied(
             {"$set": {"replied": True}},
         )
 
+    # Without an explicit context id the only fallback is the recipient phone on
+    # message_logs. A BSUID-only key has no phone to match, so there is nothing
+    # to fall back to — an explicit context id is the sole path for those users
+    # until their BSUID is linked to a phone.
+    if not contact_key or is_bsuid(contact_key):
+        return None
+
     forty_eight_hours_ago = received_at - timedelta(hours=48)
-    normalized = normalize_phone(from_phone)
-    phone_variants = list({p for p in [normalized, from_phone, f"+{from_phone}"] if p})
+    normalized = normalize_phone(contact_key)
+    phone_variants = list(
+        {p for p in [normalized, contact_key, f"+{contact_key}"] if p}
+    )
     # Match the recipient's most recent SENT campaign message within 48h of its
     # actual send time. Keying off sent_at (not created_at) is essential: a
     # campaign can sit queued for days, so created_at is unrelated to when the
@@ -723,6 +768,60 @@ async def _find_and_mark_replied(
         {"$set": {"replied": True}},
         sort=[("sent_at", -1), ("created_at", -1)],
     )
+
+
+# ── BSUID lifecycle ───────────────────────────────────────────────────────────
+
+# Field names Meta may use for the previous and current BSUID on a
+# `user_id_update` webhook. Meta documents that the payload carries both, but
+# does not publish the exact key names, so several plausible spellings are
+# accepted and the raw payload is logged until one is confirmed against a real
+# delivery.
+_OLD_BSUID_KEYS = ("previous_user_id", "old_user_id", "from_user_id")
+_NEW_BSUID_KEYS = ("user_id", "new_user_id", "to_user_id")
+
+
+def _first_present(payload: dict, keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+async def _handle_user_id_update(db, value: dict) -> None:
+    """Re-key a stored identity when a user's BSUID changes.
+
+    Meta issues a new BSUID when a user changes their phone number. Without
+    this, the old BSUID keeps pointing at a stale phone and the user shows up as
+    a second conversation.
+    """
+    payload = value.get("user_id_update") or value
+    old_bsuid = _first_present(payload, _OLD_BSUID_KEYS)
+    new_bsuid = _first_present(payload, _NEW_BSUID_KEYS)
+    phone = payload.get("wa_id") or payload.get("phone_number")
+
+    logger.info(
+        "user_id_update_received",
+        old_bsuid=old_bsuid,
+        new_bsuid=new_bsuid,
+        has_phone=bool(phone),
+        raw=payload,
+    )
+
+    if not new_bsuid:
+        logger.warning("user_id_update_missing_new_bsuid", raw=payload)
+        return
+
+    if old_bsuid and old_bsuid != new_bsuid:
+        # Carry the phone we already learned over to the new BSUID, then retire
+        # the old row so it cannot resolve to a stale phone.
+        previous = await db.wa_identities.find_one({"bsuid": old_bsuid})
+        if previous and not phone:
+            phone = previous.get("phone")
+        await db.wa_identities.delete_one({"bsuid": old_bsuid})
+
+    await link_identity(db, phone, new_bsuid)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
