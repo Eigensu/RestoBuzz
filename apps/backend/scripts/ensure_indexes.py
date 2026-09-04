@@ -42,22 +42,6 @@ async def ensure_indexes():
     await db.reservego_uploads.create_index([("restaurant_id", 1), ("phone", 1)])
     await db.reservego_bill_data.create_index([("restaurant_id", 1), ("bill_number", 1)])
     
-    # 5. BSUID identity links (see app/services/wa_identity.py)
-    print("Creating indexes for wa_identities...")
-    await db.wa_identities.create_index([("bsuid", 1)], unique=True)
-    # Sparse: rows for a username user we have never learned a phone for carry
-    # no phone field, and they must not collide on null.
-    await db.wa_identities.create_index([("phone", 1)], sparse=True)
-
-    # 6. Conversation grouping key on inbound messages. Sparse because rows
-    # written before BSUID support have no contact_key and are matched on
-    # from_phone instead.
-    print("Creating index on inbound_messages(restaurant_id, contact_key)...")
-    await db.inbound_messages.create_index(
-        [("restaurant_id", 1), ("contact_key", 1), ("received_at", -1)],
-        sparse=True,
-    )
-
     print("\nAll indexes ensured successfully.")
     client.close()
 
