@@ -875,17 +875,7 @@ async def start_campaign(
             f"Cannot start a campaign with status '{previous_status}'"
         )
 
-    # Resuming from an auto-pause means the operator believes the block is
-    # cleared (template edited or unpaused in WhatsApp Manager). Hand back the
-    # retries the block consumed before it was recognised as campaign-wide —
-    # otherwise messages left at retry_count 1-2 by the old burn get only the
-    # remainder of their budget and fail permanently on the next hiccup.
     previous_pause_reason = doc.get("pause_reason")
-    if (previous_pause_reason or {}).get("auto"):
-        await db.message_logs.update_many(
-            {"job_id": to_object_id(campaign_id), "status": "queued"},
-            {"$set": {"retry_count": 0}},
-        )
 
     await db.campaign_jobs.update_one(
         {"_id": to_object_id(campaign_id)},
@@ -901,16 +891,40 @@ async def start_campaign(
         # it: a campaign returned to 'paused' without one shows no banner and
         # reads as a mystery pause, which is the state this whole path exists
         # to avoid.
+        #
+        # Guarded on the exact status this call wrote, so the revert is a
+        # compare-and-swap rather than a blind overwrite. Without the guard a
+        # cancel landing while the broker call was timing out (/cancel accepts
+        # 'queued') would be undone, resurrecting a cancelled campaign as
+        # paused.
         rollback: dict = {"status": previous_status}
         if previous_pause_reason is not None:
             rollback["pause_reason"] = previous_pause_reason
         await db.campaign_jobs.update_one(
-            {"_id": to_object_id(campaign_id)}, {"$set": rollback}
+            {"_id": to_object_id(campaign_id), "status": "queued"},
+            {"$set": rollback},
         )
         raise HTTPException(
             status_code=503,
             detail=_QUEUE_UNAVAILABLE_DETAIL,
         ) from e
+
+    # Resuming from an auto-pause means the operator believes the block is
+    # cleared (template edited or unpaused in WhatsApp Manager). Hand back the
+    # retries the block consumed before it was recognised as campaign-wide —
+    # otherwise messages left at retry_count 1-2 by the old burn get only the
+    # remainder of their budget and fail permanently on the next hiccup.
+    #
+    # Deliberately after the dispatch: a resume that never reached the broker
+    # has not happened, and must not leave the retry budget rewritten behind
+    # it. The fan-out runs in a worker, so this lands before any send reads a
+    # count in all but a pathological interleaving — and there the reset only
+    # forgives one extra attempt, which is the intent anyway.
+    if (previous_pause_reason or {}).get("auto"):
+        await db.message_logs.update_many(
+            {"job_id": to_object_id(campaign_id), "status": "queued"},
+            {"$set": {"retry_count": 0}},
+        )
 
     # `doc` predates the update, so drop the reason we just unset — otherwise
     # the response pairs status 'queued' with a stale block and the dashboard

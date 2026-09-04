@@ -130,6 +130,42 @@ async def test_auto_pause_resume_hands_back_the_retry_budget():
 
 
 @pytest.mark.asyncio
+async def test_failed_dispatch_leaves_the_retry_budget_untouched():
+    # The resume never reached the broker, so none of its side effects may
+    # persist — including the retry forgiveness.
+    doc = _make_doc()
+    db = _make_db(doc)
+
+    with patch("app.routers.campaigns.validate_restaurant_access", AsyncMock()), patch(
+        "app.routers.campaigns.run_in_threadpool",
+        AsyncMock(side_effect=RuntimeError("broker down")),
+    ):
+        with pytest.raises(HTTPException):
+            await start_campaign(CAMPAIGN_ID, {"role": "admin"}, db)
+
+    db.message_logs.update_many.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rollback_cannot_overwrite_a_newer_campaign_state():
+    # /cancel accepts a 'queued' campaign, so a cancel can land while the
+    # broker call is timing out. The revert must be a compare-and-swap on the
+    # status this call wrote, or a cancelled campaign comes back as paused.
+    doc = _make_doc()
+    db = _make_db(doc)
+
+    with patch("app.routers.campaigns.validate_restaurant_access", AsyncMock()), patch(
+        "app.routers.campaigns.run_in_threadpool",
+        AsyncMock(side_effect=RuntimeError("broker down")),
+    ):
+        with pytest.raises(HTTPException):
+            await start_campaign(CAMPAIGN_ID, {"role": "admin"}, db)
+
+    rollback_filter = db.campaign_jobs.update_one.call_args_list[-1].args[0]
+    assert rollback_filter["status"] == "queued"
+
+
+@pytest.mark.asyncio
 async def test_manual_pause_resume_leaves_retry_counts_alone():
     # A human paused this one; the retries it spent were real per-recipient
     # failures and must not be forgiven.
