@@ -1,5 +1,5 @@
 "use client";
-import { RefreshCw, ImageIcon, Video, FileText, X, Search } from "lucide-react";
+import { RefreshCw, X, Search } from "lucide-react";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -8,38 +8,11 @@ import { cn } from "@/lib/utils";
 import { buildEcardPreviewUrl, cloudinaryPublicId } from "@/lib/cloudinary";
 import type { Template } from "@/types";
 import { WizardTemplatePreview } from "@/components/campaigns/molecules/WizardTemplatePreview";
+import { HeaderMediaPreview } from "@/components/templates/atoms/HeaderMediaPreview";
+import { MEDIA_CONFIG, isMediaFormat } from "@/lib/templateMedia";
 
 const INPUT_CLS =
   "w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/30";
-
-// Per WhatsApp header media format: upload accept filter, helper copy, URL
-// placeholder and the icon shown in the empty drop zone. Drives the media
-// section so a VIDEO/DOCUMENT header is handled, not just IMAGE.
-const MEDIA_CONFIG = {
-  IMAGE: {
-    label: "Media Image",
-    accept: "image/jpeg,image/png,image/webp,image/gif",
-    hint: "Click to upload · JPG, PNG, WEBP · max 5MB",
-    urlPlaceholder: "Or paste an image URL",
-    Icon: ImageIcon,
-  },
-  VIDEO: {
-    label: "Media Video",
-    accept: "video/mp4,video/3gpp",
-    hint: "Click to upload · MP4, 3GP · max 16MB",
-    urlPlaceholder: "Or paste a video URL",
-    Icon: Video,
-  },
-  DOCUMENT: {
-    label: "Media Document",
-    accept: "application/pdf",
-    hint: "Click to upload · PDF · max 16MB",
-    urlPlaceholder: "Or paste a document URL",
-    Icon: FileText,
-  },
-} as const;
-
-type MediaFormat = keyof typeof MEDIA_CONFIG;
 
 interface Step0TemplateProps {
   templates: Template[];
@@ -57,44 +30,6 @@ interface Step0TemplateProps {
   ecardPersonalize: boolean;
   setEcardPersonalize: (b: boolean) => void;
   setEcardPublicId: (id: string) => void;
-}
-
-function HeaderMediaPreview({
-  headerFormat,
-  mediaUrl,
-}: Readonly<{ headerFormat: string; mediaUrl: string }>) {
-  if (headerFormat === "VIDEO") {
-    return (
-      <video
-        src={mediaUrl}
-        controls
-        className="w-full max-h-36 bg-black object-contain"
-      >
-        <track kind="captions" />
-      </video>
-    );
-  }
-  if (headerFormat === "DOCUMENT") {
-    return (
-      <a
-        href={mediaUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-center gap-2 px-3 py-4 text-sm text-[#24422e] hover:underline"
-      >
-        <FileText className="w-5 h-5 shrink-0" />
-        <span className="truncate">View attached document</span>
-      </a>
-    );
-  }
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={mediaUrl}
-      alt="media preview"
-      className="w-full max-h-36 object-cover"
-    />
-  );
 }
 
 export function Step0Template({
@@ -122,9 +57,9 @@ export function Step0Template({
   const headerFormat = (
     selectedTemplate?.components.find((c) => c.type === "HEADER")?.format ?? ""
   ).toUpperCase();
-  const requiresMedia = headerFormat in MEDIA_CONFIG;
+  const requiresMedia = isMediaFormat(headerFormat);
   const mediaCfg = requiresMedia
-    ? MEDIA_CONFIG[headerFormat as MediaFormat]
+    ? MEDIA_CONFIG[headerFormat]
     : MEDIA_CONFIG.IMAGE;
   // Personalization renders the name via Cloudinary transforms, so it only works
   // when the media is a Cloudinary delivery URL (from which a public_id can be

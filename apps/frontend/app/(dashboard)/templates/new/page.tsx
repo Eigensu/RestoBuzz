@@ -14,7 +14,6 @@ import {
   X,
   Loader2,
   RefreshCw,
-  Image as ImageIcon,
   Phone,
   MoreVertical,
   Send as SendIcon,
@@ -28,6 +27,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useRef } from "react";
+import { HeaderMediaPreview } from "@/components/templates/atoms/HeaderMediaPreview";
+import { MEDIA_CONFIG, isMediaFormat } from "@/lib/templateMedia";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -42,6 +43,9 @@ const LANGUAGES = [
 
 type HeaderType = "none" | "text" | "image" | "video" | "document";
 
+/** Radio values map 1:1 onto Meta's HEADER formats once upper-cased. */
+const headerFormatOf = (t: HeaderType) => t.toUpperCase();
+
 export default function NewTemplatePage() {
   const router = useRouter();
   const qc = useQueryClient();
@@ -52,10 +56,10 @@ export default function NewTemplatePage() {
   const [language, setLanguage] = useState("en");
   const [headerType, setHeaderType] = useState<HeaderType>("none");
   const [headerText, setHeaderText] = useState("");
-  const [headerImageUrl, setHeaderImageUrl] = useState("");
+  const [headerMediaUrl, setHeaderMediaUrl] = useState("");
   const [body, setBody] = useState("");
   const [footer, setFooter] = useState("");
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
 
   // Variable tracking
   const variableMatches = body.match(/\{\{\d+\}\}/g) || [];
@@ -129,6 +133,12 @@ export default function NewTemplatePage() {
       .replace(/\n/g, "<br />");
   };
 
+  // Upload config for the selected media header; null for none/text.
+  const headerFormat = headerFormatOf(headerType);
+  const mediaCfg = isMediaFormat(headerFormat)
+    ? MEDIA_CONFIG[headerFormat]
+    : null;
+
   // Build components payload
   const buildComponents = () => {
     const comps: Array<{
@@ -140,12 +150,12 @@ export default function NewTemplatePage() {
 
     if (headerType === "text" && headerText.trim()) {
       comps.push({ type: "HEADER", format: "TEXT", text: headerText });
-    } else if (headerType === "image" && headerImageUrl.trim()) {
+    } else if (mediaCfg && headerMediaUrl.trim()) {
       comps.push({
         type: "HEADER",
-        format: "IMAGE",
+        format: headerFormat,
         text: "",
-        example: { media_url: headerImageUrl },
+        example: { media_url: headerMediaUrl },
       });
     }
 
@@ -177,7 +187,12 @@ export default function NewTemplatePage() {
   });
 
   const canSubmit =
-    !!name.trim() && !!body.trim() && body.length <= 1024 && !uploadingImage;
+    !!name.trim() &&
+    !!body.trim() &&
+    body.length <= 1024 &&
+    !uploadingMedia &&
+    // A media header with nothing uploaded would submit with no header at all.
+    (!mediaCfg || !!headerMediaUrl.trim());
 
   const selectedLang = LANGUAGES.find((l) => l.code === language);
 
@@ -296,17 +311,15 @@ export default function NewTemplatePage() {
                     name="headerType"
                     value={value}
                     checked={headerType === value}
-                    onChange={() => setHeaderType(value)}
-                    disabled={value === "video" || value === "document"}
+                    onChange={() => {
+                      // A media handle is format-specific, so an upload never
+                      // carries across a switch.
+                      setHeaderMediaUrl("");
+                      setHeaderType(value);
+                    }}
                     className="w-4 h-4 accent-[#24422e]"
                   />
-                  <span
-                    className={`text-sm font-medium ${
-                      value === "video" || value === "document"
-                        ? "text-gray-300"
-                        : "text-gray-700"
-                    }`}
-                  >
+                  <span className="text-sm font-medium text-gray-700">
                     {label}
                   </span>
                 </label>
@@ -322,18 +335,17 @@ export default function NewTemplatePage() {
               />
             )}
 
-            {headerType === "image" && (
+            {mediaCfg && (
               <div className="mt-4 space-y-3">
-                {headerImageUrl ? (
+                {headerMediaUrl ? (
                   <div className="relative w-full rounded-xl overflow-hidden border bg-white">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={headerImageUrl}
-                      alt="header preview"
-                      className="w-full max-h-40 object-cover"
+                    <HeaderMediaPreview
+                      headerFormat={headerFormat}
+                      mediaUrl={headerMediaUrl}
+                      className="max-h-40"
                     />
                     <button
-                      onClick={() => setHeaderImageUrl("")}
+                      onClick={() => setHeaderMediaUrl("")}
                       className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -342,22 +354,22 @@ export default function NewTemplatePage() {
                 ) : (
                   <label
                     className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl p-6 cursor-pointer transition ${
-                      uploadingImage
+                      uploadingMedia
                         ? "opacity-50 pointer-events-none"
                         : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5"
                     }`}
                   >
                     <input
                       type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      accept={mediaCfg.accept}
                       className="sr-only"
                       onChange={async (e) => {
-                        const image = e.target.files?.[0];
-                        if (!image) return;
-                        setUploadingImage(true);
+                        const media = e.target.files?.[0];
+                        if (!media) return;
+                        setUploadingMedia(true);
                         try {
                           const form = new FormData();
-                          form.append("file", image);
+                          form.append("file", media);
                           const { data } = await api.post(
                             "/media/upload",
                             form,
@@ -367,31 +379,29 @@ export default function NewTemplatePage() {
                               },
                             },
                           );
-                          setHeaderImageUrl(data.url);
+                          setHeaderMediaUrl(data.url);
                         } catch (err) {
                           toast.error(parseApiError(err).message);
                         } finally {
-                          setUploadingImage(false);
+                          setUploadingMedia(false);
                         }
                       }}
                     />
-                    {uploadingImage ? (
+                    {uploadingMedia ? (
                       <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
                     ) : (
-                      <ImageIcon className="w-5 h-5 text-gray-300" />
+                      <mediaCfg.Icon className="w-5 h-5 text-gray-300" />
                     )}
                     <span className="text-xs text-gray-400 font-medium">
-                      {uploadingImage
-                        ? "Uploading..."
-                        : "Click to upload — JPG, PNG, WEBP, GIF (max 5MB)"}
+                      {uploadingMedia ? "Uploading..." : mediaCfg.hint}
                     </span>
                   </label>
                 )}
                 <input
-                  value={headerImageUrl}
-                  onChange={(e) => setHeaderImageUrl(e.target.value)}
+                  value={headerMediaUrl}
+                  onChange={(e) => setHeaderMediaUrl(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/20 focus:border-[#24422e]"
-                  placeholder="Or paste an image URL"
+                  placeholder={mediaCfg.urlPlaceholder}
                 />
               </div>
             )}
@@ -583,13 +593,12 @@ export default function NewTemplatePage() {
                   {/* Message bubble */}
                   <div className="max-w-[90%] self-start">
                     <div className="bg-white rounded-xl rounded-tl-sm shadow-sm overflow-hidden">
-                      {/* Header image */}
-                      {headerType === "image" && headerImageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={headerImageUrl}
-                          alt="Header"
-                          className="w-full h-28 object-cover"
+                      {/* Header media */}
+                      {mediaCfg && headerMediaUrl && (
+                        <HeaderMediaPreview
+                          headerFormat={headerFormat}
+                          mediaUrl={headerMediaUrl}
+                          className="h-28 max-h-28"
                         />
                       )}
 
