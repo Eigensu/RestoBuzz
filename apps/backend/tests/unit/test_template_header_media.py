@@ -90,6 +90,32 @@ async def test_oversized_image_header_is_rejected_at_its_own_cap(patched_client)
     assert exc.value.code == "media_too_large"
 
 
+async def test_uppercase_content_type_still_picks_the_image_cap(patched_client):
+    """MIME tokens are case-insensitive; "IMAGE/PNG" must not reach the fallback."""
+    patched_client(_media_handler("IMAGE/PNG", 6 * 1024 * 1024))
+
+    with pytest.raises(meta_api.MetaAPIError) as exc:
+        await meta_api.create_media_handle_from_url(
+            "https://cdn.test/BIG.PNG", "APP", "tok"
+        )
+
+    assert exc.value.code == "media_too_large"
+
+
+async def test_cap_survives_both_a_charset_parameter_and_mixed_case(
+    patched_client,
+):
+    """Mixed case plus a parameter still resolves to the 5 MB image cap."""
+    patched_client(_media_handler("Image/PNG; charset=binary", 6 * 1024 * 1024))
+
+    with pytest.raises(meta_api.MetaAPIError) as exc:
+        await meta_api.create_media_handle_from_url(
+            "https://cdn.test/big.png", "APP", "tok"
+        )
+
+    assert exc.value.code == "media_too_large"
+
+
 async def test_oversized_video_header_is_still_rejected(patched_client):
     patched_client(_media_handler("video/mp4", 17 * 1024 * 1024))
 

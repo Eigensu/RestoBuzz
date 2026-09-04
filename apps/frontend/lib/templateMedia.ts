@@ -31,9 +31,12 @@ export const MEDIA_CONFIG = {
 
 export type MediaFormat = keyof typeof MEDIA_CONFIG;
 
-/** True for the HEADER formats that carry a media handle rather than text. */
+/** True for the HEADER formats that carry a media handle rather than text.
+ *  Meta types `format` as a free string, so this has to reject inherited keys
+ *  ("constructor" and friends) that `in` would wave through into a config
+ *  object with no accept/hint/Icon. */
 export function isMediaFormat(
   format: string | null | undefined,
 ): format is MediaFormat {
-  return !!format && format in MEDIA_CONFIG;
+  return !!format && Object.hasOwn(MEDIA_CONFIG, format);
 }

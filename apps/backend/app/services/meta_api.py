@@ -354,10 +354,14 @@ async def create_media_handle_from_url(
                         f"Unable to fetch media from URL (status {fetch_resp.status_code})",
                     )
 
+                # MIME tokens are case-insensitive, so normalise before the
+                # cap lookup — "IMAGE/PNG" would otherwise miss the image entry
+                # and fall through to the widest ceiling.
                 content_type = (
                     fetch_resp.headers.get("content-type", "application/octet-stream")
                     .split(";")[0]
                     .strip()
+                    .lower()
                 )
                 max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
                     content_type.split("/")[0], MAX_MEDIA_BYTES

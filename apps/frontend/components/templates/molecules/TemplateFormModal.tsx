@@ -32,6 +32,21 @@ interface TemplateFormModalProps {
 const COMPONENT_TYPES = ["HEADER", "BODY", "FOOTER", "BUTTONS"];
 const LANGUAGES = ["en", "en_US", "hi", "ar", "es", "fr", "pt_BR", "id"];
 
+/** Text-area placeholder for a component row. A media header has nothing to
+ *  type into it, so it points at the upload control instead. */
+function placeholderFor(componentType: string, hasMedia: boolean): string {
+  if (componentType === "BODY") {
+    return "Message body — use {{1}}, {{2}} for variables";
+  }
+  if (componentType === "FOOTER") {
+    return "Footer text (e.g. unsubscribe info)";
+  }
+  if (componentType === "HEADER") {
+    return hasMedia ? "Upload media above" : "Header text";
+  }
+  return "Button text";
+}
+
 function defaultComponents(t?: Template): ComponentRow[] {
   if (t) {
     return t.components
@@ -451,17 +466,7 @@ export function TemplateFormModal({
                   disabled={(comp.type === "HEADER" && !!mediaCfg) || (isEdit && comp.type !== "BODY")}
                   readOnly={isEdit && comp.type !== "BODY"}
                   aria-readonly={isEdit && comp.type !== "BODY"}
-                  placeholder={
-                    comp.type === "BODY"
-                      ? "Message body — use {{1}}, {{2}} for variables"
-                      : comp.type === "FOOTER"
-                        ? "Footer text (e.g. unsubscribe info)"
-                        : comp.type === "HEADER"
-                          ? mediaCfg
-                            ? "Upload media above"
-                            : "Header text"
-                          : "Button text"
-                  }
+                  placeholder={placeholderFor(comp.type, !!mediaCfg)}
                 />
                 {comp.type === "BODY" && (
                   <p
