@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import type { Campaign } from "@/types";
 import { relativeIST } from "@/lib/date";
 import { CampaignStatusBadge } from "@/components/campaigns/atoms/CampaignStatusBadge";
@@ -26,18 +26,7 @@ export function CampaignRow({ campaign: c, onDelete }: Readonly<CampaignRowProps
         </p>
       </td>
       <td className="px-6 py-4">
-        <div className="flex items-center gap-1.5">
-          <CampaignStatusBadge status={c.status} />
-          {c.pause_reason && (
-            <span
-              title={c.pause_reason.message}
-              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
-            >
-              <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-              Blocked by Meta
-            </span>
-          )}
-        </div>
+        <CampaignStatusBadge status={c.status} />
       </td>
       <td className="px-6 py-4 w-48">
         <ProgressBar sent={c.sent_count} total={c.total_count} />
