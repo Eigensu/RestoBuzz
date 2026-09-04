@@ -30,3 +30,30 @@ RETRYABLE_FAILED_MATCH: dict = {
     "status": "failed",
     "error_code": {"$nin": sorted(NON_RETRYABLE_ERROR_CODES)},
 }
+
+
+# Failures that block the ENTIRE campaign, not just one recipient. Meta has
+# taken the template (or the whole account) out of service, so every remaining
+# send would fail identically.
+#
+# These must never go down the generic transient-retry path. That path burns a
+# message's three retries in ~11 minutes and then marks it permanently failed —
+# so a template pause, which is temporary and fixable, would silently convert
+# every still-queued recipient into a permanent failure. Observed in production
+# on 2026-09-04: a 30,583-recipient campaign had 14,840 recipients mid-burn when
+# Meta paused the template for low quality.
+#
+# The send path instead pauses the campaign and records the reason, leaving the
+# queued messages untouched so a resume can pick them up once the template is
+# healthy again.
+#
+#   132015  Template paused by Meta for low quality.
+#   132016  Template disabled after being paused too many times.
+#   132001  Template does not exist / not approved in this language.
+#   131048  Account-level spam rate limit reached.
+CAMPAIGN_BLOCKING_ERROR_CODES: dict[str, str] = {
+    "132015": "Template paused by Meta for low quality",
+    "132016": "Template disabled by Meta after repeated quality pauses",
+    "132001": "Template is unavailable or not approved for this language",
+    "131048": "Account has hit Meta's spam rate limit",
+}

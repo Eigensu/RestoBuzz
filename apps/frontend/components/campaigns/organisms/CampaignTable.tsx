@@ -3,6 +3,7 @@ import { useState, Fragment } from "react";
 import type { Campaign } from "@/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { CampaignStatusBadge } from "@/components/campaigns/atoms/CampaignStatusBadge";
+import { BlockedByMetaChip } from "@/components/campaigns/atoms/BlockedByMetaChip";
 
 interface CampaignGroup {
   root: Campaign;
@@ -150,6 +151,9 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <CampaignStatusBadge status={root.status} />
+                      {root.pause_reason && (
+                        <BlockedByMetaChip reason={root.pause_reason} />
+                      )}
                       {root.status === "draft" && root.scheduled_at && (
                         <span
                           title={new Date(root.scheduled_at).toLocaleString(
@@ -248,7 +252,12 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                         </div>
                       </td>
                       <td className="px-4 py-2.5">
-                        <CampaignStatusBadge status={retry.status} />
+                        <div className="flex items-center gap-2">
+                          <CampaignStatusBadge status={retry.status} />
+                          {retry.pause_reason && (
+                            <BlockedByMetaChip reason={retry.pause_reason} />
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-2.5 w-40">
                         <div className="flex items-center gap-2">

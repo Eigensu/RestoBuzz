@@ -19,6 +19,7 @@ import {
 import { FailureChart } from "@/components/campaigns/molecules/FailureChart";
 import { MessageLogsTable } from "@/components/campaigns/molecules/MessageLogsTable";
 import { SmartRetryStatus } from "@/components/campaigns/molecules/SmartRetryStatus";
+import { CampaignBlockedBanner } from "@/components/campaigns/molecules/CampaignBlockedBanner";
 import { CampaignStatus } from "@/types/common/enums";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { cn } from "@/lib/utils";
@@ -269,6 +270,10 @@ export default function CampaignDetailPage() {
           </button>
         </div>
       </div>
+
+      {campaign?.pause_reason && (
+        <CampaignBlockedBanner reason={campaign.pause_reason} />
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Main Progress Card */}

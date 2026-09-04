@@ -6,6 +6,7 @@ from app.workers.celery_app import celery_app
 from app.database import get_fresh_db
 from app.core.logging import get_logger
 from app.core.redlock import RedLock
+from app.constants.meta_errors import CAMPAIGN_BLOCKING_ERROR_CODES
 from app.services.meta_api import send_template_message, MetaAPIError
 from app.services.rate_limiter import acquire_token
 from app.services.suppression import is_suppressed
@@ -295,10 +296,82 @@ async def _do_send(
     logger.info("message_sent", id=message_log_id, wa_id=wa_id)
 
 
+async def _block_campaign(db, msg: dict, message_log_id: str, e: MetaAPIError) -> None:
+    """Park the whole campaign when Meta takes the template/account out of service.
+
+    Returns this message to 'queued' WITHOUT consuming a retry: the send didn't
+    fail because of anything about this recipient, so charging it a retry would
+    push a recoverable recipient toward permanent failure. Pausing the campaign
+    also stops the fan-out at the top of `_send`, so sibling messages already in
+    flight bail out the same way instead of hammering a dead template.
+    """
+    now = datetime.now(timezone.utc)
+    await db.message_logs.update_one(
+        {"_id": ObjectId(message_log_id)},
+        {"$set": {"status": "queued", "locked_until": None, "updated_at": now}},
+    )
+
+    # Guarded so only the first worker to notice writes the reason, and so a
+    # campaign a human already paused/cancelled isn't yanked back.
+    paused = await db.campaign_jobs.find_one_and_update(
+        {"_id": msg["job_id"], "status": {"$in": ["running", "queued", "dispatching"]}},
+        {
+            "$set": {
+                "status": "paused",
+                "pause_reason": {
+                    "code": e.code,
+                    "summary": CAMPAIGN_BLOCKING_ERROR_CODES.get(e.code, "Send blocked"),
+                    # Meta's own wording, surfaced verbatim in the dashboard so
+                    # the operator sees exactly what WhatsApp Manager shows.
+                    "message": e.message,
+                    "template_name": msg.get("template_name"),
+                    "paused_at": now,
+                    "auto": True,
+                },
+            }
+        },
+        return_document=False,
+    )
+
+    if paused is not None:
+        logger.warning(
+            "campaign_auto_paused",
+            job_id=str(msg["job_id"]),
+            code=e.code,
+            template=msg.get("template_name"),
+            error=e.message,
+        )
+        await _mark_template_paused(db, msg, e)
+
+
+async def _mark_template_paused(db, msg: dict, e: MetaAPIError) -> None:
+    """Reflect the pause on the template row so the picker stops offering it.
+
+    Without this the template keeps reading APPROVED until the 6-hourly
+    `template_sync` runs, and the campaign wizard happily builds another
+    campaign on a template Meta is rejecting.
+    """
+    if e.code not in ("132015", "132016"):
+        return
+    query: dict = {"name": msg.get("template_name", "")}
+    if msg.get("restaurant_id"):
+        query["restaurant_id"] = msg["restaurant_id"]
+    await db.templates.update_one(
+        query,
+        {"$set": {"status": "PAUSED", "paused_reason": e.message}},
+    )
+
+
 async def _handle_meta_error(
     task: Task, db, msg: dict, message_log_id: str, e: MetaAPIError
 ) -> None:
     """Retry transient Meta API errors; permanently fail after max retries."""
+    # Campaign-wide blocks are not this recipient's fault and retrying cannot
+    # clear them — pause instead of burning the queue down into failures.
+    if e.code in CAMPAIGN_BLOCKING_ERROR_CODES:
+        await _block_campaign(db, msg, message_log_id, e)
+        return
+
     retry_count = msg.get("retry_count", 0)
     if retry_count < 3:
         countdown = 30 * (4**retry_count)
