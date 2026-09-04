@@ -19,9 +19,13 @@ _UNSET = "$unset"
 # Statuses that mean "this child has not finished yet".
 _PENDING_STATUSES = ["queued", "dispatching", "running"]
 
-# How often a root may spawn a retry. Shared by the eligibility predicate and by
-# the staleness bound below, so the two can never drift apart.
-ROOT_RETRY_GATE_MINUTES = 120
+# How often a root may spawn a retry. Shared by the eligibility predicate, by
+# the staleness bound below, and by the reporting side in routers/campaigns.py,
+# so the three can never drift apart.
+#
+# PENDING_CHILD_STALE_MINUTES must stay strictly above this value — see the
+# comment on it below.
+ROOT_RETRY_GATE_MINUTES = 240
 
 # How long a pending child may sit before we stop believing it is in flight.
 #
@@ -135,7 +139,7 @@ async def _reap_stale_children(db, root_id: str, now: datetime) -> int:
     return len(stale_ids)
 
 
-def _root_retry_eligibility(now: datetime, two_hours_ago: datetime) -> dict:
+def _root_retry_eligibility(now: datetime, retry_gate_cutoff: datetime) -> dict:
     """Full eligibility predicate for claiming a ROOT campaign's retry slot.
 
     Single source of truth shared by the polling prefilter (find) and the atomic
@@ -160,7 +164,7 @@ def _root_retry_eligibility(now: datetime, two_hours_ago: datetime) -> dict:
             {
                 "$or": [
                     {"last_auto_retry_at": {_EXISTS: False}},
-                    {"last_auto_retry_at": {"$lte": two_hours_ago}},
+                    {"last_auto_retry_at": {"$lte": retry_gate_cutoff}},
                 ]
             },
         ],
@@ -200,12 +204,12 @@ async def _poll() -> None:
     db = get_fresh_db()
     try:
         now = datetime.now(timezone.utc)
-        two_hours_ago = now - timedelta(minutes=ROOT_RETRY_GATE_MINUTES)
+        retry_gate_cutoff = now - timedelta(minutes=ROOT_RETRY_GATE_MINUTES)
 
         # Only poll ROOT campaigns that have actually finished running.
         # Children are never polled directly — the root tracks last_auto_retry_at
         # and we look up the latest completed child to source failures from.
-        cursor = db.campaign_jobs.find(_root_retry_eligibility(now, two_hours_ago))
+        cursor = db.campaign_jobs.find(_root_retry_eligibility(now, retry_gate_cutoff))
         async for root_job in cursor:
             root_id_obj = root_job["_id"]
 
@@ -215,7 +219,7 @@ async def _poll() -> None:
             # smart_retries toggled off, or aged past retry_until between the read
             # and the claim cannot be claimed.
             claimed = await db.campaign_jobs.find_one_and_update(
-                {"_id": root_id_obj, **_root_retry_eligibility(now, two_hours_ago)},
+                {"_id": root_id_obj, **_root_retry_eligibility(now, retry_gate_cutoff)},
                 {"$set": {"last_auto_retry_at": now}},
                 return_document=False,
             )

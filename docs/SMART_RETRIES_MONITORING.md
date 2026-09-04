@@ -2,7 +2,7 @@
 
 ## Overview
 
-Smart retries automatically retry failed messages from WhatsApp campaigns every **2 hours** until a specified deadline (`retry_until`). This document explains how the system works and how to monitor it.
+Smart retries automatically retry failed messages from WhatsApp campaigns every **4 hours** until a specified deadline (`retry_until`). This document explains how the system works and how to monitor it.
 
 ---
 
@@ -25,7 +25,7 @@ When creating a campaign, enable smart retries by setting:
   - Deadline (`retry_until`) is still in the future
   - **Either:**
     - Never auto-retried before (`last_auto_retry_at` missing)
-    - OR last auto-retry was more than 2 hours ago
+    - OR last auto-retry was more than 4 hours ago
 
 ### 3. **Retry Execution**
 
@@ -34,7 +34,7 @@ When a campaign is eligible:
 1. The poller atomically updates `last_auto_retry_at` to current time (prevents duplicate retries)
 2. Creates a child retry campaign containing only the failed messages
 3. Dispatches the child campaign to Celery queue
-4. Process repeats every 2 hours until:
+4. Process repeats every 4 hours until:
    - No more failed messages remain, OR
    - The `retry_until` deadline is reached
 
@@ -61,8 +61,8 @@ GET /api/campaigns/{campaign_id}/smart-retry-status
   "failed_count": 25,
   "retry_until": "2026-06-10T15:00:00Z",
   "last_auto_retry_at": "2026-06-06T12:00:00Z",
-  "last_retry_seconds_ago": 7200,
-  "next_retry_at": "2026-06-06T14:00:00Z",
+  "last_retry_seconds_ago": 14400,
+  "next_retry_at": "2026-06-06T16:00:00Z",
   "next_retry_in_seconds": 0,
   "deadline_in_seconds": 345600,
   "is_eligible_for_retry": true,
@@ -93,7 +93,7 @@ GET /api/campaigns/{campaign_id}/smart-retry-status
   ],
   "total_retries": 1,
   "poller_frequency": "Every 15 minutes",
-  "retry_interval": "Every 2 hours"
+  "retry_interval": "Every 4 hours"
 }
 ```
 
@@ -102,7 +102,7 @@ GET /api/campaigns/{campaign_id}/smart-retry-status
 - `is_eligible_for_retry`: Whether the campaign will retry again
 - `reason_not_eligible`: Why it won't retry (if applicable)
 - `next_retry_in_seconds`: How long until next retry (0 = will retry on next poll)
-- `last_retry_seconds_ago`: Time since last auto-retry (7200 = 2 hours)
+- `last_retry_seconds_ago`: Time since last auto-retry (14400 = 4 hours)
 - `retry_chain`: All campaigns in the retry chain (root + children)
 - `total_retries`: Number of auto-retries that have been executed
 
@@ -252,7 +252,7 @@ celery -A app.workers.celery_app inspect scheduled
 ### Manual Retry vs Auto Retry
 
 - **Manual retry:** User clicks "Retry Failed" button → creates child campaign immediately
-- **Auto retry:** System creates child campaigns every 2 hours until deadline
+- **Auto retry:** System creates child campaigns every 4 hours until deadline
 
 Both use the same `create_child_retry_campaign` function but:
 
@@ -306,7 +306,7 @@ GET /api/campaigns/{id}/smart-retry-status
 # 5. Wait 2+ hours and check again
 # Should see new child campaign in retry_chain
 
-# 6. Repeat every 2 hours until deadline
+# 6. Repeat every 4 hours until deadline
 ```
 
 ### Expected Behavior
@@ -350,7 +350,7 @@ const { data: retryStatus } = useQuery({
 2. Poller finds eligible campaigns (2+ hours since last retry, before deadline, has failures)
 3. Creates child campaign with failed messages
 4. Updates `last_auto_retry_at` to prevent duplicate retries
-5. Repeats every 2 hours
+5. Repeats every 4 hours
 
 ✅ **Monitor via:**
 

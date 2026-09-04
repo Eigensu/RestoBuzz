@@ -42,6 +42,7 @@ from app.models.message import (
 from app.services.meta_api import send_template_message, MetaAPIError
 from app.services.ecard_service import build_card_url
 from app.workers.send_task import dispatch_campaign_task
+from app.workers.smart_retries_poller import ROOT_RETRY_GATE_MINUTES
 from app.services.campaign_service import (
     resolve_waba_credentials,
     create_child_retry_campaign,
@@ -1259,11 +1260,13 @@ def _compute_retry_eligibility(doc: dict, now: datetime) -> tuple:
             None,
         )
 
-    # Eligible. Next retry is 2h after the last auto-retry, or immediately if
-    # it has never been retried / the 2h window has already elapsed.
+    # Eligible. Next retry is ROOT_RETRY_GATE_MINUTES after the last auto-retry,
+    # or immediately if it has never been retried / that window has elapsed.
     last_auto_retry_at = _as_aware(doc.get("last_auto_retry_at"))
     if last_auto_retry_at:
-        next_retry_at = last_auto_retry_at + timedelta(hours=2)
+        next_retry_at = last_auto_retry_at + timedelta(
+            minutes=ROOT_RETRY_GATE_MINUTES
+        )
         if next_retry_at > now:
             return True, None, next_retry_at, int((next_retry_at - now).total_seconds())
     return True, None, now, 0
@@ -1366,5 +1369,5 @@ async def get_smart_retry_status(
         "retry_chain": campaigns,
         "total_retries": len(campaigns) - 1,  # Exclude root
         "poller_frequency": "Every 15 minutes",
-        "retry_interval": "Every 2 hours",
+        "retry_interval": f"Every {ROOT_RETRY_GATE_MINUTES // 60} hours",
     }
