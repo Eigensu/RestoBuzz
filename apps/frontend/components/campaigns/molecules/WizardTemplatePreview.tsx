@@ -2,6 +2,11 @@ import { ImageIcon, Video, FileText, Smartphone, ExternalLink } from "lucide-rea
 import type { Template } from "@/types";
 
 import { BRAND_GRADIENT } from "@/lib/brand";
+import { metaButtonLabel } from "@/lib/templateButtons";
+import {
+  renderWithVariables,
+  templateSampleValues,
+} from "@/lib/templateVariables";
 
 interface WizardTemplatePreviewProps {
   template: Template | null;
@@ -26,12 +31,13 @@ export function WizardTemplatePreview({
   const header = template.components.find((c) => c.type === "HEADER");
   const body = template.components.find((c) => c.type === "BODY");
   const footer = template.components.find((c) => c.type === "FOOTER");
-  const buttons = template.components.find((c) => c.type === "BUTTONS") as
-    | { type: string; buttons?: { type: string; text: string }[] }
-    | undefined;
+  const buttons = template.components.find((c) => c.type === "BUTTONS");
 
+  // Fall back to the samples Meta holds for the template so the preview reads
+  // like a message even before a mapping exists.
+  const samples = templateSampleValues(template.components);
   const resolveBody = (text: string) =>
-    text.replaceAll(/\{\{(\d+)\}\}/g, (_, k) => variables[k] ?? `{{${k}}}`);
+    renderWithVariables(text, { ...samples, ...variables });
 
   return (
     <div className="flex flex-col items-stretch h-full pt-2">
@@ -111,14 +117,14 @@ export function WizardTemplatePreview({
             </div>
             {buttons?.buttons && buttons.buttons.length > 0 && (
               <div className="border-t divide-y">
-                {buttons.buttons.map((btn) => (
+                {buttons.buttons.map((btn, i) => (
                   <div
-                    key={btn.text}
+                    key={`btn-${i}`}
                     className="flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium"
                     style={{ color: "#24422e" }}
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                    {btn.text}
+                    {metaButtonLabel(btn)}
                   </div>
                 ))}
               </div>

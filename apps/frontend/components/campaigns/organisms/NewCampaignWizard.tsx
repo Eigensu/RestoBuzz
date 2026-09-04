@@ -15,8 +15,16 @@ import { WizardRightPanel } from "@/components/campaigns/molecules/WizardRightPa
 import { Step0Template } from "@/components/campaigns/molecules/Step0Template";
 import { Step1Upload } from "@/components/campaigns/molecules/Step1Upload";
 import { Step2Preflight } from "@/components/campaigns/molecules/Step2Preflight";
+import { VariableMappingPanel } from "@/components/campaigns/molecules/VariableMappingPanel";
 import { Step3Review } from "@/components/campaigns/molecules/Step3Review";
 import { GradientButton } from "@/components/ui/GradientButton";
+import {
+  extractVariables,
+  resolvePreviewValue,
+  sourceError,
+  suggestSource,
+} from "@/lib/templateVariables";
+import type { VariableSourceDraft } from "@/lib/templateVariables";
 
 interface SavedFile {
   id: string;
@@ -51,6 +59,9 @@ export function NewCampaignWizard() {
 
   // Step 2
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  const [variableSources, setVariableSources] = useState<
+    Record<string, VariableSourceDraft>
+  >({});
 
   // Step 3
   const [campaignName, setCampaignName] = useState("");
@@ -202,6 +213,7 @@ export function NewCampaignWizard() {
         template_id: selectedTemplate?.name ?? "",
         template_name: selectedTemplate?.name ?? "",
         template_variables: variables,
+        variable_sources: variableSources,
         media_url: mediaUrl || null,
         personalization: personalizationPayload,
         include_unsubscribe: includeUnsub,
@@ -228,7 +240,9 @@ export function NewCampaignWizard() {
         restaurant_id: restaurant?.id ?? "",
         to_phone: testPhone.trim(),
         template_name: selectedTemplate?.name ?? "",
-        template_variables: variables,
+        // Resolved against the first contact so the test message reads exactly
+        // as the campaign will, mapping mistakes included.
+        template_variables: previewVariables,
         // Personalized test shows a sample name so the operator sees the real card.
         media_url: ecardActive
           ? buildEcardPreviewUrl(mediaUrl, "Aarav Mehta")
@@ -242,11 +256,53 @@ export function NewCampaignWizard() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
-  const bodyVars =
-    selectedTemplate?.components
-      .find((c) => c.type === "BODY")
-      ?.text?.match(/\{\{(\d+)\}\}/g)
-      ?.map((v) => v.replaceAll("{", "").replaceAll("}", "")) ?? [];
+  const bodyVars = extractVariables(
+    selectedTemplate?.components.find((c) => c.type === "BODY")?.text ?? "",
+  );
+
+  const sheetHeaders = preflight?.headers ?? [];
+  const sampleContact = preflight?.valid_rows?.[0];
+
+  // Values the first contact would receive — drives the phone preview and the
+  // test send, so both show what actually goes out rather than raw {{...}}.
+  // Blank entries are dropped rather than sent as "": an empty value would
+  // override the template's own sample and leave the preview showing the raw
+  // {{placeholder}} instead.
+  const previewVariables = Object.fromEntries(
+    bodyVars
+      .map((name) => [
+        name,
+        resolvePreviewValue(variableSources[name], {
+          row: sampleContact?.row,
+          contactName: sampleContact?.name,
+          restaurant,
+        }) || variables[name] || "",
+      ])
+      .filter(([, value]) => value),
+  );
+
+  const mappingProblem = bodyVars
+    .map((name) => sourceError(variableSources[name]))
+    .find(Boolean);
+
+  // Open the mapping step already filled in. Guessing from the variable's name
+  // and the sheet's headers is right most of the time, and a wrong guess is one
+  // dropdown to fix — an empty row is a decision for every variable.
+  const varSignature = bodyVars.join(",");
+  useEffect(() => {
+    if (!preflight) return;
+    setVariableSources((prev) => {
+      const missing = bodyVars.filter((name) => !prev[name]);
+      if (missing.length === 0) return prev;
+      const next = { ...prev };
+      for (const name of missing) {
+        next[name] = suggestSource(name, preflight.headers ?? []);
+      }
+      return next;
+    });
+    // bodyVars is rebuilt every render; varSignature tracks its contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preflight, varSignature]);
 
   const scheduleValid =
     sendMode === "immediate" ||
@@ -275,7 +331,9 @@ export function NewCampaignWizard() {
       return true;
     }
     if (step === 1) return !!preflight;
-    if (step === 2) return (preflight?.valid_count ?? 0) > 0;
+    if (step === 2) {
+      return (preflight?.valid_count ?? 0) > 0 && !mappingProblem;
+    }
     return !!campaignName && scheduleValid && retryValid;
   }
 
@@ -297,7 +355,7 @@ export function NewCampaignWizard() {
               templates={apiTemplates ?? []}
               selectedTemplate={selectedTemplate}
               setSelectedTemplate={setSelectedTemplate}
-              variables={variables}
+              variables={previewVariables}
               setVariables={setVariables}
               mediaUrl={mediaUrl}
               setMediaUrl={setMediaUrl}
@@ -328,7 +386,21 @@ export function NewCampaignWizard() {
               reservegoCount={reservegoCount}
             />
           )}
-          {step === 2 && preflight && <Step2Preflight preflight={preflight} />}
+          {step === 2 && preflight && (
+            <div className="space-y-6">
+              <Step2Preflight preflight={preflight} />
+              <VariableMappingPanel
+                names={bodyVars}
+                headers={sheetHeaders}
+                sources={variableSources}
+                onChange={(name, source) =>
+                  setVariableSources((prev) => ({ ...prev, [name]: source }))
+                }
+                restaurant={restaurant}
+                sampleRow={sampleContact}
+              />
+            </div>
+          )}
           {step === 3 && (
             <Step3Review
               campaignName={campaignName}

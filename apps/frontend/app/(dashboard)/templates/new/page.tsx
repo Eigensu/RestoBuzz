@@ -10,7 +10,6 @@ import { BRAND_GRADIENT } from "@/lib/brand";
 import {
   ArrowLeft,
   Smartphone,
-  Plus,
   X,
   Loader2,
   RefreshCw,
@@ -33,6 +32,16 @@ import { TemplateButtonsEditor } from "@/components/templates/molecules/Template
 import { MEDIA_CONFIG, isMediaFormat } from "@/lib/templateMedia";
 import { buildButtonsComponent, buttonsError } from "@/lib/templateButtons";
 import type { ButtonDraft } from "@/lib/templateButtons";
+import {
+  AddVariableMenu,
+  TemplateVariablesPanel,
+} from "@/components/templates/molecules/TemplateVariablesPanel";
+import {
+  extractVariables,
+  isNamedTemplate,
+  renderWithVariables,
+  variableLabel,
+} from "@/lib/templateVariables";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -64,18 +73,26 @@ export default function NewTemplatePage() {
   const [body, setBody] = useState("");
   const [footer, setFooter] = useState("");
   const [buttons, setButtons] = useState<ButtonDraft[]>([]);
+  const [samples, setSamples] = useState<Record<string, string>>({});
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
-  // Variable tracking
-  const variableMatches = body.match(/\{\{\d+\}\}/g) || [];
-  const uniqueVars = [...new Set(variableMatches)];
+  // Variables the body actually contains, in the order they appear.
+  const bodyVars = extractVariables(body);
+  const named = isNamedTemplate(bodyVars);
 
-  const addVariable = () => {
-    const indices = (body.match(/\{\{(\d+)\}\}/g) ?? [])
-      .map((m) => parseInt(m.replace(/\{\{|\}\}/g, ""), 10))
-      .filter((n) => !isNaN(n));
-    const nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 1;
-    setBody((prev) => prev + `{{${nextIndex}}}`);
+  /** Insert a named placeholder where the cursor is, not at the very end —
+   *  variables almost always belong mid-sentence. */
+  const insertVariable = (name: string, sample: string) => {
+    const token = `{{${name}}}`;
+    const el = textareaRef.current;
+    const at = el ? el.selectionStart : body.length;
+    const next = (body.slice(0, at) + token + body.slice(at)).slice(0, 1024);
+    setBody(next);
+    setSamples((prev) => ({ ...prev, [name]: prev[name] ?? sample }));
+    setTimeout(() => {
+      el?.focus();
+      el?.setSelectionRange(at + token.length, at + token.length);
+    }, 0);
   };
 
   const applyFormat = (type: "bold" | "italic" | "strikethrough" | "code") => {
@@ -166,7 +183,19 @@ export default function NewTemplatePage() {
     }
 
     if (body.trim()) {
-      comps.push({ type: "BODY", text: body });
+      // Named templates carry their samples in Meta's own example block; the
+      // backend fills any the author left blank.
+      const namedExamples = bodyVars.map((name) => ({
+        param_name: name,
+        example: samples[name]?.trim() || variableLabel(name),
+      }));
+      comps.push({
+        type: "BODY",
+        text: body,
+        ...(named && namedExamples.length > 0
+          ? { example: { body_text_named_params: namedExamples } }
+          : {}),
+      });
     }
 
     if (footer.trim()) {
@@ -440,13 +469,7 @@ export default function NewTemplatePage() {
 
             <div className="flex items-center justify-between mt-2">
               <div className="flex items-center gap-1">
-                <button
-                  onClick={addVariable}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#24422e] hover:bg-[#eff2f0] px-2 py-1 rounded-lg transition"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add variable
-                </button>
+                <AddVariableMenu used={bodyVars} onPick={insertVariable} />
               </div>
 
               <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100">
@@ -506,18 +529,13 @@ export default function NewTemplatePage() {
               </span>
             </div>
 
-            {uniqueVars.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
-                {uniqueVars.map((v) => (
-                  <span
-                    key={v}
-                    className="text-[10px] font-black px-2.5 py-1 bg-[#eff2f0] text-[#24422e] rounded-full tracking-wide"
-                  >
-                    {v}
-                  </span>
-                ))}
-              </div>
-            )}
+            <TemplateVariablesPanel
+              names={bodyVars}
+              samples={samples}
+              onSampleChange={(name, sample) =>
+                setSamples((prev) => ({ ...prev, [name]: sample }))
+              }
+            />
           </div>
 
           {/* Footer Section */}
@@ -633,7 +651,9 @@ export default function NewTemplatePage() {
                           className="text-[11px] text-gray-800 leading-relaxed wrap-break-word preview-whatsapp-message"
                           dangerouslySetInnerHTML={{
                             __html:
-                              renderPreviewText(body) ||
+                              renderPreviewText(
+                                renderWithVariables(body, samples),
+                              ) ||
                               '<span class="text-gray-400 italic">Your message body will appear here...</span>',
                           }}
                         />

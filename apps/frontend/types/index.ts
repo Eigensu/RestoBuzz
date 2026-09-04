@@ -119,6 +119,8 @@ export interface PreflightResult {
     name: string;
     phone: string;
     variables: Record<string, string>;
+    /** Every non-empty cell of the source row, keyed by column header. */
+    row?: Record<string, string>;
   }>;
   invalid_rows: Array<{
     row_number: number;
@@ -126,6 +128,8 @@ export interface PreflightResult {
     reason: string;
   }>;
   file_ref: string;
+  /** Column headers from the sheet, offered as variable sources. */
+  headers?: string[];
 }
 
 export interface Template {
@@ -139,6 +143,15 @@ export interface Template {
     text?: string;
     format?: string;
     example?: Record<string, unknown>;
+    /** BUTTONS components only. Meta's own button types are open-ended, so
+     *  `type` stays a plain string. */
+    buttons?: Array<{
+      type: string;
+      text?: string;
+      url?: string;
+      phone_number?: string;
+      example?: string;
+    }>;
   }>;
 }
 

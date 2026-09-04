@@ -29,7 +29,12 @@ from app.core.errors import (
     ServerError,
     ValidationError,
 )
-from app.models.campaign import CampaignCreate, CampaignResponse, CampaignListResponse
+from app.models.campaign import (
+    CampaignCreate,
+    CampaignResponse,
+    CampaignListResponse,
+    VariableSource,
+)
 from app.models.campaign import (
     CampaignTestMessageRequest,
     CampaignTestMessageResponse,
@@ -57,7 +62,14 @@ _GROUP = "$group"
 _SORT = "$sort"
 _CREATED_AT = "$created_at"
 _EXISTS = "$exists"
-_BODY_VAR_RE = re.compile(r"\{\{(\d+)\}\}")
+# Matches both parameter formats: {{1}} on templates created before named
+# support, {{customer_name}} on the ones created since.
+_BODY_VAR_RE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+
+# Restaurant fields a variable may be sourced from, mapped to the key on the
+# restaurant document. Deliberately a small allowlist — a free-form field path
+# would let a campaign body read anything stored on the restaurant.
+_RESTAURANT_FIELDS = {"name": "name", "location": "location"}
 
 # Matches only root campaigns. Retry children carry a parent_campaign_id (stored
 # as the string form of the root's ObjectId — see create_child_retry_campaign).
@@ -141,6 +153,97 @@ def _sanitize_template_variables(
             continue
         cleaned[normalized_key] = normalized_value
     return cleaned
+
+
+def _campaign_wide_variables(
+    sources: dict[str, VariableSource], restaurant: dict
+) -> dict[str, str]:
+    """Values that are the same for every recipient, resolved once.
+
+    A restaurant-sourced variable is read from the sending restaurant rather
+    than typed, so a campaign cannot go out carrying the wrong venue's name.
+    """
+    resolved: dict[str, str] = {}
+    for key, source in sources.items():
+        if source.kind == "fixed":
+            value = str(source.value or "").strip()
+        elif source.kind == "restaurant":
+            field = _RESTAURANT_FIELDS.get(str(source.field or "").strip())
+            if not field:
+                raise ValidationError(
+                    f"Variable '{key}' asks for an unknown restaurant field "
+                    f"'{source.field}'. Available: {', '.join(sorted(_RESTAURANT_FIELDS))}."
+                )
+            value = str(restaurant.get(field) or "").strip()
+        else:
+            continue
+        if value:
+            resolved[key] = value
+    return resolved
+
+
+def _require_variable_coverage(
+    allowed_keys: set[str],
+    sources: dict[str, VariableSource],
+    campaign_variables: dict,
+) -> None:
+    """Refuse a campaign that would send a message with a hole in it.
+
+    Every variable needs either a value that holds for all recipients or a
+    fallback for the rows where its column is blank. Without this the send
+    reaches Meta one parameter short and every affected message fails with
+    error 132000 — after the campaign has already started.
+    """
+    missing = sorted(
+        key
+        for key in allowed_keys
+        if not str(campaign_variables.get(key) or "").strip()
+        and not str((sources.get(key).fallback if sources.get(key) else "") or "").strip()
+    )
+    if missing:
+        listed = ", ".join(f"{{{{{k}}}}}" for k in missing)
+        raise ValidationError(
+            f"These variables have no value for every recipient: {listed}. "
+            "Give each one a fallback, or a fixed value."
+        )
+
+
+def _resolve_recipient_variables(
+    contact: dict,
+    *,
+    sources: dict[str, VariableSource],
+    campaign_variables: dict,
+    allowed_keys: set[str],
+) -> dict[str, str]:
+    """The variable values for one recipient.
+
+    Precedence is most-specific-first: this recipient's own cell, then the
+    value that holds campaign-wide, then the fallback.
+    """
+    row = contact.get("row") or {}
+    legacy = contact.get("variables") or {}
+    resolved: dict[str, str] = {}
+
+    for key in allowed_keys:
+        source = sources.get(key)
+        value = ""
+
+        if source and source.kind == "column":
+            value = str(row.get(str(source.column or "")) or "").strip()
+        elif source and source.kind == "contact":
+            value = str(contact.get("name") or "").strip()
+        if not value:
+            # Mapping applied at upload time, before variable_sources existed.
+            value = str(legacy.get(key) or "").strip()
+        if not value:
+            value = str(campaign_variables.get(key) or "").strip()
+        if not value and source:
+            value = str(source.fallback or "").strip()
+
+        if value:
+            resolved[key] = value
+
+    return resolved
 
 
 def _serialize_campaign(doc: dict) -> CampaignResponse:
@@ -265,6 +368,7 @@ def _build_campaign_message_docs(
     body: CampaignCreate,
     media_type,
     campaign_template_variables: dict,
+    variable_sources: dict[str, VariableSource],
     allowed_var_keys,
     wa_phone_id,
     wa_access_token_env_key,
@@ -281,9 +385,11 @@ def _build_campaign_message_docs(
             "recipient_phone": c["phone"],
             "recipient_name": c.get("name", ""),
             "template_name": body.template_name,
-            "template_variables": _sanitize_template_variables(
-                {**campaign_template_variables, **c.get("variables", {})},
-                allowed_var_keys,
+            "template_variables": _resolve_recipient_variables(
+                c,
+                sources=variable_sources,
+                campaign_variables=campaign_template_variables,
+                allowed_keys=allowed_var_keys,
             ),
             "media_url": (
                 build_card_url(
@@ -331,8 +437,21 @@ async def create_campaign(
     )
     allowed_var_keys = _template_body_var_keys(template_doc)
     media_type = _template_header_media_type(template_doc)
+    variable_sources = {
+        key: source
+        for key, source in body.variable_sources.items()
+        if key in allowed_var_keys
+    }
+    restaurant_doc = await db.restaurants.find_one({"id": body.restaurant_id}) or {}
     campaign_template_variables = _sanitize_template_variables(
-        body.template_variables, allowed_var_keys
+        {
+            **body.template_variables,
+            **_campaign_wide_variables(variable_sources, restaurant_doc),
+        },
+        allowed_var_keys,
+    )
+    _require_variable_coverage(
+        allowed_var_keys, variable_sources, campaign_template_variables
     )
 
     now = datetime.now(timezone.utc)
@@ -343,6 +462,13 @@ async def create_campaign(
         "template_id": body.template_id,
         "template_name": body.template_name,
         "template_variables": campaign_template_variables,
+        # Kept for the campaign detail view and for debugging a bad send: the
+        # per-recipient values on message_logs show what went out, this shows
+        # where each one was meant to come from.
+        "variable_sources": {
+            key: source.model_dump(exclude_none=True)
+            for key, source in variable_sources.items()
+        },
         "media_url": body.media_url,
         "media_type": media_type,
         "personalization": (
@@ -403,6 +529,7 @@ async def create_campaign(
             body=body,
             media_type=media_type,
             campaign_template_variables=campaign_template_variables,
+            variable_sources=variable_sources,
             allowed_var_keys=allowed_var_keys,
             wa_phone_id=wa_phone_id,
             wa_access_token_env_key=wa_access_token_env_key,

@@ -110,13 +110,18 @@ def _build_payload(
         )
 
     if variables:
-        # Sort variables by numeric key (1, 2, 3...) to ensure correct order for Meta API
-        try:
-            sorted_vars = sorted(variables.items(), key=lambda x: int(x[0]))
-            body_params = [{"type": "text", "text": str(v)} for k, v in sorted_vars]
-        except (ValueError, TypeError):
-            # If keys aren't numeric, fall back to value order
-            body_params = [{"type": "text", "text": str(v)} for v in variables.values()]
+        if all(str(k).isdigit() for k in variables):
+            # POSITIONAL template: Meta matches parameters to {{1}}, {{2}} by
+            # position, so the order they are sent in is the whole contract.
+            sorted_vars = sorted(variables.items(), key=lambda kv: int(kv[0]))
+            body_params = [{"type": "text", "text": str(v)} for _, v in sorted_vars]
+        else:
+            # NAMED template: each parameter carries the placeholder it fills,
+            # so order does not matter.
+            body_params = [
+                {"type": "text", "parameter_name": str(k), "text": str(v)}
+                for k, v in variables.items()
+            ]
         components.append({"type": "body", "parameters": body_params})
 
     template_obj = {

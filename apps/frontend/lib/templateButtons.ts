@@ -100,6 +100,21 @@ export interface ButtonDraft {
 
 export const isCallToAction = (type: ButtonType) => type !== "QUICK_REPLY";
 
+/** Label for a stored, Meta-shaped button. Templates synced from Meta can carry
+ *  button types this editor cannot author, and COPY_CODE never carries text of
+ *  its own — both would otherwise render as an empty row. */
+export function metaButtonLabel(button: {
+  type: string;
+  text?: string;
+}): string {
+  if (button.text?.trim()) return button.text;
+  if (button.type === "COPY_CODE") return COPY_CODE_LABEL;
+  const config = (
+    BUTTON_CONFIG as Record<string, { label: string } | undefined>
+  )[button.type];
+  return config?.label ?? "Button";
+}
+
 let seq = 0;
 
 export function newButton(
@@ -133,6 +148,14 @@ export function isTypeFull(
     pool.length >= MAX_BUTTONS || countOfType(pool, type) >= BUTTON_CONFIG[type].max
   );
 }
+
+/** A row the user added but has not filled in yet. Worth distinguishing: it
+ *  should read as unfinished, not as a mistake. */
+export const isBlankButton = (button: ButtonDraft) =>
+  !button.text.trim() &&
+  !button.url.trim() &&
+  !button.phone.trim() &&
+  !button.code.trim();
 
 /** Validation message for one button, or null when it is ready to submit. */
 export function buttonError(button: ButtonDraft): string | null {

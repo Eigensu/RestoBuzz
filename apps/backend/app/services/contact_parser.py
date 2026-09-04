@@ -2,7 +2,6 @@ import csv
 import io
 import uuid
 import re
-import phonenumbers
 import openpyxl
 from app.models.contact import ContactRow, InvalidRow, PreflightResult, ColumnMapping
 from app.core.logging import get_logger
@@ -189,6 +188,13 @@ async def parse_contacts(
             for var, col in mapping.variable_columns.items()
             if str(row.get(col, "") or "").strip()
         }
+        # Carried whole so a variable can be re-pointed at a different column
+        # later without re-uploading the file.
+        row_values = {
+            str(col): str(value or "").strip()
+            for col, value in row.items()
+            if col and str(value or "").strip()
+        }
 
         # Row must have 'email' key at top level for the Email Campaign validator
         valid.append(
@@ -197,6 +203,7 @@ async def parse_contacts(
                 phone=normalized_phone,
                 email=normalized_email,
                 variables=variables,
+                row=row_values,
             )
         )
 
@@ -209,4 +216,5 @@ async def parse_contacts(
         valid_rows=valid,
         invalid_rows=invalid,
         file_ref=file_ref,
+        headers=headers,
     )
