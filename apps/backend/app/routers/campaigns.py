@@ -880,7 +880,8 @@ async def start_campaign(
     # retries the block consumed before it was recognised as campaign-wide —
     # otherwise messages left at retry_count 1-2 by the old burn get only the
     # remainder of their budget and fail permanently on the next hiccup.
-    if (doc.get("pause_reason") or {}).get("auto"):
+    previous_pause_reason = doc.get("pause_reason")
+    if (previous_pause_reason or {}).get("auto"):
         await db.message_logs.update_many(
             {"job_id": to_object_id(campaign_id), "status": "queued"},
             {"$set": {"retry_count": 0}},
@@ -896,16 +897,25 @@ async def start_campaign(
     except Exception as e:
         logger.error("campaign_dispatch_failed", error=str(e))
         # Revert to the prior status so the campaign isn't stranded in 'queued'
-        # with no dispatch task enqueued.
+        # with no dispatch task enqueued. The block reason has to come back with
+        # it: a campaign returned to 'paused' without one shows no banner and
+        # reads as a mystery pause, which is the state this whole path exists
+        # to avoid.
+        rollback: dict = {"status": previous_status}
+        if previous_pause_reason is not None:
+            rollback["pause_reason"] = previous_pause_reason
         await db.campaign_jobs.update_one(
-            {"_id": to_object_id(campaign_id)},
-            {"$set": {"status": previous_status}},
+            {"_id": to_object_id(campaign_id)}, {"$set": rollback}
         )
         raise HTTPException(
             status_code=503,
             detail=_QUEUE_UNAVAILABLE_DETAIL,
         ) from e
 
+    # `doc` predates the update, so drop the reason we just unset — otherwise
+    # the response pairs status 'queued' with a stale block and the dashboard
+    # renders the banner on a campaign that resumed fine.
+    doc.pop("pause_reason", None)
     doc["status"] = "queued"
     return _serialize_campaign(doc)
 
