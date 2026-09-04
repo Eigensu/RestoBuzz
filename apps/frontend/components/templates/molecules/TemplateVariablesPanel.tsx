@@ -24,7 +24,15 @@ function AddVariableMenu({ used, onPick }: Readonly<AddVariableMenuProps>) {
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
-  const customError = custom ? variableNameError(custom) : null;
+  // addCustom normalizes before inserting, so "Table Number" is a valid entry.
+  // Validating the raw text would reject it for containing a space.
+  const customName = toVariableName(custom);
+  const customError = (() => {
+    if (!custom.trim()) return null;
+    const invalid = variableNameError(customName);
+    if (invalid) return invalid;
+    return used.includes(customName) ? "That variable is already used" : null;
+  })();
 
   useEffect(() => {
     if (!open) return;
@@ -47,9 +55,8 @@ function AddVariableMenu({ used, onPick }: Readonly<AddVariableMenuProps>) {
   };
 
   const addCustom = () => {
-    const name = toVariableName(custom);
-    if (variableNameError(name) || used.includes(name)) return;
-    pick(name, variableLabel(name));
+    if (!custom.trim() || customError) return;
+    pick(customName, variableLabel(customName));
   };
 
   return (

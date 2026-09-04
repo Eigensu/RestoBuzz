@@ -205,3 +205,43 @@ def test_unknown_components_keep_their_relative_order_at_the_end():
         "CAROUSEL",
         "LIMITED_TIME_OFFER",
     ]
+
+
+# ── Raw row retention, found in review of #47 ─────────────────────────────────
+
+
+async def test_a_numeric_zero_cell_survives_into_the_mappable_row():
+    """`str(value or "")` turned a legitimate 0 into a blank, so a variable
+    mapped to that column resolved empty and used its fallback instead."""
+    from app.models.contact import ColumnMapping
+    from app.services.contact_parser import parse_contacts
+
+    csv = b"Name,Phone,Points,Notes\nRahul,9876543210,0,\n"
+    result = await parse_contacts(csv, "guests.csv", ColumnMapping(), set())
+
+    assert result.valid_count == 1
+    row = result.valid_rows[0].row
+    assert row["Points"] == "0"
+    # Blank cells are still dropped — only the falsy-zero case was wrong.
+    assert "Notes" not in row
+
+
+async def test_headers_are_returned_for_the_mapping_step():
+    from app.models.contact import ColumnMapping
+    from app.services.contact_parser import parse_contacts
+
+    csv = b"Name,Phone,Slot\nRahul,9876543210,8:30 PM\n"
+    result = await parse_contacts(csv, "guests.csv", ColumnMapping(), set())
+    assert result.headers == ["Name", "Phone", "Slot"]
+
+
+async def test_an_over_long_cell_is_truncated_rather_than_stored_whole():
+    """A sheet's free-text column is personal data the campaign cannot use —
+    a template parameter is a short string."""
+    from app.models.contact import ColumnMapping
+    from app.services.contact_parser import MAX_CELL_CHARS, parse_contacts
+
+    essay = "x" * (MAX_CELL_CHARS + 500)
+    csv = f"Name,Phone,Notes\nRahul,9876543210,{essay}\n".encode()
+    result = await parse_contacts(csv, "guests.csv", ColumnMapping(), set())
+    assert len(result.valid_rows[0].row["Notes"]) == MAX_CELL_CHARS

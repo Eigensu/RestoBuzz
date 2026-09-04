@@ -83,14 +83,19 @@ export function VariableMappingPanel({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <select
                   value={source?.kind ?? "fixed"}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    // Switching source drops the previous kind's field so a
+                    // stale column can't be submitted with a fixed value.
+                    const kind = e.target.value as VariableSourceKind;
                     onChange(name, {
-                      // Switching source drops the previous kind's field so a
-                      // stale column can't be submitted with a fixed value.
-                      kind: e.target.value as VariableSourceKind,
+                      kind,
+                      // The selector renders Name as its default, so store it
+                      // too — otherwise the row looks answered while validation
+                      // still asks for a restaurant detail.
+                      ...(kind === "restaurant" ? { field: "name" } : {}),
                       fallback: source?.fallback,
-                    })
-                  }
+                    });
+                  }}
                   className={FIELD_CLS}
                   aria-label={`Source for ${name}`}
                 >

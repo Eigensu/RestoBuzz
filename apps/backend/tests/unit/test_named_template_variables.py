@@ -259,3 +259,63 @@ def test_a_fallback_satisfies_the_coverage_guard():
 
 def test_a_campaign_wide_value_satisfies_the_coverage_guard():
     _require_variable_coverage({"venue"}, {}, {"venue": "Fielia Soraia"})
+
+
+# ── Regressions found in review of #47 ────────────────────────────────────────
+
+
+def test_an_explicit_source_beats_a_stale_upload_time_mapping():
+    """The operator's mapping is the decision; a cached one must not outrank it.
+
+    A contact file mapped at upload time carries `variables`. Re-pointing that
+    variable at another column and leaving the new cell blank must fall to the
+    fallback, not silently resurrect the old value.
+    """
+    resolved = _resolve_recipient_variables(
+        {"variables": {"customer_name": "Stale"}, "row": {"Guest Name": ""}},
+        sources={
+            "customer_name": VariableSource(
+                kind="column", column="Guest Name", fallback="there"
+            )
+        },
+        campaign_variables={},
+        allowed_keys={"customer_name"},
+    )
+    assert resolved == {"customer_name": "there"}
+
+
+def test_a_fixed_source_beats_a_stale_upload_time_mapping():
+    resolved = _resolve_recipient_variables(
+        {"variables": {"venue": "Old Venue"}},
+        sources={"venue": VariableSource(kind="fixed", value="Fielia Soraia")},
+        campaign_variables={"venue": "Fielia Soraia"},
+        allowed_keys={"venue"},
+    )
+    assert resolved == {"venue": "Fielia Soraia"}
+
+
+@pytest.mark.parametrize("name", ["Customer_Name", "CustomerName"])
+def test_uppercase_variable_names_are_rejected(name):
+    """Meta requires lowercase named parameters; accepting more defers the
+    rejection to the Meta call, where the message names nothing useful."""
+    with pytest.raises(ValidationError, match="is invalid"):
+        _resolve_parameter_format([_body(f"Hi {{{{{name}}}}}")])
+
+
+def test_a_variable_in_a_text_header_is_rejected():
+    """The send path emits header parameters only for media headers, so such a
+    template would be approved by Meta and then fail on every send."""
+    from app.routers.templates import _reject_header_variables
+
+    with pytest.raises(ValidationError, match="header cannot contain variables"):
+        _reject_header_variables(
+            [TemplateComponent(type="HEADER", format="TEXT", text="{{offer_name}}")]
+        )
+
+
+def test_a_plain_text_header_is_allowed():
+    from app.routers.templates import _reject_header_variables
+
+    _reject_header_variables(
+        [TemplateComponent(type="HEADER", format="TEXT", text="Tonight only")]
+    )

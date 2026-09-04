@@ -62,7 +62,9 @@ VAR_PATTERN = re.compile(r"\{\{(\d+)\}\}")
 # the author actually wrote rather than asked for separately.
 #   positional — {{1}}, {{2}}  (every template created before named support)
 #   named      — {{customer_name}}
-NAMED_VAR_PATTERN = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+# Lowercase only, matching Meta's rule for named parameters and the frontend's
+# own validator — accepting more here just defers the rejection to Meta.
+NAMED_VAR_PATTERN = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
 ANY_VAR_PATTERN = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
 MAX_VAR_NAME = 60
 
@@ -137,6 +139,27 @@ def _resolve_parameter_format(components: list[TemplateComponent]) -> str:
             )
 
     return "NAMED" if named else "POSITIONAL"
+
+
+def _reject_header_variables(components: list[TemplateComponent]) -> None:
+    """Refuse a TEXT header that contains a placeholder.
+
+    Meta would accept the template, but every send would fail: _build_payload
+    emits header parameters only for media headers, and the campaign wizard
+    collects variables from the BODY alone. Allowing this would approve a
+    template that can never actually be delivered.
+    """
+    for component in components:
+        if str(component.type or "").upper() != "HEADER":
+            continue
+        if (component.format or "TEXT").upper() != "TEXT":
+            continue
+        names = _extract_variables(component.text or "")
+        if names:
+            raise ValidationError(
+                f"The header cannot contain variables (found {{{{{names[0]}}}}}). "
+                "Move it into the message body."
+            )
 
 
 def _named_examples(names: list[str], supplied: object) -> list[dict[str, str]]:
@@ -515,6 +538,7 @@ async def create_new_template(
 ):
     waba_id, token = _resolve_restaurant_waba(restaurant)
     parameter_format = _resolve_parameter_format(body.components)
+    _reject_header_variables(body.components)
     normalized_components = [
         _normalize_component_for_meta(c, parameter_format) for c in body.components
     ]

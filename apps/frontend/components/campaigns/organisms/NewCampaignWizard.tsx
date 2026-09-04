@@ -291,12 +291,23 @@ export function NewCampaignWizard() {
   const varSignature = bodyVars.join(",");
   useEffect(() => {
     if (!preflight) return;
+    const headers = preflight.headers ?? [];
     setVariableSources((prev) => {
-      const missing = bodyVars.filter((name) => !prev[name]);
-      if (missing.length === 0) return prev;
+      // Re-seed a variable with no mapping yet, and any column mapping whose
+      // column this sheet does not have — swapping the contact file otherwise
+      // leaves a mapping pointing at a column that is gone, which resolves
+      // blank for every recipient.
+      const stale = bodyVars.filter((name) => {
+        const source = prev[name];
+        if (!source) return true;
+        return (
+          source.kind === "column" && !headers.includes(source.column ?? "")
+        );
+      });
+      if (stale.length === 0) return prev;
       const next = { ...prev };
-      for (const name of missing) {
-        next[name] = suggestSource(name, preflight.headers ?? []);
+      for (const name of stale) {
+        next[name] = suggestSource(name, headers);
       }
       return next;
     });

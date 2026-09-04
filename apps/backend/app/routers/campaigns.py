@@ -226,19 +226,26 @@ def _resolve_recipient_variables(
 
     for key in allowed_keys:
         source = sources.get(key)
-        value = ""
 
-        if source and source.kind == "column":
-            value = str(row.get(str(source.column or "")) or "").strip()
-        elif source and source.kind == "contact":
-            value = str(contact.get("name") or "").strip()
-        if not value:
-            # Mapping applied at upload time, before variable_sources existed.
-            value = str(legacy.get(key) or "").strip()
-        if not value:
-            value = str(campaign_variables.get(key) or "").strip()
-        if not value and source:
-            value = str(source.fallback or "").strip()
+        if source:
+            # An explicit mapping is the operator's decision; a value cached by
+            # an older upload-time mapping must not quietly outrank it.
+            if source.kind == "column":
+                value = str(row.get(str(source.column or "")) or "").strip()
+            elif source.kind == "contact":
+                value = str(contact.get("name") or "").strip()
+            else:
+                # fixed and restaurant are the same for everyone, so they were
+                # already resolved into campaign_variables.
+                value = str(campaign_variables.get(key) or "").strip()
+            if not value:
+                value = str(source.fallback or "").strip()
+        else:
+            # No mapping for this variable: fall back to whatever the upload
+            # step recorded, then to the campaign-wide value.
+            value = str(legacy.get(key) or "").strip() or str(
+                campaign_variables.get(key) or ""
+            ).strip()
 
         if value:
             resolved[key] = value
