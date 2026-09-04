@@ -8,6 +8,7 @@ import { X, Plus, Trash2, RefreshCw } from "lucide-react";
 import type { Template } from "@/types";
 import { HeaderMediaPreview } from "@/components/templates/atoms/HeaderMediaPreview";
 import { MEDIA_CONFIG, isMediaFormat } from "@/lib/templateMedia";
+import type { MediaFormat } from "@/lib/templateMedia";
 
 import { BRAND_GRADIENT } from "@/lib/brand";
 const INPUT_CLS =
@@ -31,6 +32,76 @@ interface TemplateFormModalProps {
 
 const COMPONENT_TYPES = ["HEADER", "BODY", "FOOTER", "BUTTONS"];
 const LANGUAGES = ["en", "en_US", "hi", "ar", "es", "fr", "pt_BR", "id"];
+
+interface HeaderMediaFieldProps {
+  config: (typeof MEDIA_CONFIG)[MediaFormat];
+  format: string;
+  url: string;
+  uploading: boolean;
+  onFile: (file: File) => void;
+  onUrlChange: (url: string) => void;
+  onClear: () => void;
+}
+
+/** Upload control for a media HEADER: a drop zone until something is chosen,
+ *  then a preview, with a paste-a-URL field either way. */
+function HeaderMediaField({
+  config,
+  format,
+  url,
+  uploading,
+  onFile,
+  onUrlChange,
+  onClear,
+}: Readonly<HeaderMediaFieldProps>) {
+  return (
+    <div className="space-y-2">
+      {url ? (
+        <div className="relative w-full rounded-lg overflow-hidden border bg-white">
+          <HeaderMediaPreview headerFormat={format} mediaUrl={url} />
+          <button
+            onClick={onClear}
+            className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : (
+        <label
+          className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 cursor-pointer transition ${
+            uploading
+              ? "opacity-50 pointer-events-none"
+              : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5"
+          }`}
+        >
+          <input
+            type="file"
+            accept={config.accept}
+            className="sr-only"
+            onChange={(e) => {
+              const media = e.target.files?.[0];
+              if (media) onFile(media);
+            }}
+          />
+          {uploading ? (
+            <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
+          ) : (
+            <config.Icon className="w-5 h-5 text-gray-300" />
+          )}
+          <span className="text-xs text-gray-400">
+            {uploading ? "Uploading..." : config.hint}
+          </span>
+        </label>
+      )}
+      <input
+        value={url}
+        onChange={(e) => onUrlChange(e.target.value)}
+        className={INPUT_CLS}
+        placeholder={config.urlPlaceholder}
+      />
+    </div>
+  );
+}
 
 /** Text-area placeholder for a component row. A media header has nothing to
  *  type into it, so it points at the upload control instead. */
@@ -125,6 +196,22 @@ export function TemplateFormModal({
         };
       }),
     );
+  };
+
+  const uploadHeaderMedia = async (idx: number, file: File) => {
+    setUploadingHeaderMedia(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const { data } = await api.post("/media/upload", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setHeaderMediaUrl(idx, data.url);
+    } catch (err) {
+      toast.error(parseApiError(err).message);
+    } finally {
+      setUploadingHeaderMedia(false);
+    }
   };
 
   const getHeaderMediaUrl = (comp: ComponentRow) =>
@@ -380,73 +467,15 @@ export function TemplateFormModal({
                 )}
 
                 {comp.type === "HEADER" && mediaCfg && !isEdit && (
-                  <div className="space-y-2">
-                    {getHeaderMediaUrl(comp) ? (
-                      <div className="relative w-full rounded-lg overflow-hidden border bg-white">
-                        <HeaderMediaPreview
-                          headerFormat={comp.format ?? ""}
-                          mediaUrl={getHeaderMediaUrl(comp)}
-                        />
-                        <button
-                          onClick={() => setHeaderMediaUrl(i, "")}
-                          className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <label
-                        className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg p-4 cursor-pointer transition ${
-                          uploadingHeaderMedia
-                            ? "opacity-50 pointer-events-none"
-                            : "hover:border-[#24422e]/40 hover:bg-[#24422e]/5"
-                        }`}
-                      >
-                        <input
-                          type="file"
-                          accept={mediaCfg.accept}
-                          className="sr-only"
-                          onChange={async (e) => {
-                            const media = e.target.files?.[0];
-                            if (!media) return;
-                            setUploadingHeaderMedia(true);
-                            try {
-                              const form = new FormData();
-                              form.append("file", media);
-                              const { data } = await api.post(
-                                "/media/upload",
-                                form,
-                                {
-                                  headers: {
-                                    "Content-Type": "multipart/form-data",
-                                  },
-                                },
-                              );
-                              setHeaderMediaUrl(i, data.url);
-                            } catch (err) {
-                              toast.error(parseApiError(err).message);
-                            } finally {
-                              setUploadingHeaderMedia(false);
-                            }
-                          }}
-                        />
-                        {uploadingHeaderMedia ? (
-                          <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
-                        ) : (
-                          <mediaCfg.Icon className="w-5 h-5 text-gray-300" />
-                        )}
-                        <span className="text-xs text-gray-400">
-                          {uploadingHeaderMedia ? "Uploading..." : mediaCfg.hint}
-                        </span>
-                      </label>
-                    )}
-                    <input
-                      value={getHeaderMediaUrl(comp)}
-                      onChange={(e) => setHeaderMediaUrl(i, e.target.value)}
-                      className={INPUT_CLS}
-                      placeholder={mediaCfg.urlPlaceholder}
-                    />
-                  </div>
+                  <HeaderMediaField
+                    config={mediaCfg}
+                    format={comp.format ?? ""}
+                    url={getHeaderMediaUrl(comp)}
+                    uploading={uploadingHeaderMedia}
+                    onFile={(file) => uploadHeaderMedia(i, file)}
+                    onUrlChange={(url) => setHeaderMediaUrl(i, url)}
+                    onClear={() => setHeaderMediaUrl(i, "")}
+                  />
                 )}
 
                 <textarea
