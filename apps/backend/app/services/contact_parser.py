@@ -2,13 +2,19 @@ import csv
 import io
 import uuid
 import re
-import phonenumbers
 import openpyxl
 from app.models.contact import ContactRow, InvalidRow, PreflightResult, ColumnMapping
 from app.core.logging import get_logger
 from app.utils.phone import normalize_phone
 
 logger = get_logger(__name__)
+
+# Bounds on the raw row kept for post-upload variable mapping. A template
+# parameter is a short string, so anything past these limits is personal data
+# being stored for no reachable purpose.
+MAX_MAPPABLE_COLUMNS = 40
+MAX_CELL_CHARS = 512
+MAX_COLUMN_NAME_CHARS = 128
 
 # Common aliases for phone and name columns (lowercased, stripped)
 _PHONE_ALIASES = {
@@ -189,6 +195,17 @@ async def parse_contacts(
             for var, col in mapping.variable_columns.items()
             if str(row.get(col, "") or "").strip()
         }
+        # Carried so a variable can be re-pointed at a different column later
+        # without re-uploading. Bounded on both axes: this exists to fill short
+        # template placeholders, so retaining a sheet's long free-text columns
+        # would persist personal data the campaign can never use.
+        # `value or ""` is wrong here — it would turn a numeric 0 into a blank
+        # and silently drop a legitimate cell.
+        row_values = {
+            str(col)[:MAX_COLUMN_NAME_CHARS]: str(value).strip()[:MAX_CELL_CHARS]
+            for col, value in list(row.items())[:MAX_MAPPABLE_COLUMNS]
+            if col and value is not None and str(value).strip()
+        }
 
         # Row must have 'email' key at top level for the Email Campaign validator
         valid.append(
@@ -197,6 +214,7 @@ async def parse_contacts(
                 phone=normalized_phone,
                 email=normalized_email,
                 variables=variables,
+                row=row_values,
             )
         )
 
@@ -209,4 +227,5 @@ async def parse_contacts(
         valid_rows=valid,
         invalid_rows=invalid,
         file_ref=file_ref,
+        headers=headers,
     )

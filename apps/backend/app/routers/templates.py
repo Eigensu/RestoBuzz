@@ -57,6 +57,17 @@ class EditTemplateRequest(BaseModel):
 
 VAR_PATTERN = re.compile(r"\{\{(\d+)\}\}")
 
+# Meta's two parameter formats. A template is fixed to one at creation and it
+# cannot be changed afterwards, so the format is inferred from the placeholders
+# the author actually wrote rather than asked for separately.
+#   positional — {{1}}, {{2}}  (every template created before named support)
+#   named      — {{customer_name}}
+# Lowercase only, matching Meta's rule for named parameters and the frontend's
+# own validator — accepting more here just defers the rejection to Meta.
+NAMED_VAR_PATTERN = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
+ANY_VAR_PATTERN = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+MAX_VAR_NAME = 60
+
 # Meta's template-button rules. Mirrored by lib/templateButtons.ts in the
 # frontend, which enforces the same caps before submit — change both together.
 MAX_BUTTONS = 10
@@ -82,6 +93,100 @@ LANGUAGE_MAP = {
 }
 
 
+def _extract_variables(text: str) -> list[str]:
+    """Placeholder names in `text`, in first-appearance order, deduplicated.
+
+    A name repeated in the body is one parameter to Meta, not two.
+    """
+    seen: list[str] = []
+    for match in ANY_VAR_PATTERN.finditer(text or ""):
+        name = match.group(1)
+        if name not in seen:
+            seen.append(name)
+    return seen
+
+
+def _resolve_parameter_format(components: list[TemplateComponent]) -> str:
+    """Decide POSITIONAL vs NAMED from the placeholders in the template text.
+
+    Meta rejects a template that mixes the two, and the failure message does not
+    say which placeholder is the odd one out, so the mix is caught here instead.
+    """
+    numbered: list[str] = []
+    named: list[str] = []
+
+    for component in components:
+        if str(component.type or "").upper() not in {"BODY", "HEADER"}:
+            continue
+        for name in _extract_variables(component.text or ""):
+            (numbered if name.isdigit() else named).append(name)
+
+    if numbered and named:
+        raise ValidationError(
+            "A template cannot mix numbered and named variables — found "
+            f"{{{{{numbered[0]}}}}} and {{{{{named[0]}}}}}. Use one style throughout."
+        )
+
+    for name in named:
+        if not NAMED_VAR_PATTERN.fullmatch("{{" + name + "}}"):
+            raise ValidationError(
+                f"Variable name '{name}' is invalid. Use letters, numbers and "
+                "underscores, starting with a letter."
+            )
+        if len(name) > MAX_VAR_NAME:
+            raise ValidationError(
+                f"Variable name '{name}' exceeds {MAX_VAR_NAME} characters"
+            )
+
+    return "NAMED" if named else "POSITIONAL"
+
+
+def _reject_header_variables(components: list[TemplateComponent]) -> None:
+    """Refuse a TEXT header that contains a placeholder.
+
+    Meta would accept the template, but every send would fail: _build_payload
+    emits header parameters only for media headers, and the campaign wizard
+    collects variables from the BODY alone. Allowing this would approve a
+    template that can never actually be delivered.
+    """
+    for component in components:
+        if str(component.type or "").upper() != "HEADER":
+            continue
+        if (component.format or "TEXT").upper() != "TEXT":
+            continue
+        names = _extract_variables(component.text or "")
+        if names:
+            raise ValidationError(
+                f"The header cannot contain variables (found {{{{{names[0]}}}}}). "
+                "Move it into the message body."
+            )
+
+
+def _named_examples(names: list[str], supplied: object) -> list[dict[str, str]]:
+    """Meta's named-parameter example block, preserving any sample the author
+    typed and inventing a readable one for the rest.
+
+    A template with no examples is far likelier to be rejected on review, so a
+    missing sample is filled rather than left out.
+    """
+    provided: dict[str, str] = {}
+    if isinstance(supplied, list):
+        for item in supplied:
+            if isinstance(item, dict):
+                param = str(item.get("param_name") or "").strip()
+                sample = str(item.get("example") or "").strip()
+                if param and sample:
+                    provided[param] = sample
+
+    return [
+        {
+            "param_name": name,
+            "example": provided.get(name) or name.replace("_", " ").title(),
+        }
+        for name in names
+    ]
+
+
 def _normalize_language_code(code: str) -> str:
     normalized = (code or "").strip()
     if not normalized:
@@ -89,17 +194,120 @@ def _normalize_language_code(code: str) -> str:
     return LANGUAGE_MAP.get(normalized, normalized)
 
 
-def _normalize_component_for_meta(component: TemplateComponent) -> dict:
+def _normalize_buttons(buttons: list[TemplateButton]) -> list[dict]:
+    """Validate a BUTTONS component and reduce it to what Meta accepts.
+
+    Meta rejects a malformed button set with a generic "invalid parameter",
+    which tells the operator nothing about which of the ten rows was wrong, so
+    every rule is checked here and reported against the offending button.
+
+    Call-to-action buttons are emitted before the quick replies: Meta requires
+    quick replies in a mixed set to be contiguous, and putting them last is
+    always a valid grouping regardless of the order they arrived in.
+    """
+    if not buttons:
+        raise ValidationError(
+            "BUTTONS component requires structured buttons; plain text buttons are not supported yet"
+        )
+    if len(buttons) > MAX_BUTTONS:
+        raise ValidationError(f"A template can have at most {MAX_BUTTONS} buttons")
+
+    counts: dict[str, int] = {}
+    for button in buttons:
+        btn_type = str(button.type or "").upper().strip()
+        if btn_type not in BUTTON_TYPE_CAPS:
+            supported = ", ".join(sorted(BUTTON_TYPE_CAPS))
+            raise ValidationError(
+                f"Unsupported button type '{button.type}'. Supported types: {supported}"
+            )
+        counts[btn_type] = counts.get(btn_type, 0) + 1
+        if counts[btn_type] > BUTTON_TYPE_CAPS[btn_type]:
+            raise ValidationError(
+                f"At most {BUTTON_TYPE_CAPS[btn_type]} {btn_type} button(s) allowed per template"
+            )
+
+    cta: list[dict] = []
+    quick_replies: list[dict] = []
+    labels: set[str] = set()
+
+    for button in buttons:
+        btn_type = str(button.type or "").upper().strip()
+
+        if btn_type == "COPY_CODE":
+            code = (button.example or "").strip()
+            if not code:
+                raise ValidationError("Copy offer code button needs an offer code")
+            if len(code) > MAX_OFFER_CODE:
+                raise ValidationError(
+                    f"Offer code must be {MAX_OFFER_CODE} characters or fewer"
+                )
+            cta.append({"type": "COPY_CODE", "example": code})
+            continue
+
+        text = (button.text or "").strip()
+        if not text:
+            raise ValidationError(f"{btn_type} button needs button text")
+        if len(text) > MAX_BUTTON_TEXT:
+            raise ValidationError(
+                f"Button text '{text}' exceeds {MAX_BUTTON_TEXT} characters"
+            )
+        if text.lower() in labels:
+            raise ValidationError(f"Duplicate button text '{text}' — each must differ")
+        labels.add(text.lower())
+
+        if btn_type == "URL":
+            url = (button.url or "").strip()
+            if not url:
+                raise ValidationError(f"Button '{text}' needs a URL")
+            if not url.lower().startswith(("http://", "https://")):
+                raise ValidationError(f"Button '{text}' URL must start with https://")
+            if len(url) > MAX_BUTTON_URL:
+                raise ValidationError(f"Button '{text}' URL is too long")
+            # A dynamic URL needs a button parameter on every send, which
+            # _build_payload does not emit — the placeholder would ship to the
+            # customer verbatim.
+            if VAR_PATTERN.search(url) or "{{" in url:
+                raise ValidationError(
+                    f"Button '{text}' uses a variable in its URL, which is not supported yet"
+                )
+            cta.append({"type": "URL", "text": text, "url": url})
+
+        elif btn_type == "PHONE_NUMBER":
+            raw = (button.phone_number or "").strip()
+            e164 = normalize_phone(raw) if raw else None
+            if not e164:
+                raise ValidationError(
+                    f"Button '{text}' needs a valid phone number (got '{raw}')"
+                )
+            cta.append({"type": "PHONE_NUMBER", "text": text, "phone_number": e164})
+
+        else:
+            quick_replies.append({"type": "QUICK_REPLY", "text": text})
+
+    return cta + quick_replies
+
+
+def _order_components(components: list[dict]) -> list[dict]:
+    """Sort into Meta's required HEADER, BODY, FOOTER, BUTTONS order.
+
+    The sort is stable, so components Meta may add later that this map does not
+    know about keep their relative order at the end.
+    """
+    return sorted(
+        components, key=lambda c: COMPONENT_ORDER.get(str(c.get("type", "")), 99)
+    )
+
+
+def _normalize_component_for_meta(
+    component: TemplateComponent, parameter_format: str = "POSITIONAL"
+) -> dict:
     """Strip UI-only fields and invalid empty values before sending to Meta API."""
     data = component.model_dump(exclude_none=True)
     component_type = str(component.type or "").upper().strip()
     data["type"] = component_type
 
-    # Prevent sending unsupported text-only buttons payloads.
-    if component_type == "BUTTONS" and not data.get("buttons"):
-        raise ValidationError(
-            "BUTTONS component requires structured buttons; plain text buttons are not supported yet"
-        )
+    if component_type == "BUTTONS":
+        return {"type": "BUTTONS", "buttons": _normalize_buttons(component.buttons or [])}
 
     example = data.get("example")
     if isinstance(example, dict):
@@ -140,31 +348,47 @@ def _normalize_component_for_meta(component: TemplateComponent) -> dict:
     if is_media_header and isinstance(text, str) and not text.strip():
         data.pop("text", None)
 
-    # Meta requires variable examples when placeholders are used.
+    # Meta requires variable examples when placeholders are used, and the shape
+    # of that example block differs between the two parameter formats.
+    is_text_header = (
+        component_type == "HEADER" and (component.format or "").upper() == "TEXT"
+    )
     if component_type in {"BODY", "HEADER"} and isinstance(data.get("text"), str):
         text_val = data["text"]
-        matches = [int(m.group(1)) for m in VAR_PATTERN.finditer(text_val)]
-        if matches:
-            var_count = max(matches)
-            if component_type == "BODY":
-                if not (
-                    isinstance(data.get("example"), dict)
-                    and data["example"].get("body_text")
-                ):
-                    data.setdefault("example", {})["body_text"] = [
-                        [f"value_{i}" for i in range(1, var_count + 1)]
-                    ]
-            elif (
-                component_type == "HEADER"
-                and (component.format or "").upper() == "TEXT"
-            ):
-                if not (
-                    isinstance(data.get("example"), dict)
-                    and data["example"].get("header_text")
-                ):
-                    data.setdefault("example", {})["header_text"] = [
-                        f"value_{i}" for i in range(1, var_count + 1)
-                    ]
+
+        if parameter_format == "NAMED":
+            names = _extract_variables(text_val)
+            if names and (component_type == "BODY" or is_text_header):
+                key = (
+                    "body_text_named_params"
+                    if component_type == "BODY"
+                    else "header_text_named_params"
+                )
+                existing = data.get("example")
+                supplied = existing.get(key) if isinstance(existing, dict) else None
+                data.setdefault("example", {})[key] = _named_examples(
+                    names, supplied
+                )
+        else:
+            matches = [int(m.group(1)) for m in VAR_PATTERN.finditer(text_val)]
+            if matches:
+                var_count = max(matches)
+                if component_type == "BODY":
+                    if not (
+                        isinstance(data.get("example"), dict)
+                        and data["example"].get("body_text")
+                    ):
+                        data.setdefault("example", {})["body_text"] = [
+                            [f"value_{i}" for i in range(1, var_count + 1)]
+                        ]
+                elif is_text_header:
+                    if not (
+                        isinstance(data.get("example"), dict)
+                        and data["example"].get("header_text")
+                    ):
+                        data.setdefault("example", {})["header_text"] = [
+                            f"value_{i}" for i in range(1, var_count + 1)
+                        ]
 
     return data
 
@@ -206,10 +430,10 @@ def _preserve_unmanaged_components(
 ) -> list[dict]:
     """Carry over BUTTONS components the editor cannot express.
 
-    Meta's edit endpoint REPLACES the whole component set, and the template
-    editor has no buttons UI — it strips BUTTONS on load. Without this, editing
-    the body of a template whose buttons were added in Meta Business Manager
-    would silently delete those buttons. Buttons must stay last: Meta requires
+    Meta's edit endpoint REPLACES the whole component set, and the edit form has
+    no buttons UI — it strips BUTTONS on load. Without this, editing the body of
+    a template whose buttons were set at creation, or added in Meta Business
+    Manager, would silently delete them. Buttons must stay last: Meta requires
     HEADER, BODY, FOOTER, BUTTONS order.
     """
     if any(str(c.get("type", "")).upper() == "BUTTONS" for c in components):
@@ -313,8 +537,13 @@ async def create_new_template(
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
 ):
     waba_id, token = _resolve_restaurant_waba(restaurant)
-    normalized_components = [_normalize_component_for_meta(c) for c in body.components]
+    parameter_format = _resolve_parameter_format(body.components)
+    _reject_header_variables(body.components)
+    normalized_components = [
+        _normalize_component_for_meta(c, parameter_format) for c in body.components
+    ]
     normalized_components = await _resolve_media_header_handles(normalized_components, token)
+    normalized_components = _order_components(normalized_components)
     if not any(c.get("type") == "BODY" for c in normalized_components):
         raise ValidationError("Template must include a BODY component with text")
     payload = {
@@ -322,7 +551,7 @@ async def create_new_template(
         "category": body.category,
         "language": _normalize_language_code(body.language),
         "components": [c for c in normalized_components if c],
-        "parameter_format": "positional",
+        "parameter_format": parameter_format,
     }
     try:
         result = await create_template(waba_id, token, payload)
@@ -353,6 +582,9 @@ async def create_new_template(
         "language": _normalize_language_code(body.language),
         "status": result.get("status", "PENDING"),
         "components": payload["components"],
+        # Stored so the campaign send path knows which parameter shape this
+        # template expects without re-deriving it from the body text.
+        "parameter_format": parameter_format,
         "meta_id": str(meta_id),
         "restaurant_id": restaurant["id"],
         "synced_at": now,
@@ -396,10 +628,18 @@ async def edit_existing_template(
         )
 
     _, token = _resolve_restaurant_waba(restaurant)
-    components = [_normalize_component_for_meta(c) for c in body.components]
+    # An edit cannot change the format Meta fixed at creation, so the stored one
+    # wins over whatever this partial component set would imply on its own.
+    parameter_format = str(doc.get("parameter_format") or "").upper() or (
+        _resolve_parameter_format(body.components)
+    )
+    components = [
+        _normalize_component_for_meta(c, parameter_format) for c in body.components
+    ]
     # Same upload step as create: Meta only accepts an uploaded handle in
     # example.header_handle, never a raw https:// URL.
     components = await _resolve_media_header_handles(components, token)
+    components = _order_components(components)
     components = _preserve_unmanaged_components(components, doc)
     try:
         await edit_template(meta_id, token, components)

@@ -136,23 +136,21 @@ export function Step0Template({
         {selectedTemplate && bodyVars.length > 0 && (
           <div className="space-y-2">
             <p className="text-sm font-medium">Template Variables</p>
-            {bodyVars.map((v) => (
-              <div key={v}>
-                <label
-                  htmlFor={`var-${v}`}
-                  className="text-xs text-gray-500 mb-0.5 block"
-                >{`{{${v}}}`}</label>
-                <input
-                  id={`var-${v}`}
-                  value={variables[v] ?? ""}
-                  onChange={(e) =>
-                    setVariables((prev) => ({ ...prev, [v]: e.target.value }))
-                  }
-                  className={INPUT_CLS}
-                  placeholder={`Value for {{${v}}}`}
-                />
-              </div>
-            ))}
+            <div className="flex flex-wrap gap-1.5">
+              {bodyVars.map((v) => (
+                <code
+                  key={v}
+                  className="text-[11px] font-bold text-[#24422e] bg-[#eff2f0] rounded-lg px-2 py-1"
+                >
+                  {`{{${v}}}`}
+                </code>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500">
+              You&apos;ll point {bodyVars.length === 1 ? "this" : "these"} at a
+              spreadsheet column, a restaurant detail or a fixed value once your
+              contacts are uploaded.
+            </p>
           </div>
         )}
 

@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/templates/atoms/StatusBadge";
 import { CategoryBadge } from "@/components/templates/atoms/CategoryBadge";
 import { ComponentPill } from "@/components/templates/atoms/ComponentPill";
 import { TemplateFormModal } from "@/components/templates/molecules/TemplateFormModal";
+import { metaButtonLabel } from "@/lib/templateButtons";
 
 import { BRAND_GRADIENT } from "@/lib/brand";
 
@@ -20,9 +21,7 @@ export function TemplateModal({ template: t, onClose }: Readonly<TemplateModalPr
   const header = t.components.find((c) => c.type === "HEADER");
   const body = t.components.find((c) => c.type === "BODY");
   const footer = t.components.find((c) => c.type === "FOOTER");
-  const buttonsComp = t.components.find((c) => c.type === "BUTTONS") as
-    | { type: string; buttons?: { type: string; text: string; url?: string }[] }
-    | undefined;
+  const buttonsComp = t.components.find((c) => c.type === "BUTTONS");
 
   return (
     <div
@@ -128,7 +127,7 @@ export function TemplateModal({ template: t, onClose }: Readonly<TemplateModalPr
                       >
                         <ExternalLink className="w-3.5 h-3.5 text-[#24422e] shrink-0" />
                         <span className="text-sm font-medium text-[#24422e]">
-                          {btn.text}
+                          {metaButtonLabel(btn)}
                         </span>
                         {btn.url && (
                           <span className="text-[10px] text-gray-400 truncate ml-auto">
@@ -203,14 +202,14 @@ export function TemplateModal({ template: t, onClose }: Readonly<TemplateModalPr
                     {/* Buttons */}
                     {buttonsComp?.buttons && buttonsComp.buttons.length > 0 && (
                       <div className="border-t divide-y">
-                        {buttonsComp.buttons.map((btn) => (
+                        {buttonsComp.buttons.map((btn, i) => (
                           <div
-                            key={btn.text}
+                            key={`preview-btn-${i}`}
                             className="flex items-center justify-center gap-1.5 py-2 text-[11px] font-medium"
                             style={{ color: "#24422e" }}
                           >
                             <ExternalLink className="w-3 h-3" />
-                            {btn.text}
+                            {metaButtonLabel(btn)}
                           </div>
                         ))}
                       </div>

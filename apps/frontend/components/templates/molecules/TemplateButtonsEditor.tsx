@@ -11,6 +11,7 @@ import {
   MAX_OFFER_CODE,
   buttonError,
   buttonsError,
+  isBlankButton,
   isCallToAction,
   isTypeFull,
   newButton,
@@ -313,9 +314,14 @@ function ButtonRow({
         </div>
       </div>
 
-      {error && (
-        <p className="text-[11px] text-amber-600 font-medium mt-2">{error}</p>
-      )}
+      {error &&
+        (isBlankButton(button) ? (
+          <p className="text-[11px] text-gray-400 font-medium mt-2">
+            Fill this button in, or remove it, before submitting.
+          </p>
+        ) : (
+          <p className="text-[11px] text-amber-600 font-medium mt-2">{error}</p>
+        ))}
     </div>
   );
 }

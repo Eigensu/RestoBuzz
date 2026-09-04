@@ -22,12 +22,40 @@ class CampaignPersonalization(BaseModel):
     overlay: dict = Field(default_factory=dict)  # overrides ecard_service defaults
 
 
+class VariableSource(BaseModel):
+    """Where one template variable gets its value for a given recipient.
+
+    kind:
+      column     — a header from the uploaded sheet, read per recipient
+      restaurant — a field of the sending restaurant, resolved once at creation
+                   so a campaign for Fielia Soraia can never carry another
+                   restaurant's name
+      contact    — the recipient's detected name, independent of the sheet's
+                   column naming
+      fixed      — one value typed once, identical for everyone
+
+    `fallback` fills in when the resolved value is blank. Meta counts
+    parameters, so a missing one fails the whole send with error 132000 rather
+    than sending a gappy message.
+    """
+
+    kind: Literal["column", "restaurant", "contact", "fixed"]
+    column: str | None = None
+    field: str | None = None
+    value: str | None = None
+    fallback: str | None = None
+
+
 class CampaignCreate(BaseModel):
     restaurant_id: str = Field(min_length=1)
     name: str = Field(min_length=1, max_length=200)
     template_id: str = Field(min_length=1)
     template_name: str = Field(min_length=1)
     template_variables: dict = Field(default_factory=dict)
+    # Per-variable sources. Supersedes template_variables where both name the
+    # same variable; template_variables alone is still accepted so an older
+    # client keeps working.
+    variable_sources: dict[str, VariableSource] = Field(default_factory=dict)
     media_url: str | None = None
     # Header media kind ("image"/"video"/"document"), derived server-side from
     # the template's HEADER format so the Meta send uses the matching parameter.
