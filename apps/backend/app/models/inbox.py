@@ -41,7 +41,11 @@ class InboundMessageResponse(BaseModel):
 
 
 class ConversationResponse(BaseModel):
+    # Addressing key for the conversation: the phone number when known,
+    # otherwise the sender's BSUID (a username user Meta gave us no phone for).
     from_phone: str
+    bsuid: str | None = None
+    username: str | None = None
     sender_name: str | None
     last_message: str | None
     last_message_type: MessageType

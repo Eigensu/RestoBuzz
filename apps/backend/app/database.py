@@ -327,6 +327,26 @@ async def init_indexes() -> None:
             ),
             # Retained for backwards-compat with per-phone thread queries.
             IndexModel([("from_phone", ASCENDING), ("received_at", DESCENDING)]),
+            # contact_key mirrors the two from_phone indexes above. It is the
+            # grouping key for the conversation list once a BSUID-only sender
+            # has no phone number to group on. Not sparse: backfill_contact_key
+            # populates every existing row, and the conversation pipeline sorts
+            # on this field — a sparse index would silently drop rows that have
+            # not been backfilled yet.
+            IndexModel(
+                [
+                    ("restaurant_id", ASCENDING),
+                    ("contact_key", ASCENDING),
+                    ("received_at", DESCENDING),
+                ]
+            ),
+            IndexModel(
+                [
+                    ("is_resolved", ASCENDING),
+                    ("received_at", DESCENDING),
+                    ("contact_key", ASCENDING),
+                ]
+            ),
             # Partial index for the unread-count query (is_read=False, is_resolved≠true).
             IndexModel(
                 [("is_read", ASCENDING), ("is_resolved", ASCENDING)],
@@ -337,6 +357,17 @@ async def init_indexes() -> None:
                 [("restaurant_id", ASCENDING), ("is_read", ASCENDING)],
                 partialFilterExpression={"is_read": False},
             ),
+        ],
+    )
+
+    # wa_identities — BSUID ↔ phone links (see app/services/wa_identity.py)
+    await safe_create_indexes(
+        db.wa_identities,
+        [
+            IndexModel([("bsuid", ASCENDING)], unique=True),
+            # Sparse: a username user whose phone we have never learned has no
+            # phone field, and those rows must not collide with each other.
+            IndexModel([("phone", ASCENDING)], sparse=True),
         ],
     )
 
