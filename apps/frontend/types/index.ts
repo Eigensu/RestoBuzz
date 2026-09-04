@@ -27,6 +27,17 @@ export interface Restaurant {
   ecard_config?: EcardConfig | null;
 }
 
+/** Why the send path parked a campaign, when Meta blocked it rather than a human. */
+export interface CampaignPauseReason {
+  code: string;
+  summary: string;
+  /** Meta's own wording — shown verbatim so it matches WhatsApp Manager. */
+  message: string;
+  template_name: string | null;
+  paused_at: string | null;
+  auto: boolean;
+}
+
 export interface Campaign {
   id: string;
   name: string;
@@ -49,6 +60,7 @@ export interface Campaign {
   has_been_retried: boolean;
   smart_retries: boolean;
   retry_until: string | null;
+  pause_reason: CampaignPauseReason | null;
 }
 
 export interface MessageLog {

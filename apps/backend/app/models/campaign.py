@@ -95,6 +95,21 @@ class CampaignCreateInternal(CampaignCreate):
         return v
 
 
+class CampaignPauseReason(BaseModel):
+    """Why a campaign was parked, when the send path did it rather than a human.
+
+    `message` is Meta's own wording, passed through untouched so the dashboard
+    can show the operator exactly what WhatsApp Manager shows.
+    """
+
+    code: str
+    summary: str
+    message: str
+    template_name: str | None = None
+    paused_at: datetime | None = None
+    auto: bool = True
+
+
 class CampaignResponse(BaseModel):
     id: str
     restaurant_id: str
@@ -119,6 +134,7 @@ class CampaignResponse(BaseModel):
     has_been_retried: bool = False
     smart_retries: bool = False
     retry_until: datetime | None = None
+    pause_reason: CampaignPauseReason | None = None
 
 
 class CampaignListResponse(BaseModel):

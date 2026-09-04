@@ -169,6 +169,7 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
         has_been_retried=doc.get("has_been_retried", False),
         smart_retries=doc.get("smart_retries", False),
         retry_until=doc.get("retry_until"),
+        pause_reason=doc.get("pause_reason"),
     )
 
 
@@ -874,8 +875,20 @@ async def start_campaign(
             f"Cannot start a campaign with status '{previous_status}'"
         )
 
+    # Resuming from an auto-pause means the operator believes the block is
+    # cleared (template edited or unpaused in WhatsApp Manager). Hand back the
+    # retries the block consumed before it was recognised as campaign-wide —
+    # otherwise messages left at retry_count 1-2 by the old burn get only the
+    # remainder of their budget and fail permanently on the next hiccup.
+    if (doc.get("pause_reason") or {}).get("auto"):
+        await db.message_logs.update_many(
+            {"job_id": to_object_id(campaign_id), "status": "queued"},
+            {"$set": {"retry_count": 0}},
+        )
+
     await db.campaign_jobs.update_one(
-        {"_id": to_object_id(campaign_id)}, {"$set": {"status": "queued"}}
+        {"_id": to_object_id(campaign_id)},
+        {"$set": {"status": "queued"}, "$unset": {"pause_reason": ""}},
     )
 
     try:
