@@ -96,6 +96,11 @@ async def list_conversations(
                 "contact_key": {"$ifNull": ["$contact_key", "$from_phone"]}
             }
         },
+        # A row with neither identifier has no conversation to belong to.
+        # ConversationResponse.from_phone is non-nullable, so letting a null key
+        # through would fail validation and 500 the entire list rather than drop
+        # one row.
+        {_MONGO_MATCH: {"contact_key": {_MONGO_NE: None}}},
         {_MONGO_SORT: {"contact_key": 1, "received_at": -1}},
         {
             _MONGO_GROUP: {

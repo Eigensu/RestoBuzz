@@ -15,6 +15,7 @@ from app.services.meta_api import (
 )
 from app.services.alert_service import alert_service
 from app.core.errors import NotFoundError, ValidationError
+from app.utils.phone import normalize_phone
 from app.config import settings
 from app.core.logging import get_logger
 
@@ -25,12 +26,22 @@ logger = get_logger(__name__)
 # ── Request models ────────────────────────────────────────────────────────────
 
 
+class TemplateButton(BaseModel):
+    type: str
+    text: str | None = None
+    url: str | None = None
+    phone_number: str | None = None
+    # COPY_CODE carries the coupon here; Meta labels that button itself, so it
+    # has no text of its own.
+    example: str | None = None
+
+
 class TemplateComponent(BaseModel):
     type: str
     text: str | None = None
     format: str | None = None
     example: dict | None = None
-    buttons: list[dict] | None = None
+    buttons: list[TemplateButton] | None = None
 
 
 class CreateTemplateRequest(BaseModel):
@@ -45,6 +56,22 @@ class EditTemplateRequest(BaseModel):
 
 
 VAR_PATTERN = re.compile(r"\{\{(\d+)\}\}")
+
+# Meta's template-button rules. Mirrored by lib/templateButtons.ts in the
+# frontend, which enforces the same caps before submit — change both together.
+MAX_BUTTONS = 10
+MAX_BUTTON_TEXT = 25
+MAX_BUTTON_URL = 2000
+MAX_OFFER_CODE = 15
+BUTTON_TYPE_CAPS = {
+    "QUICK_REPLY": 10,
+    "URL": 2,
+    "PHONE_NUMBER": 1,
+    "COPY_CODE": 1,
+}
+
+# The component order Meta requires of a template payload.
+COMPONENT_ORDER = {"HEADER": 0, "BODY": 1, "FOOTER": 2, "BUTTONS": 3}
 
 LANGUAGE_MAP = {
     "en": "en_US",

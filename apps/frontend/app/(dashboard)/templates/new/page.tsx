@@ -28,7 +28,11 @@ import {
 } from "lucide-react";
 import { useRef } from "react";
 import { HeaderMediaPreview } from "@/components/templates/atoms/HeaderMediaPreview";
+import { TemplateButtonsPreview } from "@/components/templates/atoms/TemplateButtonsPreview";
+import { TemplateButtonsEditor } from "@/components/templates/molecules/TemplateButtonsEditor";
 import { MEDIA_CONFIG, isMediaFormat } from "@/lib/templateMedia";
+import { buildButtonsComponent, buttonsError } from "@/lib/templateButtons";
+import type { ButtonDraft } from "@/lib/templateButtons";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -59,6 +63,7 @@ export default function NewTemplatePage() {
   const [headerMediaUrl, setHeaderMediaUrl] = useState("");
   const [body, setBody] = useState("");
   const [footer, setFooter] = useState("");
+  const [buttons, setButtons] = useState<ButtonDraft[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
   // Variable tracking
@@ -146,6 +151,7 @@ export default function NewTemplatePage() {
       text?: string;
       format?: string;
       example?: Record<string, unknown>;
+      buttons?: unknown[];
     }> = [];
 
     if (headerType === "text" && headerText.trim()) {
@@ -167,6 +173,12 @@ export default function NewTemplatePage() {
       comps.push({ type: "FOOTER", text: footer });
     }
 
+    // Meta requires the HEADER, BODY, FOOTER, BUTTONS order, so buttons stay last.
+    const buttonsComp = buildButtonsComponent(buttons);
+    if (buttonsComp) {
+      comps.push(buttonsComp);
+    }
+
     return comps;
   };
 
@@ -186,11 +198,14 @@ export default function NewTemplatePage() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
+  const buttonsProblem = buttonsError(buttons);
+
   const canSubmit =
     !!name.trim() &&
     !!body.trim() &&
     body.length <= 1024 &&
     !uploadingMedia &&
+    !buttonsProblem &&
     // A media header with nothing uploaded would submit with no header at all.
     (!mediaCfg || !!headerMediaUrl.trim());
 
@@ -528,6 +543,9 @@ export default function NewTemplatePage() {
             </div>
           </div>
 
+          {/* Buttons Section */}
+          <TemplateButtonsEditor buttons={buttons} onChange={setButtons} />
+
           {/* Info notice */}
           <div className="p-4 rounded-xl flex items-start gap-3 bg-[#eff2f0] border border-[#24422e]/10">
             <span className="text-[11px] leading-relaxed text-[#24422e] font-medium">
@@ -632,6 +650,8 @@ export default function NewTemplatePage() {
                           9:42 AM
                         </p>
                       </div>
+
+                      <TemplateButtonsPreview buttons={buttons} />
                     </div>
                   </div>
                 </div>
