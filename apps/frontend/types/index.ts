@@ -164,10 +164,25 @@ export interface CampaignProgress {
   total: number;
 }
 
+/** A behavioural view of the member base, defined by the backend. */
+export interface MemberSegment {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface MemberSegmentsResponse {
+  segments: MemberSegment[];
+}
+
 export interface Member {
   id: string;
   restaurant_id: string;
-  type: "nfc" | "ecard" | "interested" | string;
+  /**
+   * The member's category — one of the restaurant's configurable
+   * `member_categories`. Never a segment id: "interested" is a tag, not a type.
+   */
+  type: string;
   name: string;
   phone: string;
   email: string | null;

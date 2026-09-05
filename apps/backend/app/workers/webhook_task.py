@@ -507,6 +507,23 @@ async def _resolve_interested_context(
     return restaurant_id, campaign_name, job_id
 
 
+async def _default_member_category(db, restaurant_id: str) -> str:
+    """The category to file a brand-new campaign respondent under.
+
+    Members created from an inbound reply have no card of any kind, so there is
+    no "right" category — but it must be one the restaurant actually has, or
+    the member disappears from every category tab. Falls back to "ecard" when
+    the restaurant record is missing or has no categories configured.
+    """
+    rest = await db.restaurants.find_one(
+        {"id": restaurant_id}, {"member_categories": 1}
+    )
+    categories = (rest or {}).get("member_categories")
+    if isinstance(categories, list) and categories:
+        return str(categories[0])
+    return "ecard"
+
+
 async def _handle_interested_reply(
     db,
     orig_msg: dict | None,
@@ -544,6 +561,12 @@ async def _handle_interested_reply(
     name = orig_msg.get("recipient_name") or sender_name or "Unknown"
     now = datetime.now(timezone.utc)
 
+    # "interested" is a segment, carried by the tag below — never a member
+    # type. Stamping it as `type` produced members that belonged to no
+    # category tab and rendered as an unstyled badge. New respondents get the
+    # restaurant's first configured category instead.
+    member_category = await _default_member_category(db, restaurant_id)
+
     await db.members.update_one(
         {"restaurant_id": restaurant_id, "phone": phone},
         {
@@ -556,7 +579,7 @@ async def _handle_interested_reply(
             },
             _SET_ON_INSERT: {
                 "restaurant_id": restaurant_id,
-                "type": "interested",
+                "type": member_category,
                 "name": name,
                 "phone": phone,
                 "email": None,

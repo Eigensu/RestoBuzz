@@ -4,7 +4,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { BRAND_GRADIENT } from "@/lib/brand";
-import type { Member, MemberListResponse } from "@/types";
+import type {
+  Member,
+  MemberListResponse,
+  MemberSegmentsResponse,
+} from "@/types";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import {
@@ -20,28 +24,49 @@ import {
   X,
   Moon,
   Heart,
+  Sparkles,
+  AlertTriangle,
+  UserMinus,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MemberModal } from "@/components/members/molecules/MemberModal";
 import { MembersTable } from "@/components/members/organisms/MembersTable";
 import { BulkAddMemberModal } from "@/components/members/molecules/BulkAddMemberModal";
 
-type Tab = string;
-
 const PAGE_SIZE = 25;
 
-// Tabs that aren't backed by a member category — we never auto-reset away from these.
-const NON_CATEGORY_TABS = new Set(["all", "inactive", "interested"]);
+/**
+ * Members are filtered on two independent axes:
+ *   category — the restaurant's configurable card type (nfc, ecard, vip, …)
+ *   segment  — a backend-defined behavioural view (inactive, interested, …)
+ *
+ * They used to share one `tab` string, which is why a custom category silently
+ * showed every member and why "Add member" broke on the Inactive tab. Keeping
+ * them separate also lets them compose: VIP members who have gone dormant.
+ */
+const ICON_BY_SEGMENT: Record<string, LucideIcon> = {
+  interested: Heart,
+  inactive: Moon,
+  active: Sparkles,
+  at_risk: AlertTriangle,
+  dormant: Moon,
+  lost: UserMinus,
+};
 
-/** True when the active category tab no longer exists after a categories update. */
-function activeCategoryRemoved(categories: string[], tab: Tab): boolean {
-  return !NON_CATEGORY_TABS.has(tab) && !categories.includes(tab);
+/** True when the selected category no longer exists after a categories update. */
+function activeCategoryRemoved(
+  categories: string[],
+  category: string | null,
+): boolean {
+  return category !== null && !categories.includes(category);
 }
 
 export default function MembersPage() {
   const { restaurant, user, setRestaurant } = useAuthStore();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<Tab>("all");
+  const [category, setCategory] = useState<string | null>(null);
+  const [segment, setSegment] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<{ open: boolean; editing: Member | null }>(
@@ -53,14 +78,22 @@ export default function MembersPage() {
 
   const [newCat, setNewCat] = useState("");
 
+  const memberCategories = restaurant?.member_categories ?? ["nfc", "ecard"];
+  // What "Add member" and Excel import default to when no category tab is
+  // active. Always a real configured category — never the selected segment.
+  const importFallbackCategory = memberCategories[0] ?? "nfc";
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const importMutation = useMutation({
     mutationFn: (file: File) => {
       const form = new FormData();
       form.append("file", file);
+      // The import type is a category. Sending the active tab used to stamp
+      // rows with a segment name ("inactive"), creating members no tab shows.
+      const importType = category ?? importFallbackCategory;
       return api.post(
-        `/members/import?restaurant_id=${restaurant!.id}&type=${tab === "all" ? "nfc" : tab}`,
+        `/members/import?restaurant_id=${restaurant!.id}&type=${encodeURIComponent(importType)}`,
         form,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
@@ -93,8 +126,8 @@ export default function MembersPage() {
 
       setCatModal(false);
       setNewCat("");
-      if (activeCategoryRemoved(res.data.member_categories, tab)) {
-        setTab("all");
+      if (activeCategoryRemoved(res.data.member_categories, category)) {
+        setCategory(null);
       }
     },
     onError: (e: unknown) => {
@@ -103,16 +136,26 @@ export default function MembersPage() {
     },
   });
 
+  // Segments come from the backend so this page and the campaign audience
+  // picker never drift from the filters the API actually implements.
+  const { data: segmentData } = useQuery<MemberSegmentsResponse>({
+    queryKey: ["member-segments"],
+    queryFn: () => api.get("/members/segments").then((r) => r.data),
+    staleTime: Infinity,
+  });
+  const segments = segmentData?.segments ?? [];
+
   const { data, isLoading, isError, error, refetch } =
     useQuery<MemberListResponse>({
-      queryKey: ["members", restaurant?.id, tab, search, page],
+      queryKey: ["members", restaurant?.id, category, segment, search, page],
       queryFn: () => {
         const params = new URLSearchParams({
           restaurant_id: restaurant!.id,
           page: String(page),
           page_size: String(PAGE_SIZE),
         });
-        if (tab !== "all") params.set("type", tab);
+        if (category) params.set("category", category);
+        if (segment) params.set("segment", segment);
         if (search) params.set("search", search);
         return api.get(`/members?${params}`).then((r) => r.data);
       },
@@ -167,12 +210,12 @@ export default function MembersPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const clampedPage = Math.min(Math.max(1, page), totalPages);
-  const from = total === 0 ? 0 : (clampedPage - 1) * PAGE_SIZE + 1;
-  const to = Math.min(clampedPage * PAGE_SIZE, total);
+  // `from`/`to` describe the page that was actually fetched. They used to be
+  // derived from a clamped page number while the query used the raw one, so a
+  // stale/over-counted total produced "Showing 1-25 of 900" over an empty table.
+  const from = members.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = (page - 1) * PAGE_SIZE + members.length;
   if (!restaurant) return null;
-
-  const memberCategories = restaurant.member_categories ?? ["nfc", "ecard"];
 
   return (
     <div className="space-y-8 pb-20 max-w-[1600px] mx-auto p-4 md:p-8">
@@ -200,7 +243,7 @@ export default function MembersPage() {
           restaurantId={restaurant.id}
           memberCategories={memberCategories}
           editing={modal.editing}
-          defaultType={tab}
+          defaultCategory={category}
           onClose={() => setModal({ open: false, editing: null })}
         />
       )}
@@ -209,7 +252,7 @@ export default function MembersPage() {
         <BulkAddMemberModal
           restaurantId={restaurant.id}
           memberCategories={memberCategories}
-          defaultType={tab}
+          defaultCategory={category}
           onClose={() => setBulkModal(false)}
         />
       )}
@@ -353,101 +396,107 @@ export default function MembersPage() {
         </div>
       </div>
 
-      <div className="flex flex-col xl:flex-row gap-4">
-        <div className="flex p-1 bg-[#eff2f0] rounded-xl flex-wrap">
-          <button
-            onClick={() => {
-              setTab("all");
-              setPage(1);
-            }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
-              tab === "all"
-                ? "text-white shadow-sm"
-                : "text-[#24422e]/60 hover:text-[#24422e]",
-            )}
-            style={tab === "all" ? { background: BRAND_GRADIENT } : undefined}
-          >
-            <Users className="w-3.5 h-3.5" />
-            All Members
-          </button>
-
-          {memberCategories.map((c) => (
+      <div className="space-y-3">
+        {/* Axis 1 — category. Rendered from the restaurant's configured
+            categories, so adding one here is all it takes for it to work. */}
+        <div className="flex flex-col xl:flex-row gap-4">
+          <div className="flex p-1 bg-[#eff2f0] rounded-xl flex-wrap">
             <button
-              key={c}
               onClick={() => {
-                setTab(c);
+                setCategory(null);
                 setPage(1);
               }}
               className={cn(
                 "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
-                tab === c
+                category === null
                   ? "text-white shadow-sm"
                   : "text-[#24422e]/60 hover:text-[#24422e]",
               )}
-              style={tab === c ? { background: BRAND_GRADIENT } : undefined}
+              style={category === null ? { background: BRAND_GRADIENT } : undefined}
             >
-              {c.replaceAll("-", " ").toUpperCase()}
+              <Users className="w-3.5 h-3.5" />
+              All Types
             </button>
-          ))}
 
-          {/* Interested — respondents who replied positively to a campaign */}
-          <button
-            onClick={() => {
-              setTab("interested");
-              setPage(1);
-            }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
-              tab === "interested"
-                ? "bg-rose-500 text-white shadow-sm"
-                : "text-rose-700/70 hover:text-rose-700 hover:bg-rose-50",
+            {memberCategories.map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  setCategory(c);
+                  setPage(1);
+                }}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
+                  category === c
+                    ? "text-white shadow-sm"
+                    : "text-[#24422e]/60 hover:text-[#24422e]",
+                )}
+                style={category === c ? { background: BRAND_GRADIENT } : undefined}
+              >
+                {c.replaceAll("-", " ").toUpperCase()}
+              </button>
+            ))}
+
+            {(user?.role === "super_admin" || user?.role === "admin") && (
+              <button
+                onClick={() => setCatModal(true)}
+                className="flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg text-[#24422e]/60 hover:text-[#24422e] hover:bg-white/50 border border-transparent"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                Manage
+              </button>
             )}
-          >
-            <Heart className="w-3.5 h-3.5" />
-            Interested
-          </button>
+          </div>
 
-          {/* Inactive — clubs At-Risk, Dormant, and Lost */}
-          <button
-            onClick={() => {
-              setTab("inactive");
-              setPage(1);
-            }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg",
-              tab === "inactive"
-                ? "bg-amber-500 text-white shadow-sm"
-                : "text-amber-700/70 hover:text-amber-700 hover:bg-amber-50",
-            )}
-          >
-            <Moon className="w-3.5 h-3.5" />
-            Inactive
-          </button>
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              aria-label="Search members"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search name, phone, email..."
+              className="w-full border-gray-100 border bg-white rounded-xl pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 focus:border-[#24422e]/30 shadow-sm"
+            />
+          </div>
+        </div>
 
-          {(user?.role === "super_admin" || user?.role === "admin") && (
-            <button
-              onClick={() => setCatModal(true)}
-              className="flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg text-[#24422e]/60 hover:text-[#24422e] hover:bg-white/50 border border-transparent"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              Manage
-            </button>
-          )}
-        </div>
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            aria-label="Search members"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            placeholder="Search name, phone, email..."
-            className="w-full border-gray-100 border bg-white rounded-xl pl-11 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#24422e]/10 focus:border-[#24422e]/30 shadow-sm"
-          />
-        </div>
+        {/* Axis 2 — segment. Independent of category, so the two compose:
+            "VIP members who have gone dormant". Click an active chip to clear. */}
+        {segments.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+              Segment
+            </span>
+            {segments.map((s) => {
+              const Icon = ICON_BY_SEGMENT[s.id] ?? Users;
+              const isActive = segment === s.id;
+              return (
+                <button
+                  key={s.id}
+                  title={s.description}
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    setSegment(isActive ? null : s.id);
+                    setPage(1);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest transition-all rounded-lg border",
+                    isActive
+                      ? "bg-[#24422e] text-white border-[#24422e] shadow-sm"
+                      : "bg-white text-gray-500 border-gray-200 hover:text-[#24422e] hover:border-[#24422e]/40",
+                  )}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {s.label}
+                  {isActive && <X className="w-3 h-3 opacity-70" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -523,7 +572,7 @@ export default function MembersPage() {
       {!isLoading && !isError && total > 0 && (
         <div className="flex items-center justify-between bg-white rounded-xl border px-4 py-3">
           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-            Showing {Math.min(from, total)}-{Math.min(to, total)} of {total}
+            Showing {from}-{to} of {total}
           </p>
           <div className="flex items-center gap-2">
             <button
