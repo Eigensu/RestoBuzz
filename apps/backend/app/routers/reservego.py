@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from pymongo import UpdateOne
 
 from app.config import settings
+from app.core.logging import get_logger
 from app.core.errors import (
     InvalidCredentialsError,
     InvalidFileFormatError,
@@ -117,6 +118,8 @@ BILL_HEADERS = [
     "booking amount payment date",
 ]
 
+logger = get_logger(__name__)
+
 GUEST_PROFILE_SHEETS = {"no of visits", "no visit data", "not visited in 3 months"}
 BILL_SHEET = _COL_BILL_AMOUNT
 
@@ -194,6 +197,27 @@ def _cell(row: tuple, idx: dict, h: str):
 
 def _parse_date(val) -> datetime | None:
     return val.replace(tzinfo=timezone.utc) if isinstance(val, datetime) else None
+
+
+def _phone_str(val) -> str | None:
+    """Read a phone cell as a string without Excel's float artifacts.
+
+    openpyxl hands back a long numeric cell as a float, so "919324081080"
+    arrives as 919324081080.0 and str() renders it "919324081080.0". The
+    trailing ".0" then shifts every digit when a matcher takes the last ten,
+    turning a real number into a different one. The guest parser handled this;
+    the bill parser did not, which is why every bill row in the database is
+    stored as e.g. '919324081080.0'.
+    """
+    if val is None:
+        return None
+    if isinstance(val, float):
+        # Whole numbers only — a genuine fractional value is not a phone number.
+        return str(int(val)) if val.is_integer() else str(val).strip()
+    text = str(val).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text or None
 
 
 def _str_val(row, idx, h):
@@ -324,7 +348,7 @@ def _parse_bill_row(row, idx, filename, now, restaurant_id) -> dict | None:
         "reserved_time": _parse_date(_cell(row, idx, "reserved time")),
         "booking_type": _str_val(row, idx, "booking type"),
         "guest_name": guest_name,
-        "guest_number": _str_val(row, idx, _COL_GUEST_NUMBER),
+        "guest_number": _phone_str(_cell(row, idx, _COL_GUEST_NUMBER)),
         "guest_email": _str_val(row, idx, _COL_GUEST_EMAIL),
         "pax": _num_val(row, idx, "pax"),
         "reserved_by": _str_val(row, idx, "reserved by"),
@@ -1005,7 +1029,37 @@ async def reservego_upload(
         raise InvalidFileFormatError("Uploaded file is empty")
 
     now = datetime.now(timezone.utc)
+    logger.info(
+        "reservego_upload_started",
+        restaurant_id=restaurant_id,
+        filename=filename,
+        size_bytes=len(contents),
+        data_from=data_from,
+        data_until=data_until,
+    )
     parsed = await _parse_workbook_async(contents, filename, now, restaurant_id)
+
+    # A workbook whose sheets we do not recognise used to return 200 with
+    # inserted: 0 and a note buried per-sheet, so a renamed export sheet was
+    # indistinguishable from a successful upload — the portal showed the
+    # success screen and nothing was stored. Fail loudly instead, and say
+    # which sheets were found so the mismatch is obvious.
+    recognised = {n: v for n, v in parsed.items() if v[0] in ("guest", "bill")}
+    if not recognised:
+        found = ", ".join(repr(n) for n in parsed) or "none"
+        expected = ", ".join(
+            sorted(repr(n) for n in GUEST_PROFILE_SHEETS | {BILL_SHEET})
+        )
+        logger.error(
+            "reservego_upload_no_recognised_sheets",
+            restaurant_id=restaurant_id,
+            filename=filename,
+            sheets_found=list(parsed),
+        )
+        raise InvalidFileFormatError(
+            f"No recognised sheets in this file. Found: {found}. "
+            f"Expected one of: {expected}."
+        )
 
     sheets_summary = {}
     for sheet_name, (kind, docs, skipped) in parsed.items():
@@ -1015,6 +1069,15 @@ async def reservego_upload(
 
     total_inserted = sum(v["inserted"] for v in sheets_summary.values())
     total_skipped = sum(v["skipped"] for v in sheets_summary.values())
+
+    logger.info(
+        "reservego_upload_completed",
+        restaurant_id=restaurant_id,
+        filename=filename,
+        inserted=total_inserted,
+        skipped=total_skipped,
+        sheets={n: v[0] for n, v in parsed.items()},
+    )
 
     return {
         "inserted": total_inserted,
@@ -1041,14 +1104,29 @@ async def _validate_target_restaurant(db, restaurant_id):
 
 
 async def _parse_workbook_async(contents, filename, now, restaurant_id):
-    """Run workbook parsing in executor."""
+    """Run workbook parsing in executor.
+
+    Any failure in here used to collapse into a bare "Unable to read Excel
+    file" with the real cause discarded, so a parser bug and a genuinely
+    corrupt file were indistinguishable. The cause is now logged with a
+    traceback and its type surfaced to the caller.
+    """
     loop = asyncio.get_running_loop()
     try:
         return await loop.run_in_executor(
             _executor, _parse_workbook, contents, filename, now, restaurant_id
         )
     except Exception as exc:
-        raise InvalidFileFormatError("Unable to read Excel file") from exc
+        logger.exception(
+            "reservego_workbook_parse_failed",
+            filename=filename,
+            restaurant_id=restaurant_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise InvalidFileFormatError(
+            f"Unable to read Excel file ({type(exc).__name__}: {exc})"
+        ) from exc
 
 
 async def _process_sheet_docs(db, kind, docs, skipped, data_from, data_until):

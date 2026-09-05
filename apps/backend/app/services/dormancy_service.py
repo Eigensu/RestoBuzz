@@ -20,8 +20,15 @@ def normalize_phone_for_match(phone: str | None) -> str | None:
     """
     if not phone:
         return None
+    text = str(phone).strip()
+    # Excel writes long numeric cells as floats, so a phone can arrive as
+    # "919324081080.0". Stripping non-digits without dropping that suffix first
+    # yields "9193240810800" and the last ten digits are then a DIFFERENT
+    # number. Drop it before anything else.
+    if text.endswith(".0"):
+        text = text[:-2]
     # Remove all non-numeric characters
-    clean = "".join(filter(str.isdigit, str(phone)))
+    clean = "".join(filter(str.isdigit, text))
     # Require at least 10 digits — short fragments cause false-positive matches
     return clean[-10:] if len(clean) >= 10 else None
 

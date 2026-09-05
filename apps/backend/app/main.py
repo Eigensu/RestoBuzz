@@ -79,7 +79,17 @@ async def app_error_handler(_request: Request, exc: AppError):
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(_request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception):
+    # The response stays deliberately opaque, but the cause must not vanish:
+    # without this an unhandled 500 left no trace anywhere, which is why the
+    # ReserveGo upload failures could not be diagnosed at all.
+    get_logger(__name__).exception(
+        "unhandled_exception",
+        path=request.url.path,
+        method=request.method,
+        error_type=type(exc).__name__,
+        error=str(exc),
+    )
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error", "type": "server_error"},
