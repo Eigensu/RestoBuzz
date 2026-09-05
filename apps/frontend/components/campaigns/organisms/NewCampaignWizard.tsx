@@ -7,7 +7,11 @@ import { useAuthStore } from "@/store/auth";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { cloudinaryPublicId, buildEcardPreviewUrl } from "@/lib/cloudinary";
-import type { PreflightResult, Template } from "@/types";
+import type {
+  PreflightResult,
+  Template,
+  MemberSegmentsResponse,
+} from "@/types";
 import { useDropzone } from "react-dropzone";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { StepIndicator } from "@/components/campaigns/molecules/StepIndicator";
@@ -99,6 +103,16 @@ export function NewCampaignWizard() {
   });
   const reservegoCount = analytics?.totals?.reservego_members ?? 0;
 
+  // Segments are defined by the backend so the audience picker and the members
+  // page always offer exactly the filters the API implements.
+  const { data: segmentData } = useQuery<MemberSegmentsResponse>({
+    queryKey: ["member-segments"],
+    queryFn: () => api.get("/members/segments").then((r) => r.data),
+    staleTime: Infinity,
+    enabled: step === 1,
+  });
+  const memberSegments = segmentData?.segments ?? [];
+
   // E-card campaign entry: when opened via "New E-card campaign" (?type=ecard),
   // lock the configured template + base card and jump straight to contacts.
   const ecardPrefilled = useRef(false);
@@ -143,15 +157,12 @@ export function NewCampaignWizard() {
     }
   };
 
-  const useMembersAsContacts = async (type: "all" | "nfc" | "ecard" | "reservego" | "at_risk" | "dormant" | "lost" | "inactive", limit?: number) => {
+  const loadAudience = async (params: URLSearchParams, emptyMessage: string) => {
     setLoadingMembers(true);
     try {
-      const params = new URLSearchParams({ restaurant_id: restaurant!.id });
-      if (type !== "all") params.set("type", type);
-      if (limit) params.set("limit", limit.toString());
       const { data } = await api.post(`/members/as-contacts?${params}`);
       if (data.valid_count === 0) {
-        toast.error("No active members found for the selected type.");
+        toast.error(emptyMessage);
         return;
       }
       setPreflight(data);
@@ -161,6 +172,30 @@ export function NewCampaignWizard() {
     } finally {
       setLoadingMembers(false);
     }
+  };
+
+  /** Audience is a category and/or a segment — the same axes as the members page. */
+  const useMembersAsContacts = async (
+    selection: { category?: string | null; segment?: string | null },
+    limit?: number,
+  ) => {
+    const params = new URLSearchParams({ restaurant_id: restaurant!.id });
+    if (selection.category) params.set("category", selection.category);
+    if (selection.segment) params.set("segment", selection.segment);
+    if (limit) params.set("limit", limit.toString());
+    await loadAudience(
+      params,
+      "No active members found for the selected audience.",
+    );
+  };
+
+  const useReservegoAsContacts = async (limit?: number) => {
+    const params = new URLSearchParams({
+      restaurant_id: restaurant!.id,
+      type: "reservego",
+    });
+    if (limit) params.set("limit", limit.toString());
+    await loadAudience(params, "No ReserveGo guests found.");
   };
 
   const deleteFile = async (fileRef: string) => {
@@ -393,8 +428,11 @@ export function NewCampaignWizard() {
               reuseFile={reuseFile}
               loadingMembers={loadingMembers}
               onSelectMembers={useMembersAsContacts}
+              onSelectReservego={useReservegoAsContacts}
               onDeleteFile={deleteFile}
               reservegoCount={reservegoCount}
+              memberCategories={restaurant?.member_categories ?? ["nfc", "ecard"]}
+              segments={memberSegments}
             />
           )}
           {step === 2 && preflight && (

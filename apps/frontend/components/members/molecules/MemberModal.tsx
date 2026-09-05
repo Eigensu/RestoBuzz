@@ -13,7 +13,13 @@ interface MemberModalProps {
   restaurantId: string;
   memberCategories: string[];
   editing: Member | null;
-  defaultType: string;
+  /**
+   * The category tab in effect, or null for "All Types". This is only ever a
+   * real configured category — it used to receive the raw tab, so opening this
+   * modal from the Inactive tab locked the type to "inactive" and every save
+   * was rejected by the backend's category validation.
+   */
+  defaultCategory: string | null;
   onClose: () => void;
 }
 
@@ -21,15 +27,21 @@ export function MemberModal({
   restaurantId,
   memberCategories,
   editing,
-  defaultType,
+  defaultCategory,
   onClose,
 }: Readonly<MemberModalProps>) {
   const qc = useQueryClient();
   const fallbackCat = memberCategories.length > 0 ? memberCategories[0] : "nfc";
-  // Compute isTypeLocked as a derived value — not state — so it stays in sync with props
-  const isTypeLocked = !editing && defaultType !== "all";
+  // A category filter is a sensible default for a new member, but only lock the
+  // picker when that category is one the restaurant actually has.
+  const presetCategory =
+    defaultCategory && memberCategories.includes(defaultCategory)
+      ? defaultCategory
+      : null;
+  // Derived, not state, so it stays in sync with props.
+  const isTypeLocked = !editing && presetCategory !== null;
   const [form, setForm] = useState({
-    type: editing?.type ?? (defaultType === "all" ? fallbackCat : defaultType),
+    type: editing?.type ?? presetCategory ?? fallbackCat,
     name: editing?.name ?? "",
     phone: editing?.phone ?? "",
     email: editing?.email ?? "",

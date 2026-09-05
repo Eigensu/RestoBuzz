@@ -18,6 +18,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { BRAND_GRADIENT } from "@/lib/brand";
+import type { MemberSegment } from "@/types";
 
 interface SavedFile {
   id: string;
@@ -39,30 +40,71 @@ interface Step1UploadProps {
   reusingFile: boolean;
   reuseFile: (ref: string) => void;
   loadingMembers: boolean;
-  onSelectMembers: (type: "all" | "nfc" | "ecard" | "reservego" | "at_risk" | "dormant" | "lost" | "inactive", limit?: number) => void;
+  /**
+   * Picks a campaign audience on the same two axes as the members page: an
+   * optional category and an optional segment. This used to be a single
+   * hardcoded union, so custom categories could never be targeted.
+   */
+  onSelectMembers: (
+    selection: { category?: string | null; segment?: string | null },
+    limit?: number,
+  ) => void;
+  onSelectReservego: (limit?: number) => void;
   onDeleteFile: (ref: string) => void;
   reservegoCount: number;
+  /** The restaurant's configured member categories. */
+  memberCategories: string[];
+  /** Behavioural segments, served by the backend. */
+  segments: MemberSegment[];
 }
 
-const MEMBER_TYPES: {
-  key: "all" | "nfc" | "ecard" | "at_risk" | "dormant" | "lost" | "inactive";
+interface AudienceOption {
+  key: string;
   label: string;
   desc: string;
-  icon?: "moon" | "alert" | "lost";
-}[] = [
-  {
-    key: "all",
-    label: "All Members",
-    desc: "Every active member regardless of card type",
-  },
-  { key: "nfc", label: "NFC Only", desc: "Members with a physical NFC card" },
-  { key: "ecard", label: "E-Card Only", desc: "Members with a digital e-card" },
-  { 
-    key: "inactive", 
-    label: "Inactive Members", 
-    desc: "Re-engage members who haven't visited recently. Includes At-Risk (30-60d), Dormant (60-90d), and Lost (90d+).",
-  },
-];
+  category: string | null;
+  segment: string | null;
+  isSegment: boolean;
+}
+
+function categoryLabel(category: string): string {
+  if (category.toLowerCase() === "nfc") return "NFC Only";
+  if (category.toLowerCase() === "ecard") return "E-Card Only";
+  return `${category.replaceAll("-", " ").replaceAll("_", " ")} Only`;
+}
+
+/** Build the audience list from live config instead of a hardcoded union. */
+function buildAudienceOptions(
+  memberCategories: string[],
+  segments: MemberSegment[],
+): AudienceOption[] {
+  return [
+    {
+      key: "all",
+      label: "All Members",
+      desc: "Every active member regardless of type",
+      category: null,
+      segment: null,
+      isSegment: false,
+    },
+    ...memberCategories.map((c) => ({
+      key: `category:${c}`,
+      label: categoryLabel(c),
+      desc: `Members with the ${c} membership type`,
+      category: c,
+      segment: null,
+      isSegment: false,
+    })),
+    ...segments.map((s) => ({
+      key: `segment:${s.id}`,
+      label: s.label,
+      desc: s.description,
+      category: null,
+      segment: s.id,
+      isSegment: true,
+    })),
+  ];
+}
 
 export function Step1Upload({
   getRootProps,
@@ -76,12 +118,17 @@ export function Step1Upload({
   reuseFile,
   loadingMembers,
   onSelectMembers,
+  onSelectReservego,
   onDeleteFile,
   reservegoCount,
+  memberCategories,
+  segments,
 }: Readonly<Step1UploadProps>) {
   const [source, setSource] = useState<"file" | "members" | "reservego">("file");
   const [downloading, setDownloading] = useState(false);
   const [limit, setLimit] = useState<string>("");
+
+  const audienceOptions = buildAudienceOptions(memberCategories, segments);
 
   const downloadTemplate = async () => {
     setDownloading(true);
@@ -245,7 +292,7 @@ export function Step1Upload({
             />
           </div>
           <GradientButton 
-            onClick={() => onSelectMembers('reservego', limit ? parseInt(limit, 10) : undefined)}
+            onClick={() => onSelectReservego(limit ? parseInt(limit, 10) : undefined)}
             disabled={loadingMembers || reservegoCount === 0}
             className="w-full py-2"
           >
@@ -269,19 +316,24 @@ export function Step1Upload({
               className="w-full text-sm p-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#24422e] transition"
             />
           </div>
-          {MEMBER_TYPES.map(({ key, label, desc, icon }) => (
+          {audienceOptions.map(({ key, label, desc, category, segment, isSegment }) => (
             <button
               key={key}
-              onClick={() => onSelectMembers(key, limit ? parseInt(limit, 10) : undefined)}
+              onClick={() =>
+                onSelectMembers(
+                  { category, segment },
+                  limit ? parseInt(limit, 10) : undefined,
+                )
+              }
               disabled={loadingMembers}
               className="w-full flex items-center gap-4 p-4 border-2 rounded-xl hover:border-[#24422e] hover:bg-[#24422e]/5 transition text-left disabled:opacity-50 group"
             >
               <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-opacity-20"
-                style={{ 
-                  background: key === "inactive" ? "#fffbeb" : "#eff2f0" 
+                style={{
+                  background: isSegment ? "#fffbeb" : "#eff2f0"
                 }}
               >
-                {key === "inactive" ? (
+                {isSegment ? (
                   <Moon className="w-5 h-5 text-amber-500" />
                 ) : (
                   <Users className="w-5 h-5 text-[#24422e]" />

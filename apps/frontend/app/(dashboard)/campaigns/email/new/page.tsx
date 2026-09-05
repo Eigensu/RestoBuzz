@@ -31,6 +31,8 @@ export default function NewEmailCampaignPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
 
+  const emailMemberCategories = restaurant?.member_categories ?? ["nfc", "ecard"];
+
   // Step 0 - Template
   const [selectedTemplate, setSelectedTemplate] =
     useState<EmailTemplate | null>(null);
@@ -89,12 +91,13 @@ export default function NewEmailCampaignPage() {
     }
   };
 
-  // Use members as contacts
-  const handleUseMembersAsContacts = async (type: "all" | "nfc" | "ecard") => {
+  // Use members as contacts. `category` is null for "all members"; any other
+  // value is one of the restaurant's configured categories.
+  const handleUseMembersAsContacts = async (category: string | null) => {
     setLoadingMembers(true);
     try {
       const params = new URLSearchParams({ restaurant_id: restaurant!.id });
-      if (type !== "all") params.set("type", type);
+      if (category) params.set("category", category);
       const { data } = await api.post(`/members/as-contacts?${params}`);
       if (data.valid_count === 0) {
         toast.error("No active members found.");
@@ -437,17 +440,15 @@ export default function NewEmailCampaignPage() {
 
                 {/* Use Members */}
                 <div className="grid grid-cols-3 gap-3">
-                  {["all", "nfc", "ecard"].map((type) => (
+                  {[null, ...emailMemberCategories].map((category) => (
                     <button
-                      key={type}
-                      onClick={() =>
-                        handleUseMembersAsContacts(type as "all" | "nfc" | "ecard")
-                      }
+                      key={category ?? "all"}
+                      onClick={() => handleUseMembersAsContacts(category)}
                       disabled={loadingMembers}
                       className="flex items-center justify-center gap-2 py-3 rounded-xl border hover:bg-gray-50 transition text-sm font-medium text-gray-700 disabled:opacity-50"
                     >
                       <Users className="w-4 h-4" />
-                      {type === "all" ? "All Members" : type.toUpperCase()}
+                      {category === null ? "All Members" : category.toUpperCase()}
                     </button>
                   ))}
                 </div>
