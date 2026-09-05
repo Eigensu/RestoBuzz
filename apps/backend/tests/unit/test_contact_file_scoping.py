@@ -140,3 +140,37 @@ async def test_a_cache_outage_does_not_open_the_gap_for_a_stranger(
     monkeypatch.setattr(contact_files, "from_url", explode)
     with pytest.raises(ContactFileExpiredError):
         await load_contacts(_FakeDB(saved_upload), FILE_REF, STRANGER)
+
+
+# ── Cache-write failure, found in review of #49 ───────────────────────────────
+
+
+async def test_cache_contacts_reports_success(monkeypatch):
+    class _Writable(_FakeRedis):
+        async def ping(self):
+            return True
+
+        async def set(self, key, value, ex=None):
+            self.store[key] = value
+
+    written = _Writable()
+    monkeypatch.setattr(contact_files, "from_url", lambda *a, **k: written)
+
+    class _Row:
+        @staticmethod
+        def model_dump():
+            return ROWS[0]
+
+    assert await contact_files.cache_contacts(FILE_REF, [_Row()], OWNER) is True
+    assert cache_key(FILE_REF, OWNER) in written.store
+
+
+async def test_cache_contacts_reports_failure_instead_of_raising(monkeypatch):
+    """A caller with a durable copy needs the request to survive a cache
+    outage; one without a durable copy needs to know it failed."""
+
+    def explode(*_a, **_k):
+        raise OSError("redis down")
+
+    monkeypatch.setattr(contact_files, "from_url", explode)
+    assert await contact_files.cache_contacts(FILE_REF, [], OWNER) is False

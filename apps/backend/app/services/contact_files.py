@@ -38,10 +38,15 @@ def cache_key(file_ref: str, owner_id: str) -> str:
     return f"file_ref:{owner_id}:{file_ref}"
 
 
-async def cache_contacts(file_ref: str, rows: list, owner_id: str) -> None:
-    """Cache a parsed contact list. Failure is logged, never raised — the
-    Mongo copy backs this up for uploads, so a Redis outage must not fail
-    the request."""
+async def cache_contacts(file_ref: str, rows: list, owner_id: str) -> bool:
+    """Cache a parsed contact list. Returns whether the write landed.
+
+    A caller with a durable copy in `contact_files` can ignore the result — a
+    cache outage only costs it a Mongo read later. A caller whose list exists
+    nowhere else must not hand back a file_ref that resolves to nothing: the
+    failure would resurface at launch as "contact file expired", long after the
+    operator has picked a template and mapped its variables.
+    """
     try:
         redis = from_url(settings.redis_url, decode_responses=True)
         await redis.ping()  # Minimal connection check
@@ -51,6 +56,7 @@ async def cache_contacts(file_ref: str, rows: list, owner_id: str) -> None:
             ex=CACHE_TTL_SECONDS,
         )
         await redis.aclose()
+        return True
     except Exception as e:
         logger.warning(
             "contact_file_cache_failed",
@@ -58,9 +64,10 @@ async def cache_contacts(file_ref: str, rows: list, owner_id: str) -> None:
             error=str(e),
             detail=(
                 "Contact file caching skipped. Uploads fall back to MongoDB on "
-                "campaign creation; member lists must be reselected."
+                "campaign creation; member lists have no durable copy."
             ),
         )
+        return False
 
 
 async def load_contacts(

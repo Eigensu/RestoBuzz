@@ -23,6 +23,7 @@ from app.core.errors import (
     ConflictError,
     ValidationError,
     InvalidFileFormatError,
+    ServerError,
 )
 from app.dependencies import (
     require_role,
@@ -637,7 +638,15 @@ async def members_as_contacts(
         )
 
     file_ref = str(uuid.uuid4())
-    await cache_contacts(file_ref, valid_rows, str(_user["_id"]))
+    # Unlike an upload, this list is never written to contact_files — it is
+    # derived from data already in the database. If the cache write fails there
+    # is nothing to resolve later, so fail here rather than return a file_ref
+    # that dies at launch.
+    if not await cache_contacts(file_ref, valid_rows, str(_user["_id"])):
+        raise ServerError(
+            "Could not prepare the member list because the cache is "
+            "unavailable. Please try again in a moment."
+        )
 
     return PreflightResult(
         valid_count=len(valid_rows),
