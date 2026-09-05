@@ -6,7 +6,6 @@ Templates are stored locally, rendered via Jinja2, and sent as compiled HTML.
 """
 import csv
 import io
-import json
 from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -23,9 +22,9 @@ from app.dependencies import (
 )
 from app.core.utils import to_object_id
 from app.core.logging import get_logger
+from app.services.contact_files import load_contacts
 from app.core.errors import (
     CampaignNotFoundError,
-    ContactFileExpiredError,
     ServerError,
     TemplateNotFoundError,
     ValidationError,
@@ -108,33 +107,6 @@ async def _resolve_email_template(db: AsyncIOMotorDatabase, template_id: str):
     return template
 
 
-async def _resolve_contacts(body_contact_file_ref: str, db: AsyncIOMotorDatabase):
-    from redis.asyncio import from_url
-
-    raw = None
-    try:
-        redis = from_url(settings.redis_url, decode_responses=True)
-        raw = await redis.get(f"file_ref:{body_contact_file_ref}")
-        await redis.aclose()
-    except Exception as e:
-        logger.warning(
-            "email_campaign_create_cache_unavailable",
-            error=str(e),
-            file_ref=body_contact_file_ref,
-        )
-
-    if not raw:
-        doc = await db.contact_files.find_one(
-            {"result.file_ref": body_contact_file_ref}
-        )
-        if not doc:
-            raise ContactFileExpiredError(
-                "Contact file reference expired or not found. Please re-upload."
-            )
-        return doc["result"]["valid_rows"]
-    return json.loads(raw)
-
-
 def _prepare_and_validate_contacts(contacts, template):
     if not contacts:
         raise ValidationError("No contacts found in the uploaded file")
@@ -178,7 +150,9 @@ async def create_email_campaign(
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
     template = await _resolve_email_template(db, body.template_id)
-    contacts = await _resolve_contacts(body.contact_file_ref, db)
+    contacts = await load_contacts(
+        db, body.contact_file_ref, str(current_user["_id"])
+    )
     contacts = _prepare_and_validate_contacts(contacts, template)
 
     now = datetime.now(timezone.utc)

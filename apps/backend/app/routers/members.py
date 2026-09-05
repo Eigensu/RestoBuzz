@@ -1,14 +1,12 @@
 """Router for member management endpoints."""
 
 import io
-import json
 import re
 import uuid
 import heapq
 
 import openpyxl
 from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
-from redis.asyncio import from_url
 from typing import Annotated, Any
 from datetime import datetime, timezone, timedelta
 
@@ -16,7 +14,6 @@ from app.core.time import now_utc, normalize_external_dt
 from app.services.member_match_service import member_match_service
 from app.services import member_stats_service
 
-from app.config import settings
 from app.database import get_db
 from app.core.logging import get_logger
 from app.core.utils import to_object_id
@@ -38,6 +35,7 @@ from app.models.member import (
     MemberResponse,
     MemberListResponse,
 )
+from app.services.contact_files import cache_contacts
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
 from app.services.dormancy_service import dormancy_service, normalize_phone_for_match, DORMANCY_DAYS
 from app.services.fielia_members_service import fielia_service, FieliaDatabaseError
@@ -639,13 +637,7 @@ async def members_as_contacts(
         )
 
     file_ref = str(uuid.uuid4())
-    redis = from_url(settings.redis_url, decode_responses=True)
-    await redis.set(
-        f"file_ref:{file_ref}",
-        json.dumps([r.model_dump() for r in valid_rows]),
-        ex=3600,
-    )
-    await redis.aclose()
+    await cache_contacts(file_ref, valid_rows, str(_user["_id"]))
 
     return PreflightResult(
         valid_count=len(valid_rows),

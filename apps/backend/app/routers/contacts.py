@@ -1,4 +1,3 @@
-import json
 import hashlib
 import io
 from datetime import datetime, timezone
@@ -7,6 +6,7 @@ from typing import Annotated, Any
 from fastapi.responses import StreamingResponse
 from app.database import get_db
 from app.dependencies import require_role
+from app.services.contact_files import cache_contacts
 from app.core.errors import InvalidFileFormatError, ValidationError, NotFoundError
 from app.models.contact import PreflightResult, ColumnMapping
 from app.services.contact_parser import parse_contacts
@@ -15,32 +15,6 @@ router = APIRouter(prefix="/contacts", tags=["contacts"])
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 RESULT_FILE_REF_KEY = "result.file_ref"
-
-
-async def _cache_file_ref(file_ref: str, valid_rows: list) -> None:
-    from redis.asyncio import from_url
-    from app.config import settings
-    from app.core.logging import get_logger
-
-    logger = get_logger(__name__)
-
-    try:
-        redis = from_url(settings.redis_url, decode_responses=True)
-        await redis.ping()  # Minimal connection check
-        await redis.set(
-            f"file_ref:{file_ref}",
-            json.dumps([r.model_dump() for r in valid_rows]),
-            ex=3600,
-        )
-        await redis.aclose()
-    except Exception as e:
-        logger.warning(
-            "redis_cache_failed", 
-            file_ref=file_ref, 
-            error=str(e),
-            detail="Contact file caching skipped. Fallback to DB will be used on campaign creation."
-        )
-
 
 
 @router.get("/template")
@@ -135,7 +109,7 @@ async def upload_contacts(
         upsert=True,
     )
 
-    await _cache_file_ref(result.file_ref, result.valid_rows)
+    await cache_contacts(result.file_ref, result.valid_rows, uploader_id)
     return result
 
 
@@ -200,5 +174,5 @@ async def reuse_contact_file(
         raise NotFoundError(f"Contact file '{file_ref}' not found")
 
     result = PreflightResult(**doc["result"])
-    await _cache_file_ref(result.file_ref, result.valid_rows)
+    await cache_contacts(result.file_ref, result.valid_rows, uploader_id)
     return result
