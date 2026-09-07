@@ -1124,8 +1124,11 @@ async def _parse_workbook_async(contents, filename, now, restaurant_id):
             error_type=type(exc).__name__,
             error=str(exc),
         )
+        # The type is enough to tell a corrupt archive from a parser bug; the
+        # full message and traceback stay in the log rather than the response,
+        # which would otherwise leak library internals and file paths.
         raise InvalidFileFormatError(
-            f"Unable to read Excel file ({type(exc).__name__}: {exc})"
+            f"Unable to read Excel file ({type(exc).__name__})"
         ) from exc
 
 

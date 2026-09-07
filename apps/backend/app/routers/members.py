@@ -139,6 +139,26 @@ async def _bulk_serialize(
     return await _attach_message_stats(db, restaurant_id, items)
 
 
+def _resolve_category(restaurant: dict, raw_type: str) -> str:
+    """Validate a member category and return it in canonical form.
+
+    Categories are stored lowercased (restaurants.update_categories) and are
+    matched case-insensitively when filtering, so accepting only the exact
+    stored casing here would reject "NFC" while `?category=NFC` happily
+    matches it. Compare case-insensitively and return the stored spelling, so
+    what lands in the document always matches what the filters look for.
+    """
+    valid_categories = restaurant.get("member_categories") or ["nfc", "ecard"]
+    wanted = (raw_type or "").strip().lower()
+    for category in valid_categories:
+        if category.strip().lower() == wanted:
+            return category
+    raise ValidationError(
+        f"Invalid member type '{raw_type}'. "
+        f"Valid types: {', '.join(valid_categories)}"
+    )
+
+
 def _search_clause(search: str | None) -> dict:
     """Free-text clause over the fields a member is findable by.
 
@@ -342,16 +362,11 @@ async def create_member(
     db: Annotated[Any, Depends(get_db)],
 ) -> MemberResponse:
     """Create a new member for the active restaurant."""
-    valid_categories = restaurant.get("member_categories") or ["nfc", "ecard"]
-    if body.type not in valid_categories:
-        raise ValidationError(
-            f"Invalid member type '{body.type}'. "
-            f"Valid types: {', '.join(valid_categories)}"
-        )
+    member_category = _resolve_category(restaurant, body.type)
 
-    if body.type == "nfc" and not body.card_uid:
+    if member_category == "nfc" and not body.card_uid:
         raise ValidationError("card_uid is required for NFC members")
-    if body.type == "ecard" and not body.ecard_code:
+    if member_category == "ecard" and not body.ecard_code:
         raise ValidationError("ecard_code is required for e-card members")
 
     # Only check uniqueness when a real phone is provided
@@ -380,7 +395,7 @@ async def create_member(
     now = now_utc()
     doc = {
         "restaurant_id": restaurant["id"],
-        "type": body.type,
+        "type": member_category,
         "name": body.name,
         "phone": body.phone or None,
         "email": body.email,
@@ -779,12 +794,7 @@ async def import_members(
     # The import type is a category, never a segment. Without this check the
     # members page could import from a segment tab and stamp every row with a
     # type ("inactive", "interested") that no category tab can ever show.
-    valid_categories = restaurant.get("member_categories") or ["nfc", "ecard"]
-    if member_type not in valid_categories:
-        raise ValidationError(
-            f"Invalid member type '{member_type}'. "
-            f"Valid types: {', '.join(valid_categories)}"
-        )
+    member_type = _resolve_category(restaurant, member_type)
 
     filename = file.filename or ""
     content_type = file.content_type or ""

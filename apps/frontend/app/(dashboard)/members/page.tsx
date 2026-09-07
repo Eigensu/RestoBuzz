@@ -213,8 +213,9 @@ export default function MembersPage() {
   // `from`/`to` describe the page that was actually fetched. They used to be
   // derived from a clamped page number while the query used the raw one, so a
   // stale/over-counted total produced "Showing 1-25 of 900" over an empty table.
-  const from = members.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const to = (page - 1) * PAGE_SIZE + members.length;
+  const isEmptyPage = members.length === 0;
+  const from = isEmptyPage ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = isEmptyPage ? 0 : (page - 1) * PAGE_SIZE + members.length;
   if (!restaurant) return null;
 
   return (
