@@ -90,8 +90,8 @@ class TestBuildMemberQuery:
 
 
 class _Row:
-    def __init__(self, type=None, dormancy_tier=None, tags=None):
-        self.type = type
+    def __init__(self, member_type=None, dormancy_tier=None, tags=None):
+        self.type = member_type
         self.dormancy_tier = dormancy_tier
         self.tags = tags or []
 
@@ -102,11 +102,11 @@ class TestInMemoryPredicates:
     different restaurants."""
 
     def test_category_predicate_is_case_insensitive(self):
-        assert ms.matches_category(_Row(type="VIP"), "vip")
-        assert not ms.matches_category(_Row(type="nfc"), "vip")
+        assert ms.matches_category(_Row(member_type="VIP"), "vip")
+        assert not ms.matches_category(_Row(member_type="nfc"), "vip")
 
     def test_no_category_matches_everything(self):
-        assert ms.matches_category(_Row(type="anything"), None)
+        assert ms.matches_category(_Row(member_type="anything"), None)
 
     def test_inactive_predicate_matches_the_clause(self):
         assert ms.matches_segment(_Row(dormancy_tier="LOST"), "inactive")
@@ -152,3 +152,39 @@ class TestFieliaRouting:
     def test_other_categories_cannot_match_a_fielia_card(self):
         assert not ms.fielia_supplies("ecard")
         assert not ms.fielia_supplies("vip")
+
+
+class TestUnknownSegmentIsRejected:
+    """An unrecognised segment must fail loudly.
+
+    segment_clause contributes no predicate for an unknown value and
+    matches_segment returns True for everything, so a typo would quietly widen
+    the selection to the entire member base — and the same axis builds campaign
+    audiences, where that means messaging everyone.
+    """
+
+    def test_typo_raises_rather_than_matching_everyone(self):
+        from app.core.errors import ValidationError
+
+        with pytest.raises(ValidationError):
+            ms.resolve_axes(None, "dormnat", None)
+
+    def test_error_names_the_valid_segments(self):
+        from app.core.errors import ValidationError
+
+        with pytest.raises(ValidationError) as exc:
+            ms.resolve_axes(None, "nonsense", None)
+        assert "inactive" in str(exc.value)
+
+    def test_known_segments_still_pass(self):
+        for segment in ms.SEGMENT_IDS:
+            assert ms.resolve_axes(None, segment, None) == (None, segment)
+
+    def test_none_and_all_remain_unfiltered(self):
+        assert ms.resolve_axes(None, None, None) == (None, None)
+        assert ms.resolve_axes(None, "all", None) == (None, None)
+
+    def test_a_custom_category_is_not_treated_as_a_bad_segment(self):
+        """Categories are per-restaurant, so they must pass through here."""
+        assert ms.resolve_axes("vip", None, None) == ("vip", None)
+        assert ms.resolve_axes(None, None, "vip") == ("vip", None)

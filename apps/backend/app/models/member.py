@@ -64,3 +64,8 @@ class MemberListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    # Whether another page exists. Kept separate from `total` because the r2
+    # hybrid listing merges two sources and can only estimate a total for an
+    # unfiltered view (a member present in both is counted twice), which would
+    # otherwise leave the Next button enabled onto an empty page.
+    has_next: bool = False

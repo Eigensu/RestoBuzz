@@ -21,6 +21,8 @@ value onto whichever axis it actually belongs to.
 import re
 from typing import Any
 
+from app.core.errors import ValidationError
+
 # Ordered for display. `id` is the wire value; `label`/`description` are what
 # the members page tabs and the campaign audience picker render, so both UIs
 # stay in sync without redeclaring this list.
@@ -120,6 +122,18 @@ def resolve_axes(
     if resolved_category and resolved_category in SEGMENT_IDS:
         resolved_segment = resolved_segment or resolved_category
         resolved_category = None
+
+    # A segment we do not recognise must be an error, never a silent no-op.
+    # segment_clause would contribute no predicate and matches_segment would
+    # return True for everything, so `?segment=dormnat` would quietly select
+    # the entire member base — and that same value builds campaign audiences.
+    # Categories are deliberately not validated here: they are per-restaurant
+    # and validated against the restaurant record at write time.
+    if resolved_segment and resolved_segment not in SEGMENT_IDS:
+        raise ValidationError(
+            f"Unknown segment '{resolved_segment}'. "
+            f"Valid segments: {', '.join(sorted(SEGMENT_IDS))}"
+        )
 
     return resolved_category, resolved_segment
 

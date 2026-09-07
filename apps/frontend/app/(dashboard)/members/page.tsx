@@ -216,6 +216,11 @@ export default function MembersPage() {
   const isEmptyPage = members.length === 0;
   const from = isEmptyPage ? 0 : (page - 1) * PAGE_SIZE + 1;
   const to = isEmptyPage ? 0 : (page - 1) * PAGE_SIZE + members.length;
+  // The backend reports this exactly. Deriving it from `total` would let the
+  // r2 estimate (which counts a member present in both sources twice) enable
+  // Next onto an empty page. Fall back to the derived value only for a
+  // response from an older backend that does not send the field.
+  const hasNext = data?.has_next ?? page < totalPages;
   if (!restaurant) return null;
 
   return (
@@ -588,8 +593,9 @@ export default function MembersPage() {
               Page {page} / {totalPages}
             </span>
             <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
+              aria-label="Next page"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={!hasNext}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
             >
               Next <ChevronRight className="w-4 h-4" />

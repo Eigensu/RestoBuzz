@@ -10,7 +10,7 @@ import openpyxl
 from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from redis.asyncio import from_url
 from typing import Annotated, Any
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from app.core.time import now_utc, normalize_external_dt
 from app.services.member_match_service import member_match_service
@@ -39,7 +39,7 @@ from app.models.member import (
     MemberListResponse,
 )
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
-from app.services.dormancy_service import dormancy_service, normalize_phone_for_match, DORMANCY_DAYS
+from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
 from app.services.fielia_members_service import fielia_service, FieliaDatabaseError
 from app.utils.phone import normalize_phone
 
@@ -227,8 +227,14 @@ async def list_members(
     # 3. Serialize
     # We still use _bulk_serialize for legacy support/activity source info
     items = await _bulk_serialize(docs, rid, db)
-    
-    return MemberListResponse(items=items, total=total, page=page, page_size=page_size)
+
+    return MemberListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_next=skip + len(items) < total,
+    )
 
 
 async def _list_members_r2(
@@ -316,6 +322,10 @@ async def _list_members_r2(
     results: list[MemberResponse] = []
     skip_count = (page - 1) * page_size
     matched = 0
+    # One survivor past the end of the page proves another page exists. This is
+    # exact even when `total` is only an estimate, so the Next button can never
+    # point at an empty page.
+    has_next = False
 
     for item in merged_stream:
         phone = normalize_phone_for_match(item.phone) or f"no_phone_{item.id}"
@@ -334,9 +344,13 @@ async def _list_members_r2(
             continue
         if len(results) < page_size:
             results.append(item)
-        elif not post_filtered:
-            # Page is full and the count comes from the sources, so there is
-            # nothing left to learn from the rest of the stream.
+            continue
+
+        has_next = True
+        if not post_filtered:
+            # The page is full and one more survivor is confirmed; the total
+            # comes from the source counts, so the rest of the stream tells us
+            # nothing further.
             break
 
     # Messaging rollups are attached only to the page we actually return —
@@ -351,6 +365,7 @@ async def _list_members_r2(
         total=total,
         page=page,
         page_size=page_size,
+        has_next=has_next,
     )
 
 
