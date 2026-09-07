@@ -601,6 +601,68 @@ async def send_member_ecard(
     return {"wa_message_id": wa_message_id, "endpoint_used": endpoint_used}
 
 
+class _ContactCollector:
+    """Accumulates campaign contacts, classifying each row as it arrives.
+
+    Extracted from a closure inside the endpoint: it kept four counters alive
+    via `nonlocal` across five early returns, which made the handler hard to
+    follow and pushed it past the cognitive-complexity limit. The rules are
+    unchanged — empty and unparseable numbers are reported as invalid rows,
+    repeats within one request are counted as duplicates, and suppressed
+    numbers are dropped without ever becoming contacts.
+    """
+
+    def __init__(self, suppressed: set[str]) -> None:
+        self._suppressed = suppressed
+        self._seen: set[str] = set()
+        self._row_num = 0
+        self.valid_rows: list[ContactRow] = []
+        self.invalid_rows: list[InvalidRow] = []
+        self.duplicate_count = 0
+        self.suppressed_count = 0
+
+    def add(self, name: str, raw_phone_val: Any) -> None:
+        self._row_num += 1
+        raw_phone = str(raw_phone_val).strip() if raw_phone_val else ""
+        if not raw_phone:
+            self._reject("", "Empty phone")
+            return
+
+        normalized = normalize_phone(raw_phone)
+        if not normalized:
+            self._reject(raw_phone, "Invalid phone number")
+            return
+
+        if normalized in self._seen:
+            self.duplicate_count += 1
+            return
+        self._seen.add(normalized)
+
+        if normalized in self._suppressed:
+            self.suppressed_count += 1
+            return
+
+        self.valid_rows.append(
+            ContactRow(name=name or "", phone=normalized, variables={})
+        )
+
+    def _reject(self, raw_value: str, reason: str) -> None:
+        self.invalid_rows.append(
+            InvalidRow(row_number=self._row_num, raw_value=raw_value, reason=reason)
+        )
+
+    def to_preflight(self, file_ref: str) -> PreflightResult:
+        return PreflightResult(
+            valid_count=len(self.valid_rows),
+            invalid_count=len(self.invalid_rows),
+            duplicate_count=self.duplicate_count,
+            suppressed_count=self.suppressed_count,
+            valid_rows=self.valid_rows,
+            invalid_rows=self.invalid_rows,
+            file_ref=file_ref,
+        )
+
+
 @router.post("/as-contacts")
 async def members_as_contacts(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
@@ -623,7 +685,9 @@ async def members_as_contacts(
     - r2 (Fielia): external Fielia NFC members plus internal DB members
     - all others: queries internal members DB only
     """
-    if member_type != "reservego":
+    # "reservego" is a source, not a category — it never goes through the axes.
+    is_reservego = "reservego" in (member_type, category)
+    if not is_reservego:
         category, segment = member_segments.resolve_axes(
             category, segment, member_type
         )
@@ -632,70 +696,28 @@ async def members_as_contacts(
     async for sup in db.suppression_list.find({}, {"phone": 1}):
         suppressed.add(sup["phone"])
 
-    valid_rows: list[ContactRow] = []
-    invalid_rows: list[InvalidRow] = []
-    seen_phones: set[str] = set()
-    duplicate_count = 0
-    suppressed_count = 0
-    row_num = 1
+    collector = _ContactCollector(suppressed)
 
-    def process_row(name: str, raw_phone_val: Any) -> None:
-        nonlocal row_num, duplicate_count, suppressed_count
-        raw_phone = str(raw_phone_val).strip() if raw_phone_val else ""
-        if not raw_phone:
-            invalid_rows.append(
-                InvalidRow(row_number=row_num, raw_value="", reason="Empty phone")
-            )
-            row_num += 1
-            return
-        normalized = normalize_phone(raw_phone)
-        if not normalized:
-            invalid_rows.append(
-                InvalidRow(
-                    row_number=row_num,
-                    raw_value=raw_phone,
-                    reason="Invalid phone number",
-                )
-            )
-            row_num += 1
-            return
-        if normalized in seen_phones:
-            duplicate_count += 1
-            row_num += 1
-            return
-        seen_phones.add(normalized)
-        if normalized in suppressed:
-            suppressed_count += 1
-            row_num += 1
-            return
-        valid_rows.append(ContactRow(name=name or "", phone=normalized, variables={}))
-        row_num += 1
-
-    if member_type == "reservego" or category == "reservego":
-        await _process_reservego(db, restaurant["id"], limit, process_row, valid_rows)
+    if is_reservego:
+        await _process_reservego(
+            db, restaurant["id"], limit, collector.add, collector.valid_rows
+        )
     else:
         await _process_members(
-            db, restaurant, category, segment, limit, process_row, valid_rows
+            db, restaurant, category, segment, limit,
+            collector.add, collector.valid_rows,
         )
 
     file_ref = str(uuid.uuid4())
     redis = from_url(settings.redis_url, decode_responses=True)
     await redis.set(
         f"file_ref:{file_ref}",
-        json.dumps([r.model_dump() for r in valid_rows]),
+        json.dumps([r.model_dump() for r in collector.valid_rows]),
         ex=3600,
     )
     await redis.aclose()
 
-    return PreflightResult(
-        valid_count=len(valid_rows),
-        invalid_count=len(invalid_rows),
-        duplicate_count=duplicate_count,
-        suppressed_count=suppressed_count,
-        valid_rows=valid_rows,
-        invalid_rows=invalid_rows,
-        file_ref=file_ref,
-    )
+    return collector.to_preflight(file_ref)
 
 
 async def _process_reservego(

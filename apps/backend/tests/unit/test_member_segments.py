@@ -7,6 +7,7 @@ clause, and silently returned every member in the restaurant.
 
 import pytest
 
+from app.core.errors import ValidationError
 from app.services import member_segments as ms
 
 
@@ -164,14 +165,10 @@ class TestUnknownSegmentIsRejected:
     """
 
     def test_typo_raises_rather_than_matching_everyone(self):
-        from app.core.errors import ValidationError
-
         with pytest.raises(ValidationError):
             ms.resolve_axes(None, "dormnat", None)
 
     def test_error_names_the_valid_segments(self):
-        from app.core.errors import ValidationError
-
         with pytest.raises(ValidationError) as exc:
             ms.resolve_axes(None, "nonsense", None)
         assert "inactive" in str(exc.value)

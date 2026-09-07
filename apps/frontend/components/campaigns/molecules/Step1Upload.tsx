@@ -292,7 +292,7 @@ export function Step1Upload({
             />
           </div>
           <GradientButton 
-            onClick={() => onSelectReservego(limit ? parseInt(limit, 10) : undefined)}
+            onClick={() => onSelectReservego(limit ? Number.parseInt(limit, 10) : undefined)}
             disabled={loadingMembers || reservegoCount === 0}
             className="w-full py-2"
           >
@@ -322,7 +322,7 @@ export function Step1Upload({
               onClick={() =>
                 onSelectMembers(
                   { category, segment },
-                  limit ? parseInt(limit, 10) : undefined,
+                  limit ? Number.parseInt(limit, 10) : undefined,
                 )
               }
               disabled={loadingMembers}

@@ -34,17 +34,20 @@ class TestResolveCategory:
         assert clause["type"]["$regex"] == "^nfc$"
 
     def test_unknown_category_is_rejected(self):
+        restaurant = _restaurant(["nfc", "ecard"])
         with pytest.raises(ValidationError):
-            _resolve_category(_restaurant(["nfc", "ecard"]), "vip")
+            _resolve_category(restaurant, "vip")
 
     def test_segment_name_is_rejected_as_a_category(self):
+        restaurant = _restaurant(["nfc", "ecard"])
         with pytest.raises(ValidationError):
-            _resolve_category(_restaurant(["nfc", "ecard"]), "interested")
+            _resolve_category(restaurant, "interested")
 
     def test_missing_config_falls_back_to_defaults(self):
         assert _resolve_category({"id": "r1"}, "ecard") == "ecard"
         assert _resolve_category({"id": "r1", "member_categories": []}, "nfc") == "nfc"
 
     def test_empty_input_is_rejected(self):
+        restaurant = _restaurant(["nfc"])
         with pytest.raises(ValidationError):
-            _resolve_category(_restaurant(["nfc"]), "")
+            _resolve_category(restaurant, "")
