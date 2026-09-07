@@ -2,7 +2,6 @@
 
 import csv
 import io
-import json
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Annotated
@@ -10,10 +9,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from redis.asyncio import from_url as redis_from_url
-from redis.exceptions import RedisError as RedisClientError
 
-from app.config import settings
 from app.constants.meta_errors import RETRYABLE_FAILED_MATCH
 from app.database import get_db
 from app.dependencies import (
@@ -23,9 +19,9 @@ from app.dependencies import (
 )
 from app.core.utils import to_object_id
 from app.core.logging import get_logger
+from app.services.contact_files import load_contacts
 from app.core.errors import (
     CampaignNotFoundError,
-    ContactFileExpiredError,
     ServerError,
     ValidationError,
 )
@@ -337,37 +333,6 @@ async def list_campaigns(
     )
 
 
-async def _resolve_campaign_contacts(db, file_ref: str) -> list[dict]:
-    """Load a campaign's uploaded contacts: Redis cache first, MongoDB fallback
-    if the cache is down or the entry has expired."""
-    raw = None
-    redis = None
-    try:
-        redis = redis_from_url(settings.redis_url, decode_responses=True)
-        raw = await redis.get(f"file_ref:{file_ref}")
-    except (RedisClientError, OSError) as e:
-        logger.warning(
-            "campaign_create_cache_unavailable",
-            error=str(e),
-            file_ref=file_ref,
-        )
-        # Proceed to fallback
-    finally:
-        if redis is not None:
-            await redis.aclose()
-
-    if raw:
-        return json.loads(raw)
-
-    # FALLBACK: check MongoDB directly if Redis is down or the cache expired.
-    doc = await db.contact_files.find_one({"result.file_ref": file_ref})
-    if not doc:
-        raise ContactFileExpiredError(
-            "Contact file reference expired or not found. Please re-upload your contacts."
-        )
-    return doc["result"]["valid_rows"]
-
-
 def _build_campaign_message_docs(
     phone_contacts: list[dict],
     *,
@@ -436,7 +401,9 @@ async def create_campaign(
     # Validate access manually since restaurant_id is in the body (not a path/query param)
     await validate_restaurant_access(current_user, body.restaurant_id, db)
 
-    contacts = await _resolve_campaign_contacts(db, body.contact_file_ref)
+    contacts = await load_contacts(
+        db, body.contact_file_ref, str(current_user["_id"])
+    )
 
     template_doc = await db.templates.find_one(
         {"name": body.template_name, "restaurant_id": body.restaurant_id},
