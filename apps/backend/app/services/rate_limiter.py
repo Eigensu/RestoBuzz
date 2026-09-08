@@ -1,4 +1,3 @@
-import time
 from redis.asyncio import Redis
 from app.config import settings
 
@@ -7,7 +6,11 @@ _LUA_SCRIPT = """
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
 local refill_rate = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
+
+-- Time comes from Redis, never the caller. Worker hosts drift, and a backwards
+-- jump makes `elapsed` negative, silently under-refilling the shared bucket.
+local t = redis.call('TIME')
+local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
 
 local bucket = redis.call('HMGET', key, 'tokens', 'last_refill')
 local tokens = tonumber(bucket[1])
@@ -33,14 +36,19 @@ else
 end
 """
 
-_sha: str | None = None
+# Registered through redis-py's Script wrapper rather than caching a SHA by
+# hand, because that wrapper reloads the body on NOSCRIPT. A hand-cached SHA
+# goes stale the moment Redis restarts or is flushed, and because this gates
+# every outbound message, that turned a brief Redis blip into "all campaigns
+# stop until the workers are restarted".
+_script = None
 
 
-async def _get_sha(redis: Redis) -> str:
-    global _sha
-    if _sha is None:
-        _sha = await redis.script_load(_LUA_SCRIPT)
-    return _sha
+def _get_script(redis: Redis):
+    global _script
+    if _script is None:
+        _script = redis.register_script(_LUA_SCRIPT)
+    return _script
 
 
 async def acquire_token(
@@ -50,19 +58,14 @@ async def acquire_token(
     refill_rate: int | None = None,
 ) -> bool:
     """Returns True if a send slot is available, False if throttled."""
-    sha = await _get_sha(redis)
-    now_ms = int(time.time() * 1000)
-
     # Use provided values or fallback to default
     cap = capacity if capacity is not None else settings.rate_limit_mps
     refill = refill_rate if refill_rate is not None else settings.rate_limit_mps
 
-    result = await redis.evalsha(
-        sha,
-        1,
-        f"rate_limit:{waba_id}",
-        str(cap),
-        str(refill),
-        str(now_ms),
+    script = _get_script(redis)
+    result = await script(
+        keys=[f"rate_limit:{waba_id}"],
+        args=[str(cap), str(refill)],
+        client=redis,
     )
     return bool(result)

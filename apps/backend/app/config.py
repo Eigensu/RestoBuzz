@@ -1,3 +1,4 @@
+from functools import lru_cache
 from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,11 +12,32 @@ _ROOT_ENV = next(
 )
 
 
+@lru_cache(maxsize=1)
+def _env_file_values() -> dict[str, str]:
+    """Parse the resolved .env once.
+
+    `resolve_waba_token` runs on the per-message send path, and re-reading and
+    re-parsing the file on every credential miss made it a disk hit per
+    outbound message. Cached, so editing .env now requires a restart — which is
+    already true of every deployed environment, where Railway injects env vars.
+    """
+    from dotenv import dotenv_values
+
+    return dict(dotenv_values(str(_ROOT_ENV)))
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(_ROOT_ENV),
         env_file_encoding="utf-8",
         extra="ignore",
+    )
+
+    # Deployment environment. Anything other than "development" is treated as
+    # deployed and refuses to boot on insecure defaults — see app/main.py.
+    environment: str = Field(
+        default="production",
+        validation_alias=AliasChoices("ENVIRONMENT", "ENV"),
     )
 
     # MongoDB
@@ -153,16 +175,14 @@ class Settings(BaseSettings):
         send_template_message to fall back to the global credential chain.
         """
         import os
-        from dotenv import dotenv_values
 
         # First check os.environ (works in Railway / when vars are shell-exported)
         value = os.environ.get(env_key)
         if value:
             return value
 
-        # Fallback: read from the same .env file pydantic-settings resolved
-        env_values = dotenv_values(str(_ROOT_ENV))
-        return env_values.get(env_key) or None
+        # Fallback: the same .env file pydantic-settings resolved, parsed once.
+        return _env_file_values().get(env_key) or None
 
 
 settings = Settings()

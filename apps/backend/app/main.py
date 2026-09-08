@@ -28,10 +28,45 @@ from app.routers import (
 from app.sse.campaign_stream import router as sse_router
 
 
+# Defaults that are harmless locally and must never reach a deployed
+# environment. Each fails *open*: an unset JWT secret signs every token with a
+# constant published in this repo, and an unset webhook secret makes
+# _verify_signature accept every unsigned request. Refusing to boot is the only
+# way a misconfigured deploy becomes visible — otherwise it just runs, insecure
+# and silent.
+_INSECURE_DEFAULTS = {
+    "jwt_secret": "change_me",
+    "meta_webhook_verify_token": "verify_token",
+}
+
+
+def _assert_secure_config() -> None:
+    """Raise unless the security-critical settings were actually configured."""
+    if settings.environment == "development":
+        return
+
+    unsafe = [
+        name
+        for name, default in _INSECURE_DEFAULTS.items()
+        if getattr(settings, name) == default
+    ]
+    if not settings.meta_webhook_secret:
+        unsafe.append("meta_webhook_secret (unset)")
+
+    if unsafe:
+        raise RuntimeError(
+            "Refusing to start with insecure configuration: "
+            + ", ".join(unsafe)
+            + ". Set these environment variables, or set ENVIRONMENT=development "
+            "for local work."
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     logger = get_logger(__name__)
+    _assert_secure_config()
     logger.info("backend_startup", version="1.0.0", status="loading_indexes")
     await init_indexes()
     logger.info("backend_startup_complete")

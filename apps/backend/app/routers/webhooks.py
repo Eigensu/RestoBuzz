@@ -34,7 +34,13 @@ logger = get_logger(__name__)
 
 def _verify_signature(body: bytes, signature: str) -> bool:
     if not settings.meta_webhook_secret:
-        return True  # Skip if app secret not configured
+        # Fail closed once deployed. This endpoint creates members from inbound
+        # replies and writes delivery status, so accepting unsigned payloads
+        # lets anyone forge both. Local development keeps the old behaviour.
+        if settings.environment != "development":
+            logger.error("webhook_secret_not_configured")
+            return False
+        return True
     expected = (
         "sha256="
         + hmac.new(
