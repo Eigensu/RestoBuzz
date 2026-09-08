@@ -11,19 +11,26 @@ import { BRAND_GRADIENT } from "@/lib/brand";
 interface BulkAddMemberModalProps {
   restaurantId: string;
   memberCategories: string[];
-  defaultType: string;
+  /** Active category tab, or null for "All Types". Never a segment. */
+  defaultCategory: string | null;
   onClose: () => void;
 }
 
 export function BulkAddMemberModal({
   restaurantId,
   memberCategories,
-  defaultType,
+  defaultCategory,
   onClose,
 }: Readonly<BulkAddMemberModalProps>) {
   const qc = useQueryClient();
   const fallbackCat = memberCategories.length > 0 ? memberCategories[0] : "ecard";
-  const [type, setType] = useState(defaultType === "all" ? fallbackCat : defaultType);
+  // Guard against a category that no longer exists, so the preselected type is
+  // always one the backend will accept.
+  const [type, setType] = useState(
+    defaultCategory && memberCategories.includes(defaultCategory)
+      ? defaultCategory
+      : fallbackCat,
+  );
   const [text, setText] = useState("");
 
   const mutation = useMutation({

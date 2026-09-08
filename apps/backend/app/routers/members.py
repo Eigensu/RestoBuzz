@@ -8,11 +8,11 @@ import heapq
 import openpyxl
 from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from typing import Annotated, Any
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from app.core.time import now_utc, normalize_external_dt
 from app.services.member_match_service import member_match_service
-from app.services import member_stats_service
+from app.services import member_stats_service, member_segments
 
 from app.database import get_db
 from app.core.logging import get_logger
@@ -38,7 +38,7 @@ from app.models.member import (
 )
 from app.services.contact_files import cache_contacts
 from app.models.contact import PreflightResult, ContactRow, InvalidRow
-from app.services.dormancy_service import dormancy_service, normalize_phone_for_match, DORMANCY_DAYS
+from app.services.dormancy_service import dormancy_service, normalize_phone_for_match
 from app.services.fielia_members_service import fielia_service, FieliaDatabaseError
 from app.utils.phone import normalize_phone
 
@@ -48,6 +48,11 @@ logger = get_logger(__name__)
 # Constants for MongoDB operators to avoid duplication
 REGEX = "$regex"
 OPTIONS = "$options"
+
+# How many rows the r2 hybrid path pulls from each source when a segment is
+# active. Segments are derived per-row after mapping, so they cannot be pushed
+# into the Fielia query — we over-fetch, then filter in memory.
+R2_SEGMENT_FETCH_LIMIT = 10000
 
 
 def _serialize(doc: dict, activity: tuple | None = None) -> MemberResponse:
@@ -133,10 +138,62 @@ async def _bulk_serialize(
     return await _attach_message_stats(db, restaurant_id, items)
 
 
+def _resolve_category(restaurant: dict, raw_type: str) -> str:
+    """Validate a member category and return it in canonical form.
+
+    Categories are stored lowercased (restaurants.update_categories) and are
+    matched case-insensitively when filtering, so accepting only the exact
+    stored casing here would reject "NFC" while `?category=NFC` happily
+    matches it. Compare case-insensitively and return the stored spelling, so
+    what lands in the document always matches what the filters look for.
+    """
+    valid_categories = restaurant.get("member_categories") or ["nfc", "ecard"]
+    wanted = (raw_type or "").strip().lower()
+    for category in valid_categories:
+        if category.strip().lower() == wanted:
+            return category
+    raise ValidationError(
+        f"Invalid member type '{raw_type}'. "
+        f"Valid types: {', '.join(valid_categories)}"
+    )
+
+
+def _search_clause(search: str | None) -> dict:
+    """Free-text clause over the fields a member is findable by.
+
+    One definition for every listing path — the internal and r2 paths used to
+    anchor `phone` differently, so the same query returned different results
+    depending on which restaurant you were looking at.
+    """
+    if not search:
+        return {}
+    safe = re.escape(search)
+    return {
+        "$or": [
+            {"name": {REGEX: safe, OPTIONS: "i"}},
+            {"phone": {REGEX: safe, OPTIONS: "i"}},
+            {"email": {REGEX: safe, OPTIONS: "i"}},
+        ]
+    }
+
+
+@router.get("/segments")
+async def list_segments() -> dict:
+    """The behavioural segments this backend knows how to filter by.
+
+    Served so the members page and the campaign audience picker render from the
+    same list the query layer enforces, instead of each hardcoding their own.
+    Categories are per-restaurant and come from the restaurant record.
+    """
+    return {"segments": member_segments.SEGMENT_DEFS}
+
+
 @router.get("")
 async def list_members(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     member_type: Annotated[str | None, Query(alias="type")] = None,
+    category: Annotated[str | None, Query()] = None,
+    segment: Annotated[str | None, Query()] = None,
     search: Annotated[str | None, Query()] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -144,44 +201,18 @@ async def list_members(
 ) -> MemberListResponse:
     rid = restaurant["id"]
     skip = (page - 1) * page_size
+    category, segment = member_segments.resolve_axes(category, segment, member_type)
 
     if rid == "r2":
-        return await _list_members_r2(db, member_type, search, page, page_size)
-    
+        return await _list_members_r2(db, category, segment, search, page, page_size)
+
     # 1. Resolve DB and Collection (handles all other restaurants)
     m_db, m_coll, m_filter = await member_match_service.get_member_db_context(rid)
-    
-    # 2. Build Query
-    query = {**m_filter}
-    
-    # Tier mapping for filters
-    tier_map = {
-        "active": "ACTIVE",
-        "at_risk": "AT_RISK",
-        "dormant": "DORMANT",
-        "lost": "LOST"
-    }
-    
-    target_type = member_type.lower() if member_type else "all"
-    
-    if target_type == "inactive":
-        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
-    elif target_type == "interested":
-        query["tags"] = "interested"
-    elif target_type in tier_map:
-        query["dormancy_tier"] = tier_map[target_type]
-    elif target_type in ["nfc", "ecard"]:
-        query["type"] = {REGEX: f"^{re.escape(target_type)}$", OPTIONS: "i"}
-    # if 'all', we don't add additional filters
 
-    if search:
-        safe_search = re.escape(search)
-        search_clause = [
-            {"name": {REGEX: safe_search, OPTIONS: "i"}},
-            {"phone": {REGEX: safe_search, OPTIONS: "i"}},
-            {"email": {REGEX: safe_search, OPTIONS: "i"}},
-        ]
-        query["$or"] = search_clause
+    # 2. Build query from both axes. Category is matched without an allowlist,
+    #    so an admin-defined category filters like any built-in one.
+    query = member_segments.build_member_query(m_filter, category, segment)
+    query.update(_search_clause(search))
 
     total = await m_db[m_coll].count_documents(query)
     docs = await (
@@ -195,67 +226,60 @@ async def list_members(
     # 3. Serialize
     # We still use _bulk_serialize for legacy support/activity source info
     items = await _bulk_serialize(docs, rid, db)
-    
-    return MemberListResponse(items=items, total=total, page=page, page_size=page_size)
+
+    return MemberListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_next=skip + len(items) < total,
+    )
 
 
 async def _list_members_r2(
     db: Any,
-    member_type: str | None,
+    category: str | None,
+    segment: str | None,
     search: str | None,
     page: int,
     page_size: int,
 ) -> MemberListResponse:
-    """Hybrid member listing for restaurant r2 (Fielia + internal DB).
-    Correctly paginates by merging and sorting the two sources.
-    Uses heapq.merge for O(N) streaming merge and adaptive buffering for dups.
+    """Hybrid member listing for restaurant r2 (external Fielia + internal DB).
+
+    Both sources are read, merged on joined_at, deduplicated by phone, then
+    filtered and paginated. Filtering uses the same category/segment clauses as
+    every other restaurant (member_segments), so "dormant" here means what it
+    means everywhere else.
+
+    Fielia stays read-only: we query it, map it, and never write back.
     """
-    # 1. Fetch relevant docs from both sources
-    # If filtering for behavioral segments, we MUST fetch a larger pool to ensure accuracy.
-    # Otherwise, we use a rolling window (buffer) for performance.
-    fetch_limit = 10000 if member_type in ("dormant", "inactive", "at_risk", "lost") else (page * page_size + (page_size * 3))
-    
-    fielia_items = []
-    if not member_type or member_type in ("all", "nfc", "dormant", "inactive", "at_risk", "lost"):
-        # For behavioral filters, fetch all Fielia NFC members unfiltered — check
-        # is applied post-merge in the loop below.
-        if member_type in ("dormant", "inactive", "at_risk", "lost"):
-            fielia_fetch_type = None
-        elif member_type == "all":
-            fielia_fetch_type = "nfc"
-        else:
-            fielia_fetch_type = member_type
+    # A segment cannot be pushed into either source query: Fielia derives the
+    # tier during mapping, so it has to be evaluated per row after the merge.
+    # That is the only case that needs to over-fetch; category and search push
+    # down cleanly, so an unsegmented view uses a rolling window.
+    post_filtered = segment is not None
+    fetch_limit = (
+        R2_SEGMENT_FETCH_LIMIT if post_filtered else page * page_size + page_size * 3
+    )
+
+    # Fielia holds NFC cards only, so it can contribute to an unconstrained
+    # listing or an explicit "nfc" request and nothing else.
+    fielia_items: list[MemberResponse] = []
+    fielia_total = 0
+    if member_segments.fielia_supplies(category):
         fielia_res = await fielia_service.list_members(
             limit=fetch_limit,
             offset=0,
             search=search,
-            member_type=fielia_fetch_type,
+            member_type="nfc",
         )
         fielia_items = [MemberResponse(**item) for item in fielia_res["items"]]
         fielia_total = fielia_res["total"]
-    else:
-        fielia_total = 0
 
-    internal_query: dict = {"restaurant_id": "r2"}
-    if member_type == "dormant":
-        # Only members who HAVE visited but > 30 days ago (not Unknown)
-        cutoff = now_utc() - timedelta(days=DORMANCY_DAYS)
-        internal_query["last_visit"] = {"$exists": True, "$ne": None, "$lt": cutoff}
-    elif member_type == "interested":
-        internal_query["tags"] = "interested"
-    elif member_type == "inactive":
-        # At-Risk, Dormant, or Lost
-        internal_query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
-    elif member_type and member_type != "all":
-        internal_query["type"] = {REGEX: f"^{re.escape(member_type)}$", OPTIONS: "i"}
-    
-    if search:
-        safe_search = re.escape(search)
-        internal_query["$or"] = [
-            {"name": {REGEX: safe_search, OPTIONS: "i"}},
-            {"phone": {REGEX: f"^{safe_search}", OPTIONS: "i"}}, 
-            {"email": {REGEX: safe_search, OPTIONS: "i"}},
-        ]
+    internal_query = member_segments.build_member_query(
+        {"restaurant_id": "r2"}, category, segment
+    )
+    internal_query.update(_search_clause(search))
 
     internal_total = await db.members.count_documents(internal_query)
     internal_docs = await (
@@ -266,56 +290,66 @@ async def _list_members_r2(
     )
     internal_items = await _bulk_serialize(internal_docs, "r2", db, with_stats=False)
 
-    # 2. Merge Streams using heapq for efficiency
-    # Since both streams are sorted by joined_at descending, we can merge them in O(N).
-    # We use a key-extractor to handle the sort order.
+    # Merge two joined_at-descending streams in O(N).
     def sort_key(x):
         dt = x.joined_at or datetime.min
         # Normalize to UTC-aware so heapq can compare naive (Fielia) and
         # aware (internal MongoDB) datetimes without a TypeError.
-        return normalize_external_dt(dt) if dt != datetime.min else datetime.min.replace(tzinfo=timezone.utc)
+        return (
+            normalize_external_dt(dt)
+            if dt != datetime.min
+            else datetime.min.replace(tzinfo=timezone.utc)
+        )
 
-    # Compute cutoff ONCE before any loop.
-    merge_cutoff = (now_utc() - timedelta(days=DORMANCY_DAYS)) if member_type == "dormant" else None
-    inactive_tiers = ["AT_RISK", "DORMANT", "LOST"] if member_type == "inactive" else None
+    merged_stream = heapq.merge(
+        internal_items, fielia_items, key=sort_key, reverse=True
+    )
 
-    # heapq.merge produces an iterator over the merged stream
-    # Note: reverse=True because joined_at is descending
-    merged_stream = heapq.merge(internal_items, fielia_items, key=sort_key, reverse=True)
-
-    # 3. Deduplicate, filter, and Paginate
-    # CORRECT ORDER (FIX #5): dedupe → dormant filter → skip_count → collect
-    seen_phones = set()
-    results = []
+    # Dedupe → filter → skip → collect.
+    #
+    # `total` was fielia_total + internal_total, which double-counted every
+    # member present in both sources AND ignored the segment filter entirely —
+    # so on a filtered view the page count and the Next button were wrong by
+    # however many members the filter excluded.
+    #
+    # Now: when we post-filter we are already walking the whole (capped) merged
+    # stream, so we count exactly what survives. When we don't, the filters ran
+    # inside both source queries, so their own counts are authoritative and we
+    # can stop as soon as the page is full — that sum still counts a member
+    # present in both sources twice, which is why it is labelled an estimate.
+    seen_phones: set[str] = set()
+    results: list[MemberResponse] = []
     skip_count = (page - 1) * page_size
-    
+    matched = 0
+    # One survivor past the end of the page proves another page exists. This is
+    # exact even when `total` is only an estimate, so the Next button can never
+    # point at an empty page.
+    has_next = False
+
     for item in merged_stream:
-        # Step 1: Deduplicate
         phone = normalize_phone_for_match(item.phone) or f"no_phone_{item.id}"
         if phone in seen_phones:
             continue
         seen_phones.add(phone)
 
-        # Step 2: Apply filters post-merge
-        if member_type == "dormant":
-            lv = normalize_external_dt(item.last_visit) if item.last_visit else None
-            if lv is None or lv >= merge_cutoff:
-                continue
-        elif member_type == "inactive":
-            if item.dormancy_tier not in inactive_tiers:
-                continue
-        elif member_type in ["at_risk", "lost"]:
-            if item.dormancy_tier != member_type.upper():
-                continue
+        if not member_segments.matches_category(item, category):
+            continue
+        if not member_segments.matches_segment(item, segment):
+            continue
 
-        # Step 3: Pagination skip
+        matched += 1
         if skip_count > 0:
             skip_count -= 1
             continue
+        if len(results) < page_size:
+            results.append(item)
+            continue
 
-        # Step 4: Collect
-        results.append(item)
-        if len(results) >= page_size:
+        has_next = True
+        if not post_filtered:
+            # The page is full and one more survivor is confirmed; the total
+            # comes from the source counts, so the rest of the stream tells us
+            # nothing further.
             break
 
     # Messaging rollups are attached only to the page we actually return —
@@ -323,14 +357,14 @@ async def _list_members_r2(
     # filtered out would be thrown away.
     await _attach_message_stats(db, "r2", results)
 
-    # Estimate total (this is tricky with deduplication across pages)
-    total = fielia_total + internal_total 
-    
+    total = matched if post_filtered else fielia_total + internal_total
+
     return MemberListResponse(
         items=results,
         total=total,
         page=page,
         page_size=page_size,
+        has_next=has_next,
     )
 
 
@@ -342,16 +376,11 @@ async def create_member(
     db: Annotated[Any, Depends(get_db)],
 ) -> MemberResponse:
     """Create a new member for the active restaurant."""
-    valid_categories = restaurant.get("member_categories") or ["nfc", "ecard"]
-    if body.type not in valid_categories:
-        raise ValidationError(
-            f"Invalid member type '{body.type}'. "
-            f"Valid types: {', '.join(valid_categories)}"
-        )
+    member_category = _resolve_category(restaurant, body.type)
 
-    if body.type == "nfc" and not body.card_uid:
+    if member_category == "nfc" and not body.card_uid:
         raise ValidationError("card_uid is required for NFC members")
-    if body.type == "ecard" and not body.ecard_code:
+    if member_category == "ecard" and not body.ecard_code:
         raise ValidationError("ecard_code is required for e-card members")
 
     # Only check uniqueness when a real phone is provided
@@ -380,7 +409,7 @@ async def create_member(
     now = now_utc()
     doc = {
         "restaurant_id": restaurant["id"],
-        "type": body.type,
+        "type": member_category,
         "name": body.name,
         "phone": body.phone or None,
         "email": body.email,
@@ -571,70 +600,111 @@ async def send_member_ecard(
     return {"wa_message_id": wa_message_id, "endpoint_used": endpoint_used}
 
 
+class _ContactCollector:
+    """Accumulates campaign contacts, classifying each row as it arrives.
+
+    Extracted from a closure inside the endpoint: it kept four counters alive
+    via `nonlocal` across five early returns, which made the handler hard to
+    follow and pushed it past the cognitive-complexity limit. The rules are
+    unchanged — empty and unparseable numbers are reported as invalid rows,
+    repeats within one request are counted as duplicates, and suppressed
+    numbers are dropped without ever becoming contacts.
+    """
+
+    def __init__(self, suppressed: set[str]) -> None:
+        self._suppressed = suppressed
+        self._seen: set[str] = set()
+        self._row_num = 0
+        self.valid_rows: list[ContactRow] = []
+        self.invalid_rows: list[InvalidRow] = []
+        self.duplicate_count = 0
+        self.suppressed_count = 0
+
+    def add(self, name: str, raw_phone_val: Any) -> None:
+        self._row_num += 1
+        raw_phone = str(raw_phone_val).strip() if raw_phone_val else ""
+        if not raw_phone:
+            self._reject("", "Empty phone")
+            return
+
+        normalized = normalize_phone(raw_phone)
+        if not normalized:
+            self._reject(raw_phone, "Invalid phone number")
+            return
+
+        if normalized in self._seen:
+            self.duplicate_count += 1
+            return
+        self._seen.add(normalized)
+
+        if normalized in self._suppressed:
+            self.suppressed_count += 1
+            return
+
+        self.valid_rows.append(
+            ContactRow(name=name or "", phone=normalized, variables={})
+        )
+
+    def _reject(self, raw_value: str, reason: str) -> None:
+        self.invalid_rows.append(
+            InvalidRow(row_number=self._row_num, raw_value=raw_value, reason=reason)
+        )
+
+    def to_preflight(self, file_ref: str) -> PreflightResult:
+        return PreflightResult(
+            valid_count=len(self.valid_rows),
+            invalid_count=len(self.invalid_rows),
+            duplicate_count=self.duplicate_count,
+            suppressed_count=self.suppressed_count,
+            valid_rows=self.valid_rows,
+            invalid_rows=self.invalid_rows,
+            file_ref=file_ref,
+        )
+
+
 @router.post("/as-contacts")
 async def members_as_contacts(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     _user: Annotated[dict, Depends(require_role("admin"))],
     db: Annotated[Any, Depends(get_db)] = None,
     member_type: Annotated[str | None, Query(alias="type")] = None,
+    category: Annotated[str | None, Query()] = None,
+    segment: Annotated[str | None, Query()] = None,
     limit: Annotated[int | None, Query(ge=1)] = None,
 ) -> PreflightResult:
     """
     Convert members into a PreflightResult for use as campaign contacts.
 
+    Audience is picked on the same two axes as the members listing — an
+    optional category and an optional segment — so a campaign targets exactly
+    the people the corresponding tab shows.
+
     Sources:
     - reservego: combines reservego_uploads + reservego_bill_data collections
-    - r2 (Fielia): streams Fielia NFC members then appends internal DB members
+    - r2 (Fielia): external Fielia NFC members plus internal DB members
     - all others: queries internal members DB only
     """
+    # "reservego" is a source, not a category — it never goes through the axes.
+    is_reservego = "reservego" in (member_type, category)
+    if not is_reservego:
+        category, segment = member_segments.resolve_axes(
+            category, segment, member_type
+        )
+
     suppressed: set[str] = set()
     async for sup in db.suppression_list.find({}, {"phone": 1}):
         suppressed.add(sup["phone"])
 
-    valid_rows: list[ContactRow] = []
-    invalid_rows: list[InvalidRow] = []
-    seen_phones: set[str] = set()
-    duplicate_count = 0
-    suppressed_count = 0
-    row_num = 1
+    collector = _ContactCollector(suppressed)
 
-    def process_row(name: str, raw_phone_val: Any) -> None:
-        nonlocal row_num, duplicate_count, suppressed_count
-        raw_phone = str(raw_phone_val).strip() if raw_phone_val else ""
-        if not raw_phone:
-            invalid_rows.append(
-                InvalidRow(row_number=row_num, raw_value="", reason="Empty phone")
-            )
-            row_num += 1
-            return
-        normalized = normalize_phone(raw_phone)
-        if not normalized:
-            invalid_rows.append(
-                InvalidRow(
-                    row_number=row_num,
-                    raw_value=raw_phone,
-                    reason="Invalid phone number",
-                )
-            )
-            row_num += 1
-            return
-        if normalized in seen_phones:
-            duplicate_count += 1
-            row_num += 1
-            return
-        seen_phones.add(normalized)
-        if normalized in suppressed:
-            suppressed_count += 1
-            row_num += 1
-            return
-        valid_rows.append(ContactRow(name=name or "", phone=normalized, variables={}))
-        row_num += 1
-
-    if member_type == "reservego":
-        await _process_reservego(db, restaurant["id"], limit, process_row, valid_rows)
+    if is_reservego:
+        await _process_reservego(
+            db, restaurant["id"], limit, collector.add, collector.valid_rows
+        )
     else:
         await _process_members(
-            restaurant, member_type, limit, process_row, valid_rows
+            db, restaurant, category, segment, limit,
+            collector.add, collector.valid_rows,
         )
 
     file_ref = str(uuid.uuid4())
@@ -642,21 +712,13 @@ async def members_as_contacts(
     # derived from data already in the database. If the cache write fails there
     # is nothing to resolve later, so fail here rather than return a file_ref
     # that dies at launch.
-    if not await cache_contacts(file_ref, valid_rows, str(_user["_id"])):
+    if not await cache_contacts(file_ref, collector.valid_rows, str(_user["_id"])):
         raise ServerError(
             "Could not prepare the member list because the cache is "
             "unavailable. Please try again in a moment."
         )
 
-    return PreflightResult(
-        valid_count=len(valid_rows),
-        invalid_count=len(invalid_rows),
-        duplicate_count=duplicate_count,
-        suppressed_count=suppressed_count,
-        valid_rows=valid_rows,
-        invalid_rows=invalid_rows,
-        file_ref=file_ref,
-    )
+    return collector.to_preflight(file_ref)
 
 
 async def _process_reservego(
@@ -682,52 +744,75 @@ async def _process_reservego(
         process_row(doc.get("guest_name", ""), doc.get("guest_number"))
 
 
-async def _process_fielia_members(member_type: str | None, process_row: Any) -> None:
-    fielia_res = await fielia_service.list_members(limit=10000, offset=0, member_type="nfc")
-    for m in fielia_res["items"]:
-        if member_type == "inactive" and m.get("dormancy_tier") not in ["AT_RISK", "DORMANT", "LOST"]:
-            continue
-        process_row(m.get("name", "Unknown"), m.get("phone"))
-
-async def _process_members(
-    restaurant: dict,
-    member_type: str | None,
+async def _process_fielia_members(
+    category: str | None,
+    segment: str | None,
     limit: int | None,
     process_row: Any,
     valid_rows: list,
 ) -> None:
-    """Stream members into the contact processor using the new dormancy_tier logic."""
+    """Stream external Fielia members into the contact processor.
+
+    Read-only against Fielia. Segments are evaluated on the mapped row because
+    the tier is derived during mapping, not stored in the external dataset.
+    """
+    if not member_segments.fielia_supplies(category):
+        return
+    fielia_res = await fielia_service.list_members(
+        limit=R2_SEGMENT_FETCH_LIMIT, offset=0, member_type="nfc"
+    )
+    for m in fielia_res["items"]:
+        if limit and len(valid_rows) >= limit:
+            return
+        if segment == "inactive":
+            if m.get("dormancy_tier") not in member_segments.INACTIVE_TIERS:
+                continue
+        elif segment in ("active", "at_risk", "dormant", "lost"):
+            if m.get("dormancy_tier") != segment.upper():
+                continue
+        elif segment == "interested":
+            # Fielia carries no campaign tags; interested members live in our DB.
+            continue
+        process_row(m.get("name", "Unknown"), m.get("phone"))
+
+
+async def _process_members(
+    db: Any,
+    restaurant: dict,
+    category: str | None,
+    segment: str | None,
+    limit: int | None,
+    process_row: Any,
+    valid_rows: list,
+) -> None:
+    """Stream members into the contact processor for a category/segment.
+
+    Uses the same filter builder as the members listing, so a campaign audience
+    and the tab it was picked from resolve to the same people.
+    """
     rid = restaurant["id"]
-    
+
+    # r2 draws from Fielia *and* the internal DB. The internal half used to be
+    # skipped entirely, so members added in-app were never campaign targets.
     if rid == "r2":
-        await _process_fielia_members(member_type, process_row)
+        await _process_fielia_members(
+            category, segment, limit, process_row, valid_rows
+        )
+        internal_query = member_segments.build_member_query(
+            {"restaurant_id": "r2", "is_active": True}, category, segment
+        )
+        async for doc in (
+            db.members.find(internal_query, {"name": 1, "phone": 1}).sort("_id", -1)
+        ):
+            if limit and len(valid_rows) >= limit:
+                return
+            process_row(doc.get("name", ""), doc.get("phone"))
         return
 
-    # 1. Resolve DB and Collection (handles all other restaurants)
     m_db, m_coll, m_filter = await member_match_service.get_member_db_context(rid)
-    
-    # 2. Build Query
-    query = {**m_filter, "is_active": True}
-    
-    # Map lowercase 'dormant' from frontend to uppercase 'DORMANT'
-    tier_map = {
-        "active": "ACTIVE",
-        "at_risk": "AT_RISK",
-        "dormant": "DORMANT",
-        "lost": "LOST"
-    }
-    
-    target_type = member_type.lower() if member_type else "all"
-    
-    if target_type == "inactive":
-        query["dormancy_tier"] = {"$in": ["AT_RISK", "DORMANT", "LOST"]}
-    elif target_type == "interested":
-        query["tags"] = "interested"
-    elif target_type in tier_map:
-        query["dormancy_tier"] = tier_map[target_type]
-    elif target_type in ["nfc", "ecard"]:
-        query["type"] = {REGEX: f"^{re.escape(target_type)}$", OPTIONS: "i"}
-    # if 'all', we don't add additional filters
+    query = member_segments.build_member_query(
+        {**m_filter, "is_active": True}, category, segment
+    )
 
     async for doc in m_db[m_coll].find(query, {"name": 1, "phone": 1}).sort("_id", -1):
         if limit and len(valid_rows) >= limit:
@@ -744,6 +829,11 @@ async def import_members(
     member_type: Annotated[str, Query(alias="type")] = "ecard",
 ) -> dict:
     """Bulk-import members from an uploaded XLSX file."""
+    # The import type is a category, never a segment. Without this check the
+    # members page could import from a segment tab and stamp every row with a
+    # type ("inactive", "interested") that no category tab can ever show.
+    member_type = _resolve_category(restaurant, member_type)
+
     filename = file.filename or ""
     content_type = file.content_type or ""
     allowed_content_types = {

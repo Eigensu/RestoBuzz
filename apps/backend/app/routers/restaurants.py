@@ -17,6 +17,7 @@ from app.models.restaurant import (
     UpdateWaPhonesRequest,
 )
 from app.core.errors import NotFoundError, ValidationError
+from app.services import member_segments
 from app.core.utils import to_object_id
 
 router = APIRouter(prefix="/restaurants", tags=["restaurants"])
@@ -166,6 +167,18 @@ async def update_categories(
 
     if not cleaned_categories:
         raise ValidationError("At least one category is required")
+
+    # Categories and segments share the `?type=` wire format for backward
+    # compatibility, so a category named after a segment would be silently
+    # reinterpreted as a behavioural filter.
+    reserved = sorted(
+        set(cleaned_categories) & member_segments.RESERVED_CATEGORY_NAMES
+    )
+    if reserved:
+        raise ValidationError(
+            f"These names are reserved and cannot be used as member "
+            f"categories: {', '.join(reserved)}"
+        )
 
     rest_oid = restaurant["_id"]
     result = await db.restaurants.find_one_and_update(
