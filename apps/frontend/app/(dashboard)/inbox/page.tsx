@@ -21,6 +21,7 @@ import { QuickReplies } from "@/components/inbox/molecules/QuickReplies";
 import { ReplyBar } from "@/components/inbox/molecules/ReplyBar";
 
 import { BRAND_GRADIENT } from "@/lib/brand";
+import { toISTDateKey, getISTDateOffset } from "@/lib/date";
 
 function initials(name: string | null, phone: string): string {
   if (!name) return phone.slice(-2);
@@ -34,18 +35,24 @@ function initials(name: string | null, phone: string): string {
 
 function DateSeparator({ date }: { date: string }) {
   const dStr = String(date);
-  const d = new Date(dStr.endsWith("Z") ? dStr : dStr + "Z");
-  const now = new Date();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
+  const parsed = new Date(dStr.endsWith("Z") || dStr.includes("+") ? dStr : dStr + "Z");
+  const dateKey = toISTDateKey(parsed);
+  const todayKey = toISTDateKey(new Date());
+  const yesterdayKey = toISTDateKey(getISTDateOffset(1));
 
-  let label = d.toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  if (d.toDateString() === now.toDateString()) label = "Today";
-  else if (d.toDateString() === yesterday.toDateString()) label = "Yesterday";
+  let label: string;
+  if (dateKey === todayKey) {
+    label = "Today";
+  } else if (dateKey === yesterdayKey) {
+    label = "Yesterday";
+  } else {
+    label = new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(parsed);
+  }
 
   return (
     <div className="flex justify-center my-6 sticky top-2 z-10">

@@ -34,6 +34,7 @@ from app.core.errors import (
 from app.core.security import _create_token, decode_token
 from app.database import get_db
 from app.dependencies import require_role, validate_restaurant_access
+from app.core.time import IST_TIMEZONE_NAME, format_ist
 
 router = APIRouter(prefix="/reservego", tags=["reservego"])
 _bearer = HTTPBearer()
@@ -541,6 +542,8 @@ async def get_analytics(
                 "_id": {
                     "year": {_MONGO_YEAR: "$booking_time"},
                     "month": {_MONGO_MONTH: "$booking_time"},
+                    "year": {_MONGO_YEAR: {"date": "$booking_time", "timezone": IST_TIMEZONE_NAME}},
+                    "month": {_MONGO_MONTH: {"date": "$booking_time", "timezone": IST_TIMEZONE_NAME}},
                 },
                 "revenue": {_MONGO_SUM: _FLD_BILL_AMOUNT},
                 "bookings": {_MONGO_SUM: 1},
@@ -814,6 +817,8 @@ def _fmt_dt(val) -> str:
         return ""
     if isinstance(val, datetime):
         return val.strftime("%Y-%m-%d %H:%M")
+    if isinstance(val, (datetime, str)):
+        return format_ist(val, "%Y-%m-%d %H:%M") or ""
     return str(val)
 
 

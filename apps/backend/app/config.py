@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # Prioritizes MONGODB_URL_PROD if present in .env, otherwise falls back to MONGODB_URL
     mongodb_url: str = Field(
         default="mongodb://localhost:27017/dishpatch",
-        validation_alias=AliasChoices("MONGODB_URL_PROD", "MONGODB_URL"),
+        validation_alias=AliasChoices("MONGODB_URL", "MONGODB_URL_PROD"),
     )
     mongodb_db_name: str = Field(
         default="",

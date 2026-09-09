@@ -47,15 +47,13 @@ export function timeIST(date: string | Date): string {
 export function inboxShortDateIST(date: string | Date): string {
   const parsed = parse(date);
   
-  // Shift strictly to UTC timestamp representation of IST for clean midnight boundary math
-  const toISTDate = (d: Date) => new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
-  const targetIST = toISTDate(parsed);
-  const nowIST = toISTDate(new Date());
+  const targetKey = toISTDateKey(parsed);
+  const todayKey = toISTDateKey(new Date());
 
-  const targetDay = new Date(targetIST.getUTCFullYear(), targetIST.getUTCMonth(), targetIST.getUTCDate());
-  const today = new Date(nowIST.getUTCFullYear(), nowIST.getUTCMonth(), nowIST.getUTCDate());
+  const targetMidnight = new Date(targetKey + "T00:00:00Z").getTime();
+  const todayMidnight = new Date(todayKey + "T00:00:00Z").getTime();
 
-  const diffDays = Math.round((today.getTime() - targetDay.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.round((todayMidnight - targetMidnight) / (1000 * 60 * 60 * 24));
 
   if (diffDays === 0) return timeIST(parsed);
   if (diffDays === 1) return "Yesterday";
@@ -73,4 +71,53 @@ export function inboxShortDateIST(date: string | Date): string {
     year: "2-digit"
   }).format(parsed);
 }
+
+/**
+ * Format as 'YYYY-MM-DD' in Indian Standard Time (Asia/Kolkata).
+ * Single source of truth for daily grouping keys matching backend IST aggregation.
+ */
+export function toISTDateKey(date: string | Date): string {
+  const d = parse(date);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/**
+ * Format as 'MMM D' in Indian Standard Time (Asia/Kolkata), e.g. 'May 6'.
+ */
+export function toISTDateLabel(date: string | Date): string {
+  const d = parse(date);
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    month: "short",
+    day: "numeric",
+  }).format(d);
+}
+
+/**
+ * Get a Date instance anchored to `daysAgo` calendar days in Indian Standard Time (Asia/Kolkata).
+ * Uses Intl.DateTimeFormat with Asia/Kolkata to ensure exact calendar day alignment without manual offsets.
+ */
+export function getISTDateOffset(daysAgo: number): Date {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(now);
+
+  const p: Record<string, number> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      p[part.type] = parseInt(part.value, 10);
+    }
+  }
+  return new Date(Date.UTC(p.year, p.month - 1, p.day - daysAgo, 12, 0, 0));
+}
+
 

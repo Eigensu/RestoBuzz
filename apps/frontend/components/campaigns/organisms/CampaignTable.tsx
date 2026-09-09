@@ -208,7 +208,12 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                         IST
                       </span>
                     ) : (
-                      new Date(root.created_at).toLocaleDateString()
+                      new Intl.DateTimeFormat("en-IN", {
+                        timeZone: "Asia/Kolkata",
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      }).format(new Date(root.created_at))
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -280,7 +285,12 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-gray-400 text-xs">
-                        {new Date(retry.created_at).toLocaleDateString()}
+                        {new Intl.DateTimeFormat("en-IN", {
+                          timeZone: "Asia/Kolkata",
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        }).format(new Date(retry.created_at))}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {retry.status !== "running" && (

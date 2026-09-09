@@ -857,6 +857,16 @@ async def get_analytics(
             {_MATCH: {**base_match, "status": {"$in": ["delivered", "read"]}}},
             {"$addFields": {"hour": {"$hour": "$updated_at"}}},
             {
+                "$addFields": {
+                    "hour": {
+                        "$hour": {
+                            "date": {"$ifNull": ["$updated_at", "$created_at"]},
+                            "timezone": "Asia/Kolkata",
+                        }
+                    }
+                }
+            },
+            {
                 _GROUP: {
                     "_id": "$hour",
                     "delivered": {"$sum": 1},
