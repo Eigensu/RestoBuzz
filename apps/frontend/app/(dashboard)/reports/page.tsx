@@ -51,7 +51,7 @@ function getPresetDates(preset: "this_month" | "last_month" | "last_3_months" | 
   }).formatToParts(now);
   const p: Record<string, number> = {};
   for (const part of parts) {
-    if (part.type !== "literal") p[part.type] = parseInt(part.value, 10);
+    if (part.type !== "literal") { p[part.type] = Number.parseInt(part.value, 10); }
   }
 
   if (preset === "this_month") {

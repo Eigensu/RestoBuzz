@@ -855,7 +855,6 @@ async def get_analytics(
     hourly_cursor = db.message_logs.aggregate(
         [
             {_MATCH: {**base_match, "status": {"$in": ["delivered", "read"]}}},
-            {"$addFields": {"hour": {"$hour": "$updated_at"}}},
             {
                 "$addFields": {
                     "hour": {

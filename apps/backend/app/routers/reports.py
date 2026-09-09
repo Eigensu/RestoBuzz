@@ -364,8 +364,6 @@ async def _build_campaign_data(
     # - "delivered" and "read" increment globally to show when activity actually occurred
     weekly: dict = defaultdict(lambda: {"sent": 0, "delivered": 0, "read": 0})
     for c in all_campaigns:
-        dt = datetime.fromisoformat(c["created_at"])
-        week_key = dt.strftime("W%W %Y")
         dt = to_ist(c["created_at"])
         week_key = dt.strftime("W%W %Y") if dt else "Unknown"
         if not c["_is_retry"]:
@@ -526,8 +524,6 @@ async def member_summary(
             {
                 _MONGO_GROUP: {
                     "_id": {
-                        "year": {"$year": "$joined_at"},
-                        "month": {"$month": "$joined_at"},
                         "year": {"$year": {"date": "$joined_at", "timezone": IST_TIMEZONE_NAME}},
                         "month": {"$month": {"date": "$joined_at", "timezone": IST_TIMEZONE_NAME}},
                     },
@@ -1355,9 +1351,6 @@ async def _build_billing_data(
         {
             _MONGO_GROUP: {
                 "_id": {
-                    "year": {"$year": "$recorded_at"},
-                    "month": {"$month": "$recorded_at"},
-                    "day": {"$dayOfMonth": "$recorded_at"},
                     "year": {"$year": {"date": "$recorded_at", "timezone": IST_TIMEZONE_NAME}},
                     "month": {"$month": {"date": "$recorded_at", "timezone": IST_TIMEZONE_NAME}},
                     "day": {"$dayOfMonth": {"date": "$recorded_at", "timezone": IST_TIMEZONE_NAME}},
@@ -1500,7 +1493,6 @@ async def billing_export(
 
     # Derive overview metrics server-side
     top_cat = max(category_costs, key=category_costs.get) if category_costs else "N/A"
-    date_range_str = f"{from_dt.strftime('%d %b %Y')} → {to_dt.strftime('%d %b %Y')}"
     date_range_str = f"{format_ist(from_dt, '%d %b %Y')} → {format_ist(to_dt, '%d %b %Y')}"
     final_total_cost = round(total_cost, 2)
     final_avg_cost = (

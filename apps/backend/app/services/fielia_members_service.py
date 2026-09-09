@@ -302,7 +302,6 @@ class FieliaMembersService:
     async def _get_growth_trend(self, collection: Any, from_dt: datetime, to_dt: datetime) -> List[Dict]:
         pipeline = [
             {MATCH: {"createdAt": {"$gte": from_dt, "$lte": to_dt}}},
-            {GROUP: {"_id": {"year": {"$year": "$createdAt"}, "month": {"$month": "$createdAt"}}, "count": {SUM: 1}}},
             {
                 GROUP: {
                     "_id": {

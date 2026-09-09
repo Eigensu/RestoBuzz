@@ -540,8 +540,6 @@ async def get_analytics(
         {
             _MONGO_GROUP: {
                 "_id": {
-                    "year": {_MONGO_YEAR: "$booking_time"},
-                    "month": {_MONGO_MONTH: "$booking_time"},
                     "year": {_MONGO_YEAR: {"date": "$booking_time", "timezone": IST_TIMEZONE_NAME}},
                     "month": {_MONGO_MONTH: {"date": "$booking_time", "timezone": IST_TIMEZONE_NAME}},
                 },
