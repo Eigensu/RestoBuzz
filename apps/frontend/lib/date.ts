@@ -114,7 +114,7 @@ export function getISTDateOffset(daysAgo: number): Date {
   const p: Record<string, number> = {};
   for (const part of parts) {
     if (part.type !== "literal") {
-      p[part.type] = parseInt(part.value, 10);
+      p[part.type] = Number.parseInt(part.value, 10);
     }
   }
   return new Date(Date.UTC(p.year, p.month - 1, p.day - daysAgo, 12, 0, 0));

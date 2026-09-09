@@ -55,8 +55,8 @@ def get_client() -> AsyncIOMotorClient:
     """Get the global MongoDB client instance."""
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(settings.mongodb_url)
-        _client = AsyncIOMotorClient(settings.mongodb_url, tlsCAFile=certifi.where())
+        ca_cert = certifi.where() if "+srv" in settings.mongodb_url else None
+        _client = AsyncIOMotorClient(settings.mongodb_url, tlsCAFile=ca_cert)
     return _client
 
 
@@ -69,10 +69,9 @@ def get_fresh_db() -> AsyncIOMotorDatabase:
     """Create a brand-new Motor client for use inside Celery worker tasks.
     Celery forks processes and the parent's event loop is closed in the child,
     so we must never reuse the global _client across fork boundaries."""
-    client = AsyncIOMotorClient(settings.mongodb_url)
-    client = AsyncIOMotorClient(settings.mongodb_url, tlsCAFile=certifi.where())
+    ca_cert = certifi.where() if "+srv" in settings.mongodb_url else None
+    client = AsyncIOMotorClient(settings.mongodb_url, tlsCAFile=ca_cert)
     return client.get_database(_resolve_db_name())
-    return AsyncIOMotorClient(settings.mongodb_url, tlsCAFile=certifi.where()).get_database(_resolve_db_name())
 
 
 def get_fielia_db() -> AsyncIOMotorDatabase | None:
@@ -82,8 +81,8 @@ def get_fielia_db() -> AsyncIOMotorDatabase | None:
         return None
 
     if _fielia_client is None:
-        _fielia_client = AsyncIOMotorClient(settings.fielia_mongo_uri)
-        _fielia_client = AsyncIOMotorClient(settings.fielia_mongo_uri, tlsCAFile=certifi.where())
+        ca_cert = certifi.where() if "+srv" in settings.fielia_mongo_uri else None
+        _fielia_client = AsyncIOMotorClient(settings.fielia_mongo_uri, tlsCAFile=ca_cert)
 
     parsed = urlparse(settings.fielia_mongo_uri)
     db_name = parsed.path.lstrip("/").strip() or "fielia"
