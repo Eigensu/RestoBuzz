@@ -6,6 +6,12 @@ from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator, List, Dict, Tuple, Any
 
 from app.core.time import now_utc, normalize_external_dt, ist_month_start_utc
+from app.core.time import (
+    now_utc,
+    normalize_external_dt,
+    ist_month_start_utc,
+    IST_TIMEZONE_NAME,
+)
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo.errors import ServerSelectionTimeoutError, AutoReconnect, PyMongoError
@@ -297,6 +303,15 @@ class FieliaMembersService:
         pipeline = [
             {MATCH: {"createdAt": {"$gte": from_dt, "$lte": to_dt}}},
             {GROUP: {"_id": {"year": {"$year": "$createdAt"}, "month": {"$month": "$createdAt"}}, "count": {SUM: 1}}},
+            {
+                GROUP: {
+                    "_id": {
+                        "year": {"$year": {"date": "$createdAt", "timezone": IST_TIMEZONE_NAME}},
+                        "month": {"$month": {"date": "$createdAt", "timezone": IST_TIMEZONE_NAME}},
+                    },
+                    "count": {SUM: 1},
+                }
+            },
             {SORT: {"_id.year": 1, "_id.month": 1}},
         ]
         raw = await collection.aggregate(pipeline).to_list(24)

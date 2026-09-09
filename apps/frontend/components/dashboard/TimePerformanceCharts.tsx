@@ -141,7 +141,7 @@ export function TimePerformanceCharts({
             <SectionHeader
               title="Engagement Window Analysis"
               icon={Clock}
-              subtitle="Interaction density and read rate distribution"
+              subtitle="Interaction density and read rate distribution (IST)"
             />
             <div className="h-[280px] w-full mt-4 min-w-0">
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -162,7 +162,7 @@ export function TimePerformanceCharts({
                     interval="preserveStartEnd"
                     minTickGap={20}
                     label={{
-                      value: "HOUR OF DAY",
+                      value: "HOUR OF DAY (IST)",
                       position: "insideBottom",
                       offset: -20,
                       fontSize: 10,

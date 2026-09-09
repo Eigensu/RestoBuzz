@@ -28,11 +28,12 @@ export function AcquisitionSection({
     data;
 
   const trackingSince = tracking_started_at
-    ? new Date(tracking_started_at).toLocaleDateString(undefined, {
+    ? new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
         day: "numeric",
         month: "short",
         year: "numeric",
-      })
+      }).format(new Date(tracking_started_at))
     : null;
 
   return (
