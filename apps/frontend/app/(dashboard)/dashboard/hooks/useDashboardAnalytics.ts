@@ -17,6 +17,28 @@ const CAMPAIGN_PAGE_SIZE = 100;
  * sorted newest-first, the totals *shrink* over time as older (reply-rich)
  * campaigns fall off the end. Page through all of them using `total`.
  */
+async function fetchAllEmailCampaigns(
+  restaurantId: string,
+): Promise<{ items: Campaign[]; total: number }> {
+  const first = await api
+    .get(`/email-campaigns?restaurant_id=${restaurantId}&page=1&page_size=${CAMPAIGN_PAGE_SIZE}`)
+    .then((r) => r.data);
+  const total = first?.total ?? 0;
+  let items = first?.items ?? [];
+  const pageCount = Math.ceil(total / CAMPAIGN_PAGE_SIZE);
+  if (pageCount > 1) {
+    const rest = await Promise.all(
+      Array.from({ length: pageCount - 1 }, (_, i) =>
+        api
+          .get(`/email-campaigns?restaurant_id=${restaurantId}&page=${i + 2}&page_size=${CAMPAIGN_PAGE_SIZE}`)
+          .then((r) => r.data?.items ?? [])
+      )
+    );
+    items = items.concat(...rest);
+  }
+  return { items, total };
+}
+
 async function fetchAllCampaigns(
   restaurantId: string,
 ): Promise<{ items: Campaign[]; total: number }> {
@@ -48,10 +70,22 @@ async function fetchAllCampaigns(
 
 export function useDashboardAnalytics(restaurantId?: string) {
   const [activeChannel, setActiveChannel] = useState<"whatsapp" | "email">("whatsapp");
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
+  
+  const campaignIdParams = useMemo(() => {
+    if (selectedCampaignIds.length === 0) return "";
+    return selectedCampaignIds.map(id => `&campaign_ids=${id}`).join("");
+  }, [selectedCampaignIds]);
 
   const { data, isLoading: campaignsLoading } = useQuery({
     queryKey: ["dashboard-campaigns", restaurantId],
     queryFn: () => fetchAllCampaigns(restaurantId!),
+    enabled: !!restaurantId,
+  });
+
+  const { data: emailCampaignsData, isLoading: _ } = useQuery({
+    queryKey: ["dashboard-email-campaigns", restaurantId],
+    queryFn: () => fetchAllEmailCampaigns(restaurantId!),
     enabled: !!restaurantId,
   });
 
@@ -60,24 +94,30 @@ export function useDashboardAnalytics(restaurantId?: string) {
     isLoading: analyticsLoading,
     isError: analyticsError,
   } = useQuery({
-    queryKey: ["dashboard-analytics-wa", restaurantId],
+    queryKey: ["dashboard-analytics-wa", restaurantId, campaignIdParams],
     queryFn: () =>
       api
-        .get(`/campaigns/analytics?restaurant_id=${restaurantId}`)
+        .get(`/campaigns/analytics?restaurant_id=${restaurantId}${campaignIdParams}`)
         .then((r) => r.data),
     enabled: !!restaurantId,
   });
 
   const { data: emailAnalyticsData, isLoading: emailLoading } = useQuery({
-    queryKey: ["dashboard-analytics-email", restaurantId],
+    queryKey: ["dashboard-analytics-email", restaurantId, campaignIdParams],
     queryFn: () =>
       api
-        .get(`/email-campaigns/analytics?restaurant_id=${restaurantId}`)
+        .get(`/email-campaigns/analytics?restaurant_id=${restaurantId}${campaignIdParams}`)
         .then((r) => r.data),
     enabled: !!restaurantId,
   });
 
-  const campaigns: Campaign[] = useMemo(() => data?.items ?? [], [data?.items]);
+  const allCampaigns: Campaign[] = useMemo(() => data?.items ?? [], [data?.items]);
+  const allEmailCampaigns: any[] = useMemo(() => emailCampaignsData?.items ?? [], [emailCampaignsData?.items]);
+  
+  const campaigns = useMemo(() => {
+    if (selectedCampaignIds.length === 0) return allCampaigns;
+    return allCampaigns.filter(c => selectedCampaignIds.includes(c.id) || (c.parent_campaign_id && selectedCampaignIds.includes(c.parent_campaign_id)));
+  }, [allCampaigns, selectedCampaignIds]);
 
   const waAnalytics: DashboardAnalytics | null = useMemo(() => {
     // Don't short-circuit on campaigns alone — analyticsData may have reservego_members
@@ -382,7 +422,11 @@ export function useDashboardAnalytics(restaurantId?: string) {
     isLoading,
     activeChannel,
     setActiveChannel,
-    campaigns,
-    emailAnalyticsData
+    campaigns, // The filtered campaigns
+    allWaCampaigns: allCampaigns,
+    allEmailCampaigns,
+    emailAnalyticsData,
+    selectedCampaignIds,
+    setSelectedCampaignIds
   };
 }

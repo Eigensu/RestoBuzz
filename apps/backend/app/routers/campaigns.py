@@ -618,10 +618,14 @@ async def send_test_message(
     )
 
 
+from fastapi import Query
+from bson import ObjectId
+
 @router.get("/analytics")
 async def get_analytics(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    campaign_ids_filter: list[str] = Query(None, alias="campaign_ids"),
 ):
     """
     Returns real aggregated analytics for the restaurant:
@@ -630,11 +634,17 @@ async def get_analytics(
     - hourly_performance: actual send-hour distribution from message_logs
     """
     # Get all campaign job IDs for this restaurant
+    query = {"restaurant_id": restaurant["id"]}
+    if campaign_ids_filter:
+        # Include selected roots and their children
+        query["$or"] = [
+            {"_id": {"$in": [ObjectId(cid) for cid in campaign_ids_filter]}},
+            {"parent_campaign_id": {"$in": campaign_ids_filter}}
+        ]
+        
     campaign_ids = [
         doc["_id"]
-        async for doc in db.campaign_jobs.find(
-            {"restaurant_id": restaurant["id"]}, {"_id": 1}
-        )
+        async for doc in db.campaign_jobs.find(query, {"_id": 1})
     ]
 
     async def _get_rg_count() -> int:

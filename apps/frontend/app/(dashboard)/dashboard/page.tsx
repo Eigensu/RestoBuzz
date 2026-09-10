@@ -23,6 +23,7 @@ export default function DashboardPage() {
     activeChannel,
     setActiveChannel,
     campaigns,
+    ...analyticsDataProps
   } = useDashboardAnalytics(restaurant?.id);
 
   if (isLoading) {
@@ -37,7 +38,7 @@ export default function DashboardPage() {
   }
 
   // Handle empty state gracefully
-  if (!campaigns?.length && activeChannel === "whatsapp") {
+  if (!analyticsDataProps.allWaCampaigns?.length && activeChannel === "whatsapp") {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto text-center px-4">
         <div className="w-20 h-20 rounded-4xl bg-[#eff2f0] flex items-center justify-center mb-6">
@@ -73,6 +74,10 @@ export default function DashboardPage() {
             ? campaigns.length
             : emailAnalyticsData?.totals?.sent || 0
         }
+        allWaCampaigns={analyticsDataProps.allWaCampaigns}
+        allEmailCampaigns={analyticsDataProps.allEmailCampaigns}
+        selectedCampaignIds={analyticsDataProps.selectedCampaignIds}
+        setSelectedCampaignIds={analyticsDataProps.setSelectedCampaignIds}
       />
 
       <SummaryCards 
