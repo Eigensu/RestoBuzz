@@ -191,14 +191,16 @@ def mongo_hour_ist(date_field: str, fallback_field: str | None = None) -> dict:
     return {"$hour": {"date": date_expr, "timezone": IST_TIMEZONE_NAME}}
 
 
-def mongo_date_parts_ist(date_field: str) -> dict:
-    """Generate MongoDB date part expressions (year, month, day) in Asia/Kolkata."""
+def mongo_date_parts_ist(date_field: str, *, include_day: bool = True) -> dict:
+    """Generate MongoDB date part expressions (year, month, [day]) in Asia/Kolkata."""
     clean_field = date_field.lstrip("$")
     field_ref = f"${clean_field}"
-    return {
+    parts = {
         "year": {"$year": {"date": field_ref, "timezone": IST_TIMEZONE_NAME}},
         "month": {"$month": {"date": field_ref, "timezone": IST_TIMEZONE_NAME}},
-        "day": {"$dayOfMonth": {"date": field_ref, "timezone": IST_TIMEZONE_NAME}},
     }
+    if include_day:
+        parts["day"] = {"$dayOfMonth": {"date": field_ref, "timezone": IST_TIMEZONE_NAME}}
+    return parts
 
 

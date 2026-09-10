@@ -28,16 +28,15 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.errors import ValidationError, ForbiddenError
 from app.core.logging import get_logger
-from app.core.time import now_utc, date_range_to_utc, ist_month_start_utc
-from app.services.fielia_members_service import fielia_service
 from app.core.time import (
     now_utc,
     date_range_to_utc,
     ist_month_start_utc,
     to_ist,
     format_ist,
-    IST_TIMEZONE_NAME,
+    mongo_date_parts_ist,
 )
+from app.services.fielia_members_service import fielia_service
 from app.services import member_stats_service
 from app.database import get_db
 from app.dependencies import get_active_restaurant, require_role
@@ -365,6 +364,10 @@ async def _build_campaign_data(
     weekly: dict = defaultdict(lambda: {"sent": 0, "delivered": 0, "read": 0})
     for c in all_campaigns:
         dt = to_ist(c["created_at"])
+        if dt is None:
+            logger.warning(
+                "campaign_created_at_unparseable", created_at=c.get("created_at")
+            )
         week_key = dt.strftime("W%W %Y") if dt else "Unknown"
         if not c["_is_retry"]:
             weekly[week_key]["sent"] += c["sent"]
@@ -523,10 +526,7 @@ async def member_summary(
             },
             {
                 _MONGO_GROUP: {
-                    "_id": {
-                        "year": {"$year": {"date": "$joined_at", "timezone": IST_TIMEZONE_NAME}},
-                        "month": {"$month": {"date": "$joined_at", "timezone": IST_TIMEZONE_NAME}},
-                    },
+                    "_id": mongo_date_parts_ist("joined_at", include_day=False),
                     "count": {_MONGO_SUM: 1},
                 }
             },
@@ -859,8 +859,10 @@ async def _export_internal_members(db, user, restaurant, from_dt, to_dt, categor
         ])
 
     headers = [
-        "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
-        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes",
+        "Name", "Phone", "Email", "Type",
+        "Joined Date (UTC)", "Joined Date (IST)", "Visit Count",
+        "Last Visit (UTC)", "Last Visit (IST)", "Is Active",
+        "Card UID", "eCard Code", "Tags", "Notes",
         "Messages Sent", "Messages Received", "Messages Read"
     ]
     filename = f"member_report_{from_dt.date()}_{to_dt.date()}"
@@ -1020,7 +1022,8 @@ async def export_logs(
     rids = list({restaurant["id"], str(restaurant.get("_id"))} - {None})
 
     headers = [
-        "Timestamp",
+        "Timestamp (UTC)",
+        "Timestamp (IST)",
         "Channel",
         "Recipient",
         "Name",
@@ -1346,15 +1349,12 @@ async def _build_billing_data(
     total_spend = round(sum(c["spend"] for c in by_category), 2)
 
     # Daily count → spend trend (unknown categories fall back to 0.0 / no rate)
-    RECORDED_AT_FIELD = "$recorded_at"
     daily_pipeline = [
         {_MONGO_MATCH: base_match},
         {
             _MONGO_GROUP: {
                 "_id": {
-                    "year": {"$year": {"date": RECORDED_AT_FIELD, "timezone": IST_TIMEZONE_NAME}},
-                    "month": {"$month": {"date": RECORDED_AT_FIELD, "timezone": IST_TIMEZONE_NAME}},
-                    "day": {"$dayOfMonth": {"date": RECORDED_AT_FIELD, "timezone": IST_TIMEZONE_NAME}},
+                    **mongo_date_parts_ist("recorded_at"),
                     "category": "$category",
                 },
                 "count": {_MONGO_SUM: 1},
@@ -1454,8 +1454,8 @@ async def billing_export(
     rid_oid = str(rest_doc["_id"]) if rest_doc else None
     rids = list({rid, rid_oid} - {None})
 
-    # Headers: 4 columns — row shape must match exactly
-    headers = ["Date", "Category", "Est. Cost (INR)", "WA Message ID"]
+    # Headers: 5 columns — row shape must match exactly
+    headers = ["Date (UTC)", "Date (IST)", "Category", "Est. Cost (INR)", "WA Message ID"]
     rows = []
 
     # Server-derived aggregates — never trust client-supplied values for totals
@@ -1481,7 +1481,7 @@ async def billing_export(
         total_cost += cost
         category_costs[cat] += cost
 
-        # Row shape matches headers exactly: [date, category, cost, wa_message_id]
+        # Row shape matches headers exactly: [date_utc, date_ist, category, cost, wa_message_id]
         rows.append(
             [
                 doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),

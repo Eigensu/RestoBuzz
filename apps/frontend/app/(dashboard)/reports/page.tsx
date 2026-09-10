@@ -74,7 +74,7 @@ function getPresetDates(preset: "this_month" | "last_month" | "last_3_months" | 
     const fromStr = `${y}-${String(m).padStart(2, "0")}-01`;
     return { from: fromStr, to: todayStr };
   } else if (preset === "all_time") {
-    return { from: "2024-01-01", to: todayStr };
+    return { from: "2020-01-01", to: todayStr };
   }
   return { from: defaultFrom(), to: defaultTo() };
 }

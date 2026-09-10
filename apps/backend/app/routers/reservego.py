@@ -34,7 +34,7 @@ from app.core.errors import (
 from app.core.security import _create_token, decode_token
 from app.database import get_db
 from app.dependencies import require_role, validate_restaurant_access
-from app.core.time import IST_TIMEZONE_NAME, format_ist
+from app.core.time import format_ist, mongo_date_parts_ist
 
 router = APIRouter(prefix="/reservego", tags=["reservego"])
 _bearer = HTTPBearer()
@@ -47,8 +47,6 @@ _MONGO_MATCH = "$match"
 _MONGO_SORT = "$sort"
 _MONGO_SUM = "$sum"
 _MONGO_AVG = "$avg"
-_MONGO_YEAR = "$year"
-_MONGO_MONTH = "$month"
 _MONGO_BUCKET = "$bucket"
 _MONGO_FIRST = "$first"
 _MONGO_LOOKUP = "$lookup"
@@ -539,10 +537,7 @@ async def get_analytics(
         },
         {
             _MONGO_GROUP: {
-                "_id": {
-                    "year": {_MONGO_YEAR: {"date": "$booking_time", "timezone": IST_TIMEZONE_NAME}},
-                    "month": {_MONGO_MONTH: {"date": "$booking_time", "timezone": IST_TIMEZONE_NAME}},
-                },
+                "_id": mongo_date_parts_ist("booking_time", include_day=False),
                 "revenue": {_MONGO_SUM: _FLD_BILL_AMOUNT},
                 "bookings": {_MONGO_SUM: 1},
                 "avg_pax": {_MONGO_AVG: "$pax"},
@@ -813,8 +808,6 @@ async def list_bills(
 def _fmt_dt(val) -> str:
     if val is None:
         return ""
-    if isinstance(val, datetime):
-        return val.strftime("%Y-%m-%d %H:%M")
     if isinstance(val, (datetime, str)):
         return format_ist(val, "%Y-%m-%d %H:%M") or ""
     return str(val)
