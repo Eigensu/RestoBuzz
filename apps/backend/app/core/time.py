@@ -11,7 +11,6 @@ Never call datetime.now() bare anywhere in the codebase. Use now_utc().
 """
 
 from datetime import date, datetime, timezone
-from typing import Any
 from zoneinfo import ZoneInfo
 
 # Standard IANA identifier for Indian Standard Time (UTC+05:30)
@@ -53,7 +52,7 @@ def now_ist() -> datetime:
     return datetime.now(timezone.utc).astimezone(IST)
 
 
-def to_ist(dt: Any) -> datetime | None:
+def to_ist(dt: datetime | str | None) -> datetime | None:
     """Convert any source timestamp to a timezone-aware IST (Asia/Kolkata) datetime.
 
     Handles:
@@ -88,7 +87,7 @@ def to_ist(dt: Any) -> datetime | None:
     return dt.astimezone(IST)
 
 
-def to_utc(dt: Any) -> datetime | None:
+def to_utc(dt: datetime | str | None) -> datetime | None:
     """Convert an IST or naive datetime to a timezone-aware UTC datetime."""
     if dt is None:
         return None
@@ -111,25 +110,25 @@ def to_utc(dt: Any) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def to_ist_hour(dt: Any) -> int | None:
+def to_ist_hour(dt: datetime | str | None) -> int | None:
     """Extract the hour of the day (0-23) in Indian Standard Time."""
     ist_dt = to_ist(dt)
     return ist_dt.hour if ist_dt else None
 
 
-def to_ist_date(dt: Any) -> date | None:
+def to_ist_date(dt: datetime | str | None) -> date | None:
     """Extract the calendar date in Indian Standard Time."""
     ist_dt = to_ist(dt)
     return ist_dt.date() if ist_dt else None
 
 
-def format_ist(dt: Any, fmt: str = "%Y-%m-%d %H:%M:%S") -> str | None:
+def format_ist(dt: datetime | str | None, fmt: str = "%Y-%m-%d %H:%M:%S") -> str | None:
     """Format a timestamp in IST for CSV/XLSX exports or user displays."""
     ist_dt = to_ist(dt)
     return ist_dt.strftime(fmt) if ist_dt else None
 
 
-def ist_isoformat(dt: Any) -> str | None:
+def ist_isoformat(dt: datetime | str | None) -> str | None:
     """Return an IST ISO-8601 formatted string (e.g. 2026-09-08T18:35:00+05:30)."""
     ist_dt = to_ist(dt)
     return ist_dt.isoformat() if ist_dt else None
@@ -185,7 +184,7 @@ def mongo_hour_ist(date_field: str, fallback_field: str | None = None) -> dict:
     if fallback_field:
         clean_fallback = fallback_field.lstrip("$")
         fallback_ref = f"${clean_fallback}"
-        date_expr: Any = {"$ifNull": [field_ref, fallback_ref]}
+        date_expr: dict | str = {"$ifNull": [field_ref, fallback_ref]}
     else:
         date_expr = field_ref
 

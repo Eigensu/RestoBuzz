@@ -1346,14 +1346,15 @@ async def _build_billing_data(
     total_spend = round(sum(c["spend"] for c in by_category), 2)
 
     # Daily count → spend trend (unknown categories fall back to 0.0 / no rate)
+    RECORDED_AT_FIELD = "$recorded_at"
     daily_pipeline = [
         {_MONGO_MATCH: base_match},
         {
             _MONGO_GROUP: {
                 "_id": {
-                    "year": {"$year": {"date": "$recorded_at", "timezone": IST_TIMEZONE_NAME}},
-                    "month": {"$month": {"date": "$recorded_at", "timezone": IST_TIMEZONE_NAME}},
-                    "day": {"$dayOfMonth": {"date": "$recorded_at", "timezone": IST_TIMEZONE_NAME}},
+                    "year": {"$year": {"date": RECORDED_AT_FIELD, "timezone": IST_TIMEZONE_NAME}},
+                    "month": {"$month": {"date": RECORDED_AT_FIELD, "timezone": IST_TIMEZONE_NAME}},
+                    "day": {"$dayOfMonth": {"date": RECORDED_AT_FIELD, "timezone": IST_TIMEZONE_NAME}},
                     "category": "$category",
                 },
                 "count": {_MONGO_SUM: 1},
