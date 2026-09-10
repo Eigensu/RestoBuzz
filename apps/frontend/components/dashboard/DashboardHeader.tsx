@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { LayoutDashboard, Megaphone, Filter, Check, Search, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { BRAND_GRADIENT } from "@/lib/brand";
-import type { Campaign } from "@/types";
+import type { Campaign, EmailCampaign } from "@/types";
 
 export function DashboardHeader({
   restaurantName,
@@ -19,7 +19,7 @@ export function DashboardHeader({
   setActiveChannel: (channel: "whatsapp" | "email") => void;
   campaignCount?: number;
   allWaCampaigns?: Campaign[];
-  allEmailCampaigns?: any[];
+  allEmailCampaigns?: EmailCampaign[];
   selectedCampaignIds?: string[];
   setSelectedCampaignIds?: (ids: string[]) => void;
 }) {
@@ -46,7 +46,7 @@ export function DashboardHeader({
 
   const filteredCampaigns = useMemo(() => {
     if (!search.trim()) return currentChannelCampaigns;
-    return currentChannelCampaigns.filter(c => (c.name || c.template_name || (c as any).subject || "Unnamed").toLowerCase().includes(search.toLowerCase()));
+    return currentChannelCampaigns.filter(c => (c.name || ('template_name' in c ? c.template_name : undefined) || ('subject' in c ? ('subject' in c ? c.subject : undefined) : undefined) || "Unnamed").toLowerCase().includes(search.toLowerCase()));
   }, [currentChannelCampaigns, search]);
 
   const toggleCampaign = (id: string) => {
@@ -148,7 +148,7 @@ export function DashboardHeader({
                     >
                       <div className="flex flex-col overflow-hidden pr-2">
                         <span className="text-sm font-semibold text-gray-700 truncate group-hover:text-gray-900">
-                          {c.name || c.template_name || (c as any).subject || "Unnamed Campaign"}
+                          {c.name || ('template_name' in c ? c.template_name : undefined) || ('subject' in c ? ('subject' in c ? c.subject : undefined) : undefined) || "Unnamed Campaign"}
                         </span>
                         <span className="text-xs text-gray-400 truncate">
                           {c.template_id ? "WhatsApp" : "Email"}
