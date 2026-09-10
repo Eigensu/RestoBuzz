@@ -625,7 +625,7 @@ from bson import ObjectId
 async def get_analytics(
     restaurant: Annotated[dict, Depends(get_active_restaurant)],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
-    campaign_ids_filter: list[str] = Query(None, alias="campaign_ids"),
+    campaign_ids_filter: Annotated[list[str] | None, Query(alias="campaign_ids")] = None,
 ):
     """
     Returns real aggregated analytics for the restaurant:
@@ -718,14 +718,16 @@ async def get_analytics(
     # delivered/read/failed/replies are aggregated across all campaigns in the
     # chain because those reflect real delivery outcomes regardless of which
     # attempt produced them.
+    root_totals_match = {
+        "restaurant_id": restaurant["id"],
+        "parent_campaign_id": {"$exists": False},
+    }
+    if campaign_ids_filter:
+        root_totals_match["_id"] = {"$in": [ObjectId(cid) for cid in campaign_ids_filter]}
+
     root_totals_cursor = db.campaign_jobs.aggregate(
         [
-            {
-                _MATCH: {
-                    "restaurant_id": restaurant["id"],
-                    "parent_campaign_id": {"$exists": False},
-                }
-            },
+            {_MATCH: root_totals_match},
             {
                 _GROUP: {
                     "_id": None,
@@ -740,9 +742,16 @@ async def get_analytics(
         root_totals_list[0] if root_totals_list else {"sent": 0, "total_campaigns": 0}
     )
 
+    delivery_totals_match = {"restaurant_id": restaurant["id"]}
+    if campaign_ids_filter:
+        delivery_totals_match["$or"] = [
+            {"_id": {"$in": [ObjectId(cid) for cid in campaign_ids_filter]}},
+            {"parent_campaign_id": {"$in": campaign_ids_filter}}
+        ]
+
     delivery_totals_cursor = db.campaign_jobs.aggregate(
         [
-            {_MATCH: {"restaurant_id": restaurant["id"]}},
+            {_MATCH: delivery_totals_match},
             {
                 _GROUP: {
                     "_id": None,
@@ -785,79 +794,72 @@ async def get_analytics(
         async for r in failure_cursor
     ]
 
-    # ── 3. TTR Distribution ───────────────────────────────────────────────────
-    # For each message that reached "read" status, find the timestamp of the
-    # first "read" entry in status_history and diff against sent_at.
-    ttr_cursor = db.message_logs.aggregate(
-        [
-            {_MATCH: {**base_match, "status": "read"}},
-            {
-                "$addFields": {
-                    "sent_locs": {
-                        "$filter": {
-                            # Guard against documents where status_history is
-                            # missing/null: $filter returns null for a null input,
-                            # and $size below then errors (Location17124).
-                            "input": {"$ifNull": ["$status_history", []]},
-                            "as": "sh",
-                            "cond": {"$in": ["$$sh.status", ["sent", "delivered"]]},
+    async def _get_ttr_distribution() -> list[dict]:
+        ttr_cursor = db.message_logs.aggregate(
+            [
+                {_MATCH: {**base_match, "status": "read"}},
+                {
+                    "$addFields": {
+                        "sent_locs": {
+                            "$filter": {
+                                "input": {"$ifNull": ["$status_history", []]},
+                                "as": "sh",
+                                "cond": {"$in": ["$$sh.status", ["sent", "delivered"]]},
+                            }
                         }
                     }
-                }
-            },
-            {
-                "$addFields": {
-                    "sent_at": {
-                        "$cond": [
-                            {"$gt": [{"$size": "$sent_locs"}, 0]},
-                            {"$arrayElemAt": ["$sent_locs.timestamp", 0]},
-                            _CREATED_AT,
-                        ]
+                },
+                {
+                    "$addFields": {
+                        "sent_at": {
+                            "$cond": [
+                                {"$gt": [{"$size": "$sent_locs"}, 0]},
+                                {"$arrayElemAt": ["$sent_locs.timestamp", 0]},
+                                _CREATED_AT,
+                            ]
+                        }
                     }
-                }
-            },
-            # Unwind status_history to find the first "read" event
-            {"$unwind": "$status_history"},
-            {_MATCH: {"status_history.status": "read"}},
-            # Keep only the earliest read event per message
-            {_SORT: {"status_history.timestamp": 1}},
-            {
-                _GROUP: {
-                    "_id": "$_id",
-                    "sent_at": {"$first": "$sent_at"},
-                    "read_at": {"$first": "$status_history.timestamp"},
-                }
-            },
-            # Compute diff in minutes
-            {
-                "$addFields": {
-                    "minutes": {
-                        "$divide": [
-                            {"$subtract": ["$read_at", "$sent_at"]},
-                            60000,  # ms -> minutes
-                        ]
+                },
+                {"$unwind": "$status_history"},
+                {_MATCH: {"status_history.status": "read"}},
+                {_SORT: {"status_history.timestamp": 1}},
+                {
+                    _GROUP: {
+                        "_id": "$_id",
+                        "sent_at": {"$first": "$sent_at"},
+                        "read_at": {"$first": "$status_history.timestamp"},
                     }
-                }
-            },
-            # Bucket into ranges
-            {
-                "$bucket": {
-                    "groupBy": "$minutes",
-                    "boundaries": [0, 5, 30, 120],
-                    "default": "2h+",
-                    "output": {"count": {"$sum": 1}},
-                }
-            },
+                },
+                {
+                    "$addFields": {
+                        "minutes": {
+                            "$divide": [
+                                {"$subtract": ["$read_at", "$sent_at"]},
+                                60000,
+                            ]
+                        }
+                    }
+                },
+                {
+                    "$bucket": {
+                        "groupBy": "$minutes",
+                        "boundaries": [0, 5, 30, 120],
+                        "default": "2h+",
+                        "output": {"count": {"$sum": 1}},
+                    }
+                },
+            ]
+        )
+        ttr_raw = {r["_id"]: r["count"] async for r in ttr_cursor}
+        return [
+            {"range": "0-5 min", "count": ttr_raw.get(0, 0)},
+            {"range": "5-30 min", "count": ttr_raw.get(5, 0)},
+            {"range": "30-120 min", "count": ttr_raw.get(30, 0)},
+            {"range": "2h+", "count": ttr_raw.get("2h+", 0)},
         ]
-    )
-
-    ttr_raw = {r["_id"]: r["count"] async for r in ttr_cursor}
-    ttr_distribution = [
-        {"range": "0-5 min", "count": ttr_raw.get(0, 0)},
-        {"range": "5-30 min", "count": ttr_raw.get(5, 0)},
-        {"range": "30-120 min", "count": ttr_raw.get(30, 0)},
-        {"range": "2h+", "count": ttr_raw.get("2h+", 0)},
-    ]
+        
+    # ── 3. TTR Distribution ───────────────────────────────────────────────────
+    ttr_distribution = await _get_ttr_distribution()
 
     # ── 3. Hourly Performance ─────────────────────────────────────────────────
     # Group message_logs by the hour of their created_at (actual send time),

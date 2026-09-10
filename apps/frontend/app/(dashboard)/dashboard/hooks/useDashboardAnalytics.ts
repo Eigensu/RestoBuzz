@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { Campaign } from "@/types";
+import type { Campaign, EmailCampaign } from "@/types";
 import { DashboardAnalytics, TTRStat, HourlyStat } from "../types";
 import { GREEN as GREEN_PALETTE } from "@/lib/brand";
 import { toISTDateKey, toISTDateLabel, getISTDateOffset } from "@/lib/date";
@@ -19,7 +19,7 @@ const CAMPAIGN_PAGE_SIZE = 100;
  */
 async function fetchAllEmailCampaigns(
   restaurantId: string,
-): Promise<{ items: Campaign[]; total: number }> {
+): Promise<{ items: EmailCampaign[]; total: number }> {
   const first = await api
     .get(`/email-campaigns?restaurant_id=${restaurantId}&page=1&page_size=${CAMPAIGN_PAGE_SIZE}`)
     .then((r) => r.data);
@@ -83,7 +83,7 @@ export function useDashboardAnalytics(restaurantId?: string) {
     enabled: !!restaurantId,
   });
 
-  const { data: emailCampaignsData, isLoading: _ } = useQuery({
+  const { data: emailCampaignsData } = useQuery({
     queryKey: ["dashboard-email-campaigns", restaurantId],
     queryFn: () => fetchAllEmailCampaigns(restaurantId!),
     enabled: !!restaurantId,
@@ -112,7 +112,7 @@ export function useDashboardAnalytics(restaurantId?: string) {
   });
 
   const allCampaigns: Campaign[] = useMemo(() => data?.items ?? [], [data?.items]);
-  const allEmailCampaigns: any[] = useMemo(() => emailCampaignsData?.items ?? [], [emailCampaignsData?.items]);
+  const allEmailCampaigns: EmailCampaign[] = useMemo(() => emailCampaignsData?.items ?? [], [emailCampaignsData?.items]);
   
   const campaigns = useMemo(() => {
     if (selectedCampaignIds.length === 0) return allCampaigns;
