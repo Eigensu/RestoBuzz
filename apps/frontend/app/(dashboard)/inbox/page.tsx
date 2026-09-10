@@ -21,7 +21,7 @@ import { QuickReplies } from "@/components/inbox/molecules/QuickReplies";
 import { ReplyBar } from "@/components/inbox/molecules/ReplyBar";
 
 import { BRAND_GRADIENT } from "@/lib/brand";
-import { toISTDateKey, getISTDateOffset } from "@/lib/date";
+import { toISTDateKey, getISTDateOffset, parse } from "@/lib/date";
 
 function initials(name: string | null, phone: string): string {
   if (!name) return phone.slice(-2);
@@ -34,8 +34,7 @@ function initials(name: string | null, phone: string): string {
 }
 
 function DateSeparator({ date }: { date: string }) {
-  const dStr = String(date);
-  const parsed = new Date(dStr.endsWith("Z") || dStr.includes("+") ? dStr : dStr + "Z");
+  const parsed = parse(date);
   const dateKey = toISTDateKey(parsed);
   const todayKey = toISTDateKey(new Date());
   const yesterdayKey = toISTDateKey(getISTDateOffset(1));

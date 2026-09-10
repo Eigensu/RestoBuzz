@@ -5,12 +5,11 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator, List, Dict, Tuple, Any
 
-from app.core.time import now_utc, normalize_external_dt, ist_month_start_utc
 from app.core.time import (
     now_utc,
     normalize_external_dt,
     ist_month_start_utc,
-    IST_TIMEZONE_NAME,
+    mongo_date_parts_ist,
 )
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -304,10 +303,7 @@ class FieliaMembersService:
             {MATCH: {"createdAt": {"$gte": from_dt, "$lte": to_dt}}},
             {
                 GROUP: {
-                    "_id": {
-                        "year": {"$year": {"date": "$createdAt", "timezone": IST_TIMEZONE_NAME}},
-                        "month": {"$month": {"date": "$createdAt", "timezone": IST_TIMEZONE_NAME}},
-                    },
+                    "_id": mongo_date_parts_ist("createdAt", include_day=False),
                     "count": {SUM: 1},
                 }
             },

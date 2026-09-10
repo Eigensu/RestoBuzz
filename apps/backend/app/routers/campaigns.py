@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.constants.meta_errors import RETRYABLE_FAILED_MATCH
+from app.core.time import mongo_hour_ist
 from app.database import get_db
 from app.dependencies import (
     require_role,
@@ -857,12 +858,7 @@ async def get_analytics(
             {_MATCH: {**base_match, "status": {"$in": ["delivered", "read"]}}},
             {
                 "$addFields": {
-                    "hour": {
-                        "$hour": {
-                            "date": {"$ifNull": ["$updated_at", "$created_at"]},
-                            "timezone": "Asia/Kolkata",
-                        }
-                    }
+                    "hour": mongo_hour_ist("updated_at", fallback_field="created_at")
                 }
             },
             {
