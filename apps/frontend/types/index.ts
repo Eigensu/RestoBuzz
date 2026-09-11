@@ -49,6 +49,7 @@ export interface Campaign {
   delivered_count: number;
   read_count: number;
   failed_count: number;
+  meta_failed_count: number;
   replies_count: number;
   scheduled_at: string | null;
   started_at: string | null;
@@ -249,6 +250,7 @@ export interface EmailCampaign {
   clicked_count: number;
   bounced_count: number;
   failed_count: number;
+  meta_failed_count: number;
   complained_count: number;
   scheduled_at: string | null;
   started_at: string | null;

@@ -69,7 +69,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
       <table className="w-full text-sm">
         <thead className="bg-gray-50 border-b">
           <tr>
-            {["Campaign", "Status", "Progress", "Replies", "Created", ""].map(
+            {["Campaign", "Status", "Failed by Meta", "Progress", "Replies", "Created", ""].map(
               (h) => (
                 <th
                   key={h}
@@ -172,6 +172,11 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       )}
                     </div>
                   </td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs text-gray-500 font-medium">
+                      {root.meta_failed_count ?? 0}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 w-40">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 bg-gray-100 rounded-full h-1.5">
@@ -259,6 +264,11 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                             <BlockedByMetaChip reason={retry.pause_reason} />
                           )}
                         </div>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="text-xs text-gray-500 font-medium">
+                          {retry.meta_failed_count ?? 0}
+                        </span>
                       </td>
                       <td className="px-4 py-2.5 w-40">
                         <div className="flex items-center gap-2">

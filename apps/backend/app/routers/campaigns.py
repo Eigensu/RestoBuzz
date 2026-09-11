@@ -264,6 +264,7 @@ def _serialize_campaign(doc: dict) -> CampaignResponse:
         delivered_count=doc.get("delivered_count", 0),
         read_count=doc.get("read_count", 0),
         failed_count=doc.get("failed_count", 0),
+        meta_failed_count=doc.get("meta_failed_count", 0),
         replies_count=doc.get("replies_count", 0),
         scheduled_at=doc.get("scheduled_at"),
         started_at=doc.get("started_at"),
@@ -327,6 +328,56 @@ async def list_campaigns(
             }
         ).sort("created_at", -1)
         docs.extend([child async for child in child_cursor])
+
+    # Identify all chain roots for the campaigns on this page
+    root_ids = set()
+    for doc in docs:
+        if not doc.get("parent_campaign_id"):
+            root_ids.add(str(doc["_id"]))
+        else:
+            root_ids.add(str(doc["parent_campaign_id"]))
+
+    if root_ids:
+        # Fetch all job IDs that belong to these chains (roots + retries)
+        # Doing this ensures we don't miss retries if they were paginated out.
+        chain_cursor = db.campaign_jobs.find(
+            {"$or": [
+                {"_id": {"$in": [to_object_id(rid) for rid in root_ids]}},
+                {"parent_campaign_id": {"$in": list(root_ids)}}
+            ]},
+            {"_id": 1, "parent_campaign_id": 1}
+        )
+        chain_jobs = [c async for c in chain_cursor]
+        chain_job_ids = [c["_id"] for c in chain_jobs]
+
+        # Bulk aggregate Meta failures across all these job IDs
+        meta_failed_counts = await db.message_logs.aggregate([
+            {"$match": {
+                "job_id": {"$in": chain_job_ids},
+                "status": "failed",
+                "error_code": {"$regex": r"^\d+$"}
+            }},
+            {"$group": {"_id": "$job_id", "count": {"$sum": 1}}}
+        ]).to_list(length=None)
+        
+        meta_fail_map = {r["_id"]: r["count"] for r in meta_failed_counts}
+        
+        # Calculate chain totals for each root
+        root_totals = {rid: 0 for rid in root_ids}
+        for cjob in chain_jobs:
+            pid = cjob.get("parent_campaign_id")
+            root_id = str(pid) if pid else str(cjob["_id"])
+            root_totals[root_id] += meta_fail_map.get(cjob["_id"], 0)
+            
+        # Assign counts: Roots get the aggregated chain sum, retries get their own count.
+        for doc in docs:
+            if not doc.get("parent_campaign_id"):
+                doc["meta_failed_count"] = root_totals.get(str(doc["_id"]), 0)
+            else:
+                doc["meta_failed_count"] = meta_fail_map.get(doc["_id"], 0)
+    else:
+        for doc in docs:
+            doc["meta_failed_count"] = 0
 
     items = [_serialize_campaign(doc) for doc in docs]
     return CampaignListResponse(
@@ -972,6 +1023,33 @@ async def get_campaign(
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found")
 
     await validate_restaurant_access(current_user, doc["restaurant_id"], db)
+
+    # Aggregate counts across the entire retry chain
+    root_oid = to_object_id(doc.get("parent_campaign_id") or doc["_id"])
+    chain_cursor = db.campaign_jobs.find(_retry_chain_filter(root_oid))
+    
+    agg_sent = 0
+    agg_delivered = 0
+    agg_read = 0
+    agg_failed = 0
+    root_total = doc.get("total_count", 0)
+
+    async for cdoc in chain_cursor:
+        agg_sent += cdoc.get("sent_count", 0)
+        agg_delivered += cdoc.get("delivered_count", 0)
+        agg_read += cdoc.get("read_count", 0)
+        agg_failed += cdoc.get("failed_count", 0)
+        if not cdoc.get("parent_campaign_id"):
+            root_total = cdoc.get("total_count", 0)
+
+    # We override the returned doc's counts with the aggregated chain totals.
+    # We also use the root campaign's total_count so the fractions make sense.
+    doc["sent_count"] = agg_sent
+    doc["delivered_count"] = agg_delivered
+    doc["read_count"] = agg_read
+    doc["failed_count"] = agg_failed
+    doc["total_count"] = root_total
+
     return _serialize_campaign(doc)
 
 

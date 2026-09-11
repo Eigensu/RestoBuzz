@@ -125,13 +125,6 @@ export default function CampaignDetailPage() {
     onError: (e: unknown) => toast.error(parseApiError(e).message),
   });
 
-  // Progress = messages actually processed (delivered-able sends + failures) over
-  // total. sent excludes messages that failed post-acceptance, so add failed back
-  // in to reflect true progress rather than just successful sends.
-  const pct =
-    live.total > 0
-      ? Math.round(((live.sent + live.failed) / live.total) * 100)
-      : 0;
 
   if (isCampaignLoading) {
     return (
@@ -279,7 +272,7 @@ export default function CampaignDetailPage() {
         {/* Main Progress Card */}
         <div className="xl:col-span-2 space-y-6">
           <div className="bg-white rounded-[32px] border border-gray-100 p-8 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-10">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-[#24422e]" />
                 <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">
@@ -288,22 +281,8 @@ export default function CampaignDetailPage() {
               </div>
               <div className="px-4 py-1.5 bg-gray-50 rounded-full border border-gray-100">
                 <span className="text-xs font-black text-[#24422e]">
-                  {live.sent} / {live.total} SENT
+                  {live.sent} DISPATCHED
                 </span>
-                <span className="ml-2 text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
-                  {pct}% COMPLETE
-                </span>
-              </div>
-            </div>
-
-            <div className="relative h-4 bg-gray-100 rounded-full overflow-hidden mb-10 shadow-inner">
-              <div
-                className="absolute top-0 left-0 h-full transition-all duration-1000 ease-out flex items-center justify-end pr-2"
-                style={{ background: BRAND_GRADIENT, width: `${pct}%` }}
-              >
-                {pct > 10 && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/40 animate-pulse" />
-                )}
               </div>
             </div>
 
