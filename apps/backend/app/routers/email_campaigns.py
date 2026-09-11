@@ -250,17 +250,23 @@ async def create_email_campaign(
 
 # ── Get Campaign ──────────────────────────────────────────────────────────────
 
+from fastapi import Query
+from bson import ObjectId
+
 @router.get("/analytics")
 async def get_email_analytics(
     validated_rid: Annotated[str, Depends(require_restaurant_access())],
     db: Annotated[AsyncIOMotorDatabase, Depends(get_db)],
+    campaign_ids_filter: Annotated[list[str] | None, Query(alias="campaign_ids")] = None,
 ):
     """Aggregated email analytics for the dashboard Email tab."""
+    query = {"restaurant_id": validated_rid}
+    if campaign_ids_filter:
+        query["_id"] = {"$in": [ObjectId(cid) for cid in campaign_ids_filter]}
+        
     campaign_ids = [
         doc["_id"]
-        async for doc in db.email_campaign_jobs.find(
-            {"restaurant_id": validated_rid}, {"_id": 1}
-        )
+        async for doc in db.email_campaign_jobs.find(query, {"_id": 1})
     ]
 
     r1 = await db.reservego_uploads.distinct("phone", {"restaurant_id": validated_rid})
