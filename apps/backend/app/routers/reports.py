@@ -28,7 +28,14 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.core.errors import ValidationError, ForbiddenError
 from app.core.logging import get_logger
-from app.core.time import now_utc, date_range_to_utc, ist_month_start_utc
+from app.core.time import (
+    now_utc,
+    date_range_to_utc,
+    ist_month_start_utc,
+    to_ist,
+    format_ist,
+    mongo_date_parts_ist,
+)
 from app.services.fielia_members_service import fielia_service
 from app.services import member_stats_service
 from app.database import get_db
@@ -356,8 +363,12 @@ async def _build_campaign_data(
     # - "delivered" and "read" increment globally to show when activity actually occurred
     weekly: dict = defaultdict(lambda: {"sent": 0, "delivered": 0, "read": 0})
     for c in all_campaigns:
-        dt = datetime.fromisoformat(c["created_at"])
-        week_key = dt.strftime("W%W %Y")
+        dt = to_ist(c["created_at"])
+        if dt is None:
+            logger.warning(
+                "campaign_created_at_unparseable", created_at=c.get("created_at")
+            )
+        week_key = dt.strftime("W%W %Y") if dt else "Unknown"
         if not c["_is_retry"]:
             weekly[week_key]["sent"] += c["sent"]
         weekly[week_key]["delivered"] += c["delivered"]
@@ -515,10 +526,7 @@ async def member_summary(
             },
             {
                 _MONGO_GROUP: {
-                    "_id": {
-                        "year": {"$year": "$joined_at"},
-                        "month": {"$month": "$joined_at"},
-                    },
+                    "_id": mongo_date_parts_ist("joined_at", include_day=False),
                     "count": {_MONGO_SUM: 1},
                 }
             },
@@ -836,8 +844,10 @@ async def _export_internal_members(db, user, restaurant, from_dt, to_dt, categor
             doc.get("email", "") or "",
             doc.get("type", ""),
             doc["joined_at"].strftime("%Y-%m-%d") if doc.get("joined_at") else "",
+            format_ist(doc.get("joined_at"), "%Y-%m-%d") or "",
             doc.get("visit_count", 0),
             doc["last_visit"].strftime("%Y-%m-%d") if doc.get("last_visit") else "",
+            format_ist(doc.get("last_visit"), "%Y-%m-%d") or "",
             "Yes" if doc.get("is_active") else "No",
             doc.get("card_uid", "") or "",
             doc.get("ecard_code", "") or "",
@@ -849,8 +859,10 @@ async def _export_internal_members(db, user, restaurant, from_dt, to_dt, categor
         ])
 
     headers = [
-        "Name", "Phone", "Email", "Type", "Joined Date", "Visit Count",
-        "Last Visit", "Is Active", "Card UID", "eCard Code", "Tags", "Notes",
+        "Name", "Phone", "Email", "Type",
+        "Joined Date (UTC)", "Joined Date (IST)", "Visit Count",
+        "Last Visit (UTC)", "Last Visit (IST)", "Is Active",
+        "Card UID", "eCard Code", "Tags", "Notes",
         "Messages Sent", "Messages Received", "Messages Read"
     ]
     filename = f"member_report_{from_dt.date()}_{to_dt.date()}"
@@ -1010,7 +1022,8 @@ async def export_logs(
     rids = list({restaurant["id"], str(restaurant.get("_id"))} - {None})
 
     headers = [
-        "Timestamp",
+        "Timestamp (UTC)",
+        "Timestamp (IST)",
         "Channel",
         "Recipient",
         "Name",
@@ -1040,6 +1053,7 @@ async def export_logs(
             rows.append(
                 [
                     doc["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                    format_ist(doc.get("created_at")) or "",
                     "WhatsApp",
                     doc.get("to_phone", ""),
                     doc.get("name", ""),
@@ -1069,6 +1083,7 @@ async def export_logs(
             rows.append(
                 [
                     doc["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                    format_ist(doc.get("created_at")) or "",
                     "Email",
                     doc.get("recipient_email", ""),
                     doc.get("recipient_name", ""),
@@ -1339,9 +1354,7 @@ async def _build_billing_data(
         {
             _MONGO_GROUP: {
                 "_id": {
-                    "year": {"$year": "$recorded_at"},
-                    "month": {"$month": "$recorded_at"},
-                    "day": {"$dayOfMonth": "$recorded_at"},
+                    **mongo_date_parts_ist("recorded_at"),
                     "category": "$category",
                 },
                 "count": {_MONGO_SUM: 1},
@@ -1441,8 +1454,8 @@ async def billing_export(
     rid_oid = str(rest_doc["_id"]) if rest_doc else None
     rids = list({rid, rid_oid} - {None})
 
-    # Headers: 4 columns — row shape must match exactly
-    headers = ["Date", "Category", "Est. Cost (INR)", "WA Message ID"]
+    # Headers: 5 columns — row shape must match exactly
+    headers = ["Date (UTC)", "Date (IST)", "Category", "Est. Cost (INR)", "WA Message ID"]
     rows = []
 
     # Server-derived aggregates — never trust client-supplied values for totals
@@ -1468,10 +1481,11 @@ async def billing_export(
         total_cost += cost
         category_costs[cat] += cost
 
-        # Row shape matches headers exactly: [date, category, cost, wa_message_id]
+        # Row shape matches headers exactly: [date_utc, date_ist, category, cost, wa_message_id]
         rows.append(
             [
                 doc["recorded_at"].strftime("%Y-%m-%d %H:%M:%S"),
+                format_ist(doc.get("recorded_at")) or "",
                 doc.get("category", ""),
                 round(cost, 4),
                 doc.get("wa_message_id", ""),
@@ -1480,7 +1494,7 @@ async def billing_export(
 
     # Derive overview metrics server-side
     top_cat = max(category_costs, key=category_costs.get) if category_costs else "N/A"
-    date_range_str = f"{from_dt.strftime('%d %b %Y')} → {to_dt.strftime('%d %b %Y')}"
+    date_range_str = f"{format_ist(from_dt, '%d %b %Y')} → {format_ist(to_dt, '%d %b %Y')}"
     final_total_cost = round(total_cost, 2)
     final_avg_cost = (
         round(total_cost / total_messages, 2) if total_messages > 0 else 0.0

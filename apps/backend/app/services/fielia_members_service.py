@@ -5,7 +5,12 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator, List, Dict, Tuple, Any
 
-from app.core.time import now_utc, normalize_external_dt, ist_month_start_utc
+from app.core.time import (
+    now_utc,
+    normalize_external_dt,
+    ist_month_start_utc,
+    mongo_date_parts_ist,
+)
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo.errors import ServerSelectionTimeoutError, AutoReconnect, PyMongoError
@@ -296,7 +301,12 @@ class FieliaMembersService:
     async def _get_growth_trend(self, collection: Any, from_dt: datetime, to_dt: datetime) -> List[Dict]:
         pipeline = [
             {MATCH: {"createdAt": {"$gte": from_dt, "$lte": to_dt}}},
-            {GROUP: {"_id": {"year": {"$year": "$createdAt"}, "month": {"$month": "$createdAt"}}, "count": {SUM: 1}}},
+            {
+                GROUP: {
+                    "_id": mongo_date_parts_ist("createdAt", include_day=False),
+                    "count": {SUM: 1},
+                }
+            },
             {SORT: {"_id.year": 1, "_id.month": 1}},
         ]
         raw = await collection.aggregate(pipeline).to_list(24)
