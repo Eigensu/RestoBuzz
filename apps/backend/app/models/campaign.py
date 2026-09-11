@@ -151,6 +151,7 @@ class CampaignResponse(BaseModel):
     delivered_count: int
     read_count: int
     failed_count: int
+    meta_failed_count: int = 0
     replies_count: int
     scheduled_at: datetime | None
     started_at: datetime | None

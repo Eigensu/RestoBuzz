@@ -43,28 +43,44 @@ async def campaign_stream(
     await _user_from_token(token, db)
 
     async def event_generator():
+        # First resolve the root ID for the chain
+        initial_doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+        if not initial_doc:
+            return
+        root_oid_str = initial_doc.get("parent_campaign_id")
+        root_oid = ObjectId(root_oid_str) if root_oid_str else initial_doc["_id"]
+
         while True:
-            doc = await db.campaign_jobs.find_one(
-                {"_id": ObjectId(campaign_id)},
-                {
-                    "status": 1,
-                    "sent_count": 1,
-                    "delivered_count": 1,
-                    "read_count": 1,
-                    "failed_count": 1,
-                    "total_count": 1,
-                },
-            )
+            doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
             if not doc:
                 break
 
+            # Aggregate across the chain
+            chain_cursor = db.campaign_jobs.find(
+                {"$or": [{"_id": root_oid}, {"parent_campaign_id": str(root_oid)}]}
+            )
+            
+            agg_sent = 0
+            agg_delivered = 0
+            agg_read = 0
+            agg_failed = 0
+            root_total = doc.get("total_count", 0)
+
+            async for cdoc in chain_cursor:
+                agg_sent += cdoc.get("sent_count", 0)
+                agg_delivered += cdoc.get("delivered_count", 0)
+                agg_read += cdoc.get("read_count", 0)
+                agg_failed += cdoc.get("failed_count", 0)
+                if not cdoc.get("parent_campaign_id"):
+                    root_total = cdoc.get("total_count", 0)
+
             data = {
                 "status": doc["status"],
-                "sent": doc.get("sent_count", 0),
-                "delivered": doc.get("delivered_count", 0),
-                "read": doc.get("read_count", 0),
-                "failed": doc.get("failed_count", 0),
-                "total": doc.get("total_count", 0),
+                "sent": agg_sent,
+                "delivered": agg_delivered,
+                "read": agg_read,
+                "failed": agg_failed,
+                "total": root_total,
             }
             yield f"data: {json.dumps(data)}\n\n"
 
