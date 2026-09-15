@@ -4,6 +4,7 @@ import type { Campaign } from "@/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { CampaignStatusBadge } from "@/components/campaigns/atoms/CampaignStatusBadge";
 import { BlockedByMetaChip } from "@/components/campaigns/atoms/BlockedByMetaChip";
+import { parse, toISTDateMedium } from "@/lib/date";
 
 interface CampaignGroup {
   root: Campaign;
@@ -156,7 +157,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                       )}
                       {root.status === "draft" && root.scheduled_at && (
                         <span
-                          title={new Date(root.scheduled_at).toLocaleString(
+                          title={parse(root.scheduled_at).toLocaleString(
                             "en-IN",
                             {
                               timeZone: "Asia/Kolkata",
@@ -197,7 +198,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                         title="Scheduled send time (IST)"
                         className="text-amber-600 font-medium"
                       >
-                        {new Date(root.scheduled_at).toLocaleString("en-IN", {
+                        {parse(root.scheduled_at).toLocaleString("en-IN", {
                           timeZone: "Asia/Kolkata",
                           month: "short",
                           day: "numeric",
@@ -208,7 +209,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                         IST
                       </span>
                     ) : (
-                      new Date(root.created_at).toLocaleDateString()
+                      toISTDateMedium(root.created_at)
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -280,7 +281,7 @@ export function CampaignTable({ campaigns, onDelete }: Readonly<CampaignTablePro
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-gray-400 text-xs">
-                        {new Date(retry.created_at).toLocaleDateString()}
+                        {toISTDateMedium(retry.created_at)}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {retry.status !== "running" && (

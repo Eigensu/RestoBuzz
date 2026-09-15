@@ -4,6 +4,7 @@ import logging
 import time
 from urllib.parse import urlparse
 
+import certifi
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from pymongo.errors import OperationFailure
@@ -49,11 +50,19 @@ def _resolve_db_name() -> str:
     )
 
 
+def _ca_cert_for(uri: str) -> str | None:
+    """certifi's CA bundle is only needed for SRV (Atlas-style) URIs; a local/
+    self-hosted mongod URI has no TLS handshake to validate against it."""
+    return certifi.where() if "+srv" in uri else None
+
+
 def get_client() -> AsyncIOMotorClient:
     """Get the global MongoDB client instance."""
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(settings.mongodb_url)
+        _client = AsyncIOMotorClient(
+            settings.mongodb_url, tlsCAFile=_ca_cert_for(settings.mongodb_url)
+        )
     return _client
 
 
@@ -66,7 +75,9 @@ def get_fresh_db() -> AsyncIOMotorDatabase:
     """Create a brand-new Motor client for use inside Celery worker tasks.
     Celery forks processes and the parent's event loop is closed in the child,
     so we must never reuse the global _client across fork boundaries."""
-    client = AsyncIOMotorClient(settings.mongodb_url)
+    client = AsyncIOMotorClient(
+        settings.mongodb_url, tlsCAFile=_ca_cert_for(settings.mongodb_url)
+    )
     return client.get_database(_resolve_db_name())
 
 
@@ -77,7 +88,9 @@ def get_fielia_db() -> AsyncIOMotorDatabase | None:
         return None
 
     if _fielia_client is None:
-        _fielia_client = AsyncIOMotorClient(settings.fielia_mongo_uri)
+        _fielia_client = AsyncIOMotorClient(
+            settings.fielia_mongo_uri, tlsCAFile=_ca_cert_for(settings.fielia_mongo_uri)
+        )
 
     parsed = urlparse(settings.fielia_mongo_uri)
     db_name = parsed.path.lstrip("/").strip() or "fielia"

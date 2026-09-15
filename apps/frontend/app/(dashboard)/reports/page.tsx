@@ -25,33 +25,54 @@ import { LogsTab } from "@/components/reports/molecules/LogsTab";
 import { BillingTab } from "@/components/reports/molecules/BillingTab";
 import { ReserveGoTab } from "@/components/reports/molecules/ReserveGoTab";
 import type { BillingCategoryRow, LogItem, LogsResponse, ReportTab } from "@/components/reports/types";
+import { toISTDateKey, getISTDateOffset } from "@/lib/date";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatDate(d: Date) {
-  return d.toISOString().slice(0, 10);
+function formatDate(d: Date | string) {
+  return toISTDateKey(d);
 }
 function defaultFrom() {
-  return formatDate(new Date(Date.now() - 30 * 86400000));
+  return toISTDateKey(getISTDateOffset(30));
 }
 function defaultTo() {
-  return formatDate(new Date());
+  return toISTDateKey(new Date());
 }
 
 function getPresetDates(preset: "this_month" | "last_month" | "last_3_months" | "all_time") {
   const now = new Date();
-  const todayStr = formatDate(now);
+  const todayStr = toISTDateKey(now);
   
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(now);
+  const p: Record<string, number> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") { p[part.type] = Number.parseInt(part.value, 10); }
+  }
+
   if (preset === "this_month") {
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { from: formatDate(firstDay), to: todayStr };
+    const fromStr = `${p.year}-${String(p.month).padStart(2, "0")}-01`;
+    return { from: fromStr, to: todayStr };
   } else if (preset === "last_month") {
-    const firstDay = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
-    return { from: formatDate(firstDay), to: formatDate(lastDay) };
+    const prevMonth = p.month === 1 ? 12 : p.month - 1;
+    const prevYear = p.month === 1 ? p.year - 1 : p.year;
+    const lastDay = new Date(Date.UTC(prevYear, prevMonth, 0)).getUTCDate();
+    const fromStr = `${prevYear}-${String(prevMonth).padStart(2, "0")}-01`;
+    const toStr = `${prevYear}-${String(prevMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    return { from: fromStr, to: toStr };
   } else if (preset === "last_3_months") {
-    const firstDay = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-    return { from: formatDate(firstDay), to: todayStr };
+    let m = p.month - 3;
+    let y = p.year;
+    if (m < 1) {
+      m += 12;
+      y -= 1;
+    }
+    const fromStr = `${y}-${String(m).padStart(2, "0")}-01`;
+    return { from: fromStr, to: todayStr };
   } else if (preset === "all_time") {
     return { from: "2020-01-01", to: todayStr };
   }

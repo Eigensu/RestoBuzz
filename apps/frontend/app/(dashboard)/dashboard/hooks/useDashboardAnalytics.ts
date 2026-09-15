@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import type { Campaign } from "@/types";
 import { DashboardAnalytics, TTRStat, HourlyStat } from "../types";
 import { GREEN as GREEN_PALETTE } from "@/lib/brand";
+import { toISTDateKey, toISTDateLabel, getISTDateOffset, getISTTodayParts } from "@/lib/date";
 
 const CAMPAIGN_PAGE_SIZE = 100;
 
@@ -262,18 +263,17 @@ export function useDashboardAnalytics(restaurantId?: string) {
 
     const timeSeriesMap: Record<string, { date: string; sortKey: number; sent: number; delivered: number; read: number; failed: number }> = {};
 
+    const todayIST = getISTTodayParts();
     for (let i = 13; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateKey = d.toISOString().slice(0, 10);
-      const dateLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const d = getISTDateOffset(i, todayIST);
+      const dateKey = toISTDateKey(d);
+      const dateLabel = toISTDateLabel(d);
       timeSeriesMap[dateKey] = { date: dateLabel, sortKey: d.getTime(), sent: 0, delivered: 0, read: 0, failed: 0 };
     }
 
     campaigns.forEach((c) => {
       if (!c.created_at) return;
-      const createdAt = new Date(c.created_at);
-      const dateKey = createdAt.toISOString().slice(0, 10);
+      const dateKey = toISTDateKey(c.created_at);
 
       if (timeSeriesMap[dateKey]) {
         if (!c.parent_campaign_id) {

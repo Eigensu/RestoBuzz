@@ -2,6 +2,7 @@ import { Info, MessageSquareHeart, Sparkles, UserPlus } from "lucide-react";
 import { SectionCard } from "../atoms/SectionCard";
 import { StatCard } from "../atoms/StatCard";
 import type { AcquisitionCampaignRow, AcquisitionData } from "../types";
+import { toISTDateMedium } from "@/lib/date";
 
 /**
  * Where new members came from.
@@ -28,11 +29,7 @@ export function AcquisitionSection({
     data;
 
   const trackingSince = tracking_started_at
-    ? new Date(tracking_started_at).toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
+    ? toISTDateMedium(tracking_started_at)
     : null;
 
   return (
