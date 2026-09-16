@@ -40,7 +40,11 @@ from app.models.message import (
     MessageLogResponse,
     StatusHistoryEntry,
 )
-from app.services.meta_api import send_template_message, MetaAPIError
+from app.services.meta_api import (
+    send_template_message,
+    create_reusable_media_id,
+    MetaAPIError,
+)
 from app.services.ecard_service import build_card_url
 from app.workers.send_task import dispatch_campaign_task
 from app.workers.smart_retries_poller import ROOT_RETRY_GATE_MINUTES
@@ -344,12 +348,17 @@ def _build_campaign_message_docs(
     allowed_var_keys,
     wa_phone_id,
     wa_access_token_env_key,
+    media_id: str | None,
     now: datetime,
 ) -> list[dict]:
     """Materialize per-recipient message_logs. Renders a personalized e-card
     media_url per recipient when personalization is enabled, else uses the
     campaign's static media_url. May raise (e.g. build_card_url) — the caller
-    rolls back the draft job on failure."""
+    rolls back the draft job on failure.
+
+    media_id (when set) is the same Meta-hosted media id for every recipient —
+    it is only ever computed for a static, non-personalized media_url, so it's
+    safe to stamp uniformly across the whole batch."""
     return [
         {
             "job_id": job_id,
@@ -373,6 +382,7 @@ def _build_campaign_message_docs(
                 else body.media_url
             ),
             "media_type": media_type,
+            "media_id": media_id,
             "wa_message_id": None,
             "status": "queued",
             "status_history": [],
@@ -496,6 +506,27 @@ async def create_campaign(
         db, body.restaurant_id
     )
 
+    # Upload the header media to Meta once for the whole campaign instead of
+    # letting Meta re-fetch the Cloudinary link for every recipient. Only safe
+    # for a static (non-personalized) media_url, and only when this restaurant
+    # has its own WABA — a media id is scoped to the phone_id it was uploaded
+    # against, and only single-endpoint restaurant sends are guaranteed to use
+    # that same phone_id (see send_template_message's fallback-chain branch).
+    # If the upload fails, fall back to the link so campaign creation doesn't
+    # break for a media-hosting hiccup.
+    media_id = None
+    if body.media_url and not body.personalization and wa_phone_id and _token:
+        try:
+            media_id = await create_reusable_media_id(
+                body.media_url, wa_phone_id, _token
+            )
+        except MetaAPIError as e:
+            logger.warning(
+                "campaign_media_id_upload_failed",
+                campaign_id=str(job_id),
+                error=str(e),
+            )
+
     try:
         message_docs = _build_campaign_message_docs(
             phone_contacts,
@@ -507,6 +538,7 @@ async def create_campaign(
             allowed_var_keys=allowed_var_keys,
             wa_phone_id=wa_phone_id,
             wa_access_token_env_key=wa_access_token_env_key,
+            media_id=media_id,
             now=now,
         )
     except Exception as e:

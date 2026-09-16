@@ -97,15 +97,20 @@ def _build_payload(
     media_url: str | None,
     language: str = "en",
     media_type: str | None = None,
+    media_id: str | None = None,
 ) -> dict:
     components = []
 
-    if media_url:
-        kind = _resolve_media_kind(media_url, media_type)
+    if media_id or media_url:
+        kind = _resolve_media_kind(media_url or "", media_type)
+        # A media_id (uploaded once to Meta for the whole campaign) is
+        # preferred over a link: Meta serves it from its own storage for
+        # every recipient instead of re-fetching the source URL each time.
+        media_param = {"id": media_id} if media_id else {"link": media_url}
         components.append(
             {
                 "type": "header",
-                "parameters": [{"type": kind, kind: {"link": media_url}}],
+                "parameters": [{"type": kind, kind: media_param}],
             }
         )
 
@@ -148,6 +153,7 @@ async def send_template_message(
     phone_id: str | None = None,
     access_token: str | None = None,
     media_type: str | None = None,
+    media_id: str | None = None,
 ) -> tuple[str, str]:
     """Returns (wa_message_id, endpoint_used).
 
@@ -186,7 +192,7 @@ async def send_template_message(
         ]
 
     payload = _build_payload(
-        to, template_name, variables, media_url, language, media_type
+        to, template_name, variables, media_url, language, media_type, media_id
     )
     last_error = None
 
@@ -364,7 +370,11 @@ async def create_media_handle_from_url(
     app_id = await _resolve_app_id(token, app_id)
 
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        # A freshly-uploaded video may still be an on-demand (not yet
+        # generated) Cloudinary transformation — its first-ever fetch can
+        # block on the transcode itself, so this needs more headroom than a
+        # plain file download.
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
             async with client.stream("GET", media_url) as fetch_resp:
                 if fetch_resp.status_code != 200:
                     raise MetaAPIError(
@@ -462,6 +472,90 @@ async def create_media_handle_from_url(
                 )
 
             return str(handle)
+    except httpx.RequestError as e:
+        raise MetaAPIError("network_error", str(e)) from e
+
+
+async def create_reusable_media_id(
+    media_url: str,
+    phone_id: str,
+    token: str,
+) -> str:
+    """Upload media to Meta's own servers once, returning a reusable media id.
+
+    A campaign otherwise sends the same source `link` (e.g. a Cloudinary URL)
+    to Meta once per recipient, which means Meta re-fetches that URL for every
+    single message. Uploading it here — once, before fan-out — and referencing
+    `{"id": media_id}` in each recipient's header instead lets Meta serve the
+    media from its own storage for the whole campaign, so the source URL is
+    only fetched once regardless of recipient count.
+
+    The id is scoped to the `phone_id` it was uploaded against, so it must
+    only be reused for sends going out through that same phone number.
+    """
+    try:
+        # Same headroom as create_media_handle_from_url: this may be the
+        # first-ever fetch of a not-yet-generated Cloudinary transform.
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+            async with client.stream("GET", media_url) as fetch_resp:
+                if fetch_resp.status_code != 200:
+                    raise MetaAPIError(
+                        "media_fetch_failed",
+                        f"Unable to fetch media from URL (status {fetch_resp.status_code})",
+                    )
+
+                content_type = (
+                    fetch_resp.headers.get("content-type", "application/octet-stream")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
+                )
+                max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
+                    content_type.split("/")[0], MAX_MEDIA_BYTES
+                )
+
+                content = b""
+                async for chunk in fetch_resp.aiter_bytes():
+                    content += chunk
+                    if len(content) > max_bytes:
+                        raise MetaAPIError(
+                            "media_too_large",
+                            f"{content_type} media exceeds the "
+                            f"{max_bytes // (1024 * 1024)} MB limit",
+                        )
+
+            ext = mimetypes.guess_extension(content_type) or ".bin"
+            filename = f"campaign_media{ext}"
+
+            upload_url = f"{META_BASE}/{phone_id}/media"
+            headers = {"Authorization": f"Bearer {token}"}
+            data = {"messaging_product": "whatsapp"}
+            files = {"file": (filename, content, content_type)}
+
+            resp = await client.post(
+                upload_url, headers=headers, data=data, files=files
+            )
+            try:
+                result = resp.json()
+            except Exception as esc:
+                raise MetaAPIError(
+                    "parse_error", "Failed to parse media upload response"
+                ) from esc
+
+            if resp.status_code not in (200, 201):
+                error = result.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")),
+                    error.get("message", str(result)),
+                )
+
+            media_id = result.get("id")
+            if not media_id:
+                raise MetaAPIError(
+                    "media_id_missing",
+                    "Media upload completed but response did not include an id",
+                )
+            return str(media_id)
     except httpx.RequestError as e:
         raise MetaAPIError("network_error", str(e)) from e
 
