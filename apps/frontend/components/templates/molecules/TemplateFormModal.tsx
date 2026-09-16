@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, DIRECT_API_URL } from "@/lib/api";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { X, Plus, Trash2, RefreshCw } from "lucide-react";
@@ -203,10 +203,7 @@ export function TemplateFormModal({
     try {
       const form = new FormData();
       form.append("file", file);
-      // Large files must bypass the same-origin /api rewrite (Vercel's 4.5MB
-      // serverless body cap) and go straight to the backend — see DIRECT_API_URL.
       const { data } = await api.post("/media/upload", form, {
-        baseURL: DIRECT_API_URL,
         headers: { "Content-Type": "multipart/form-data" },
       });
       setHeaderMediaUrl(idx, data.url);

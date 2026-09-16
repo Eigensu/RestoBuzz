@@ -1,7 +1,7 @@
 "use client";
 import { RefreshCw, X, Search } from "lucide-react";
 import { useState } from "react";
-import { api, DIRECT_API_URL } from "@/lib/api";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
@@ -208,10 +208,7 @@ export function Step0Template({
                     try {
                       const form = new FormData();
                       form.append("file", img);
-                      // Large files must bypass the same-origin /api rewrite
-                      // (Vercel's 4.5MB serverless body cap) — see DIRECT_API_URL.
                       const { data } = await api.post("/media/upload", form, {
-                        baseURL: DIRECT_API_URL,
                         headers: { "Content-Type": "multipart/form-data" },
                       });
                       setMediaUrl(data.url);
