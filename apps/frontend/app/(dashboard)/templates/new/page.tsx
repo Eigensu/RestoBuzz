@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, DIRECT_API_URL } from "@/lib/api";
 import { toast } from "sonner";
 import { parseApiError } from "@/lib/errors";
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -414,10 +414,14 @@ export default function NewTemplatePage() {
                         try {
                           const form = new FormData();
                           form.append("file", media);
+                          // Large files must bypass the same-origin /api
+                          // rewrite (Vercel's 4.5MB serverless body cap) —
+                          // see DIRECT_API_URL.
                           const { data } = await api.post(
                             "/media/upload",
                             form,
                             {
+                              baseURL: DIRECT_API_URL,
                               headers: {
                                 "Content-Type": "multipart/form-data",
                               },
