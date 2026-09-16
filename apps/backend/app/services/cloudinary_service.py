@@ -14,15 +14,19 @@ MAX_VIDEO_BYTES = 16 * 1024 * 1024    # 16 MB (WhatsApp template video header ca
 MAX_PDF_BYTES = 16 * 1024 * 1024      # 16 MB
 
 # Source clips (exported by CapCut, Premiere, phone cameras, etc.) often use an
-# H.264 profile, pixel format, or moov-atom placement that Android's hardware
-# decoders reject outright even though iOS's VideoToolbox plays them fine.
-# Re-encoding to this baseline on upload fixes playback for both platforms.
-# This runs once, per uploaded video — not on every delivery.
+# H.264 profile or pixel format that Android's hardware decoders reject
+# outright even though iOS's VideoToolbox plays them fine. Re-encoding to this
+# baseline on upload fixes playback for both platforms. This runs once, per
+# uploaded video — not on every delivery.
+#
+# No explicit "faststart" flag: that's not a real Cloudinary flag name (it
+# rejects the upload with "Eager Invalid flag in transformation: faststart"
+# — confirmed against a live upload). Cloudinary's video pipeline already
+# places the moov atom for progressive playback by default when re-encoding.
 _VIDEO_EAGER_TRANSFORM = [
     {
         "video_codec": "h264",
         "audio_codec": "aac",
-        "flags": "faststart",
         "format": "mp4",
     }
 ]
