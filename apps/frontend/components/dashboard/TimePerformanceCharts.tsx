@@ -187,17 +187,28 @@ export function TimePerformanceCharts({
                   />
                   <Tooltip
                     cursor={{ fill: "#eff2f0" }}
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "none",
-                      boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                    }}
-                    formatter={(value: unknown) => {
-                      const num = Number(value);
-                      return [
-                        Number.isFinite(num) ? `${num.toFixed(1)}%` : "0.0%",
-                        "Read Rate",
-                      ];
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        const num = Number(data.rate);
+                        const rateStr = Number.isFinite(num) ? `${num.toFixed(1)}%` : "0.0%";
+                        const deliveredStr = typeof data.delivered === "number" ? data.delivered.toLocaleString() : data.delivered;
+                        
+                        return (
+                          <div className="bg-white p-3 rounded-xl shadow-[0_10px_15px_-3px_rgb(0_0_0/0.1)] border-none text-sm whitespace-nowrap">
+                            <p className="text-gray-600 mb-2 m-0">{label}</p>
+                            <ul className="p-0 m-0 list-none">
+                              <li className="pb-1" style={{ color: payload[0].color || "#1a2f21" }}>
+                                Read Rate : {rateStr}
+                              </li>
+                              <li style={{ color: payload[0].color || "#1a2f21" }}>
+                                Messages Delivered : {deliveredStr}
+                              </li>
+                            </ul>
+                          </div>
+                        );
+                      }
+                      return null;
                     }}
                   />
                   <Bar
@@ -222,16 +233,7 @@ export function TimePerformanceCharts({
                         />
                       );
                     })}
-                    <LabelList
-                      dataKey="delivered"
-                      position="top"
-                      formatter={(v: unknown) =>
-                        typeof v === "number" && v > 0
-                          ? `${v.toLocaleString()}`
-                          : ""
-                      }
-                      style={{ fontSize: 10, fontWeight: 700, fill: "#6b7280" }}
-                    />
+
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
