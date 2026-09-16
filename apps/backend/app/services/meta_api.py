@@ -361,6 +361,50 @@ MAX_MEDIA_BYTES_BY_TYPE = {
 MAX_MEDIA_BYTES = 16 * 1024 * 1024  # fallback for unrecognised content types
 
 
+async def _fetch_media_bytes(
+    client: httpx.AsyncClient, media_url: str
+) -> tuple[bytes, str]:
+    """Stream media_url, enforcing the per-type size cap while downloading.
+
+    Returns (content, content_type). Shared by create_media_handle_from_url
+    and create_reusable_media_id, which both fetch a source media URL (often
+    a freshly re-encoded Cloudinary video, possibly still transcoding on its
+    first-ever fetch) before handing the bytes to a different Meta upload
+    endpoint.
+    """
+    async with client.stream("GET", media_url) as fetch_resp:
+        if fetch_resp.status_code != 200:
+            raise MetaAPIError(
+                "media_fetch_failed",
+                f"Unable to fetch media from URL (status {fetch_resp.status_code})",
+            )
+
+        # MIME tokens are case-insensitive, so normalise before the cap
+        # lookup — "IMAGE/PNG" would otherwise miss the image entry and fall
+        # through to the widest ceiling.
+        content_type = (
+            fetch_resp.headers.get("content-type", "application/octet-stream")
+            .split(";")[0]
+            .strip()
+            .lower()
+        )
+        max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
+            content_type.split("/")[0], MAX_MEDIA_BYTES
+        )
+
+        content = b""
+        async for chunk in fetch_resp.aiter_bytes():
+            content += chunk
+            if len(content) > max_bytes:
+                raise MetaAPIError(
+                    "media_too_large",
+                    f"{content_type} media exceeds the "
+                    f"{max_bytes // (1024 * 1024)} MB limit",
+                )
+
+    return content, content_type
+
+
 async def create_media_handle_from_url(
     media_url: str,
     app_id: str,
@@ -375,35 +419,7 @@ async def create_media_handle_from_url(
         # block on the transcode itself, so this needs more headroom than a
         # plain file download.
         async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
-            async with client.stream("GET", media_url) as fetch_resp:
-                if fetch_resp.status_code != 200:
-                    raise MetaAPIError(
-                        "media_fetch_failed",
-                        f"Unable to fetch media from URL (status {fetch_resp.status_code})",
-                    )
-
-                # MIME tokens are case-insensitive, so normalise before the
-                # cap lookup — "IMAGE/PNG" would otherwise miss the image entry
-                # and fall through to the widest ceiling.
-                content_type = (
-                    fetch_resp.headers.get("content-type", "application/octet-stream")
-                    .split(";")[0]
-                    .strip()
-                    .lower()
-                )
-                max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
-                    content_type.split("/")[0], MAX_MEDIA_BYTES
-                )
-
-                content = b""
-                async for chunk in fetch_resp.aiter_bytes():
-                    content += chunk
-                    if len(content) > max_bytes:
-                        raise MetaAPIError(
-                            "media_too_large",
-                            f"{content_type} media exceeds the "
-                            f"{max_bytes // (1024 * 1024)} MB limit",
-                        )
+            content, content_type = await _fetch_media_bytes(client, media_url)
 
             ext = mimetypes.guess_extension(content_type) or ".bin"
             filename = f"template_header{ext}"
@@ -497,32 +513,7 @@ async def create_reusable_media_id(
         # Same headroom as create_media_handle_from_url: this may be the
         # first-ever fetch of a not-yet-generated Cloudinary transform.
         async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
-            async with client.stream("GET", media_url) as fetch_resp:
-                if fetch_resp.status_code != 200:
-                    raise MetaAPIError(
-                        "media_fetch_failed",
-                        f"Unable to fetch media from URL (status {fetch_resp.status_code})",
-                    )
-
-                content_type = (
-                    fetch_resp.headers.get("content-type", "application/octet-stream")
-                    .split(";")[0]
-                    .strip()
-                    .lower()
-                )
-                max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
-                    content_type.split("/")[0], MAX_MEDIA_BYTES
-                )
-
-                content = b""
-                async for chunk in fetch_resp.aiter_bytes():
-                    content += chunk
-                    if len(content) > max_bytes:
-                        raise MetaAPIError(
-                            "media_too_large",
-                            f"{content_type} media exceeds the "
-                            f"{max_bytes // (1024 * 1024)} MB limit",
-                        )
+            content, content_type = await _fetch_media_bytes(client, media_url)
 
             ext = mimetypes.guess_extension(content_type) or ".bin"
             filename = f"campaign_media{ext}"
