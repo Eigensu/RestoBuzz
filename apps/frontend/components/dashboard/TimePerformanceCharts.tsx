@@ -27,7 +27,15 @@ const TOOLTIP_STYLE = {
 
 const TOOLTIP_CURSOR = { fill: "#eff2f0" };
 
-const EngagementTooltip = ({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) => {
+const EngagementTooltip = ({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { color?: string; payload: { rate?: string | number; delivered?: string | number } }[];
+  label?: string;
+}) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     const num = Number(data.rate);
