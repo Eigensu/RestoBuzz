@@ -18,6 +18,53 @@ import { SectionHeader } from "./ui";
 import { DashboardAnalytics, HourlyStat, TTRStat } from "@/app/(dashboard)/dashboard/types";
 import { GREEN as GREEN_PALETTE } from "@/lib/brand";
 
+
+const TOOLTIP_STYLE = {
+  borderRadius: "12px",
+  border: "none",
+  boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+};
+
+const TOOLTIP_CURSOR = { fill: "#eff2f0" };
+
+const EngagementTooltip = ({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { color?: string; payload: { rate?: string | number; delivered?: string | number } }[];
+  label?: string;
+}) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    const num = Number(data.rate);
+    const rateStr = Number.isFinite(num) ? `${num.toFixed(1)}%` : "0.0%";
+    const deliveredStr =
+      typeof data.delivered === "number"
+        ? data.delivered.toLocaleString()
+        : data.delivered;
+
+    return (
+      <div
+        className="bg-white p-3 text-sm whitespace-nowrap"
+        style={TOOLTIP_STYLE}
+      >
+        <p className="text-gray-600 mb-2 m-0">{label}</p>
+        <ul className="p-0 m-0 list-none">
+          <li className="pb-1" style={{ color: payload[0].color || "#1a2f21" }}>
+            Read Rate : {rateStr}
+          </li>
+          <li style={{ color: payload[0].color || "#1a2f21" }}>
+            Messages Delivered : {deliveredStr}
+          </li>
+        </ul>
+      </div>
+    );
+  }
+  return null;
+};
+
 export function TimePerformanceCharts({
   analytics,
   activeChannel,
@@ -80,12 +127,8 @@ export function TimePerformanceCharts({
                   }}
                 />
                 <Tooltip
-                  cursor={{ fill: "#eff2f0" }}
-                  contentStyle={{
-                    borderRadius: "12px",
-                    border: "none",
-                    boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                  }}
+                  cursor={TOOLTIP_CURSOR}
+                  contentStyle={TOOLTIP_STYLE}
                 />
                 <Bar
                   dataKey="count"
@@ -185,21 +228,7 @@ export function TimePerformanceCharts({
                       fill: "#9ca3af",
                     }}
                   />
-                  <Tooltip
-                    cursor={{ fill: "#eff2f0" }}
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "none",
-                      boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                    }}
-                    formatter={(value: unknown) => {
-                      const num = Number(value);
-                      return [
-                        Number.isFinite(num) ? `${num.toFixed(1)}%` : "0.0%",
-                        "Read Rate",
-                      ];
-                    }}
-                  />
+                  <Tooltip cursor={TOOLTIP_CURSOR} content={<EngagementTooltip />} />
                   <Bar
                     dataKey="rate"
                     name="rate"
@@ -222,16 +251,7 @@ export function TimePerformanceCharts({
                         />
                       );
                     })}
-                    <LabelList
-                      dataKey="delivered"
-                      position="top"
-                      formatter={(v: unknown) =>
-                        typeof v === "number" && v > 0
-                          ? `${v.toLocaleString()}`
-                          : ""
-                      }
-                      style={{ fontSize: 10, fontWeight: 700, fill: "#6b7280" }}
-                    />
+
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -315,12 +335,8 @@ export function TimePerformanceCharts({
                     }}
                   />
                   <Tooltip
-                    cursor={{ fill: "#eff2f0" }}
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "none",
-                      boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                    }}
+                    cursor={TOOLTIP_CURSOR}
+                    contentStyle={TOOLTIP_STYLE}
                     formatter={(value) => [value, "Total Reads"]}
                   />
                   <Bar dataKey="count" radius={[8, 8, 0, 0]} name="Reads">
@@ -423,13 +439,7 @@ export function TimePerformanceCharts({
                     dx: -35,
                   }}
                 />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: "12px",
-                    border: "none",
-                    boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
-                  }}
-                />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Legend
                   iconType="circle"
                   wrapperStyle={{
