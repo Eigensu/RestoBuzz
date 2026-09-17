@@ -50,6 +50,12 @@ _VIDEO_EAGER_TRANSFORM = [
     }
 ]
 
+# The Cloudinary SDK has no default timeout, so a stuck transcode would hold a
+# threadpool worker — and the upload request behind it — open forever. 16 MB is
+# well inside Cloudinary's synchronous-transform ceiling, so anything still
+# running at this point is not going to finish.
+_VIDEO_CALL_TIMEOUT = 120
+
 _REENCODE_ADVICE = (
     "WhatsApp only plays H.264 video with AAC audio in an MP4 container. "
     "Re-export the file with those settings and upload it again."
@@ -138,6 +144,7 @@ def upload_whatsapp_video(content: bytes, public_id: str) -> tuple[str, str]:
         public_id=public_id,
         resource_type="video",
         overwrite=True,
+        timeout=_VIDEO_CALL_TIMEOUT,
     )
     stored_public_id = result["public_id"]
 
@@ -159,12 +166,15 @@ def upload_whatsapp_video(content: bytes, public_id: str) -> tuple[str, str]:
             resource_type="video",
             eager=_VIDEO_EAGER_TRANSFORM,
             eager_async=False,
+            timeout=_VIDEO_CALL_TIMEOUT,
         )
     except Exception as exc:
         raise UnplayableVideoError(
             f"This video uses {summary} and converting it failed. {_REENCODE_ADVICE}"
         ) from exc
 
+    # A timed-out transcode surfaces as an SDK error above; this is the other
+    # shape — Cloudinary answering with a derived asset it has not finished.
     eager = next(iter(derived.get("eager") or []), {})
     url = eager.get("secure_url")
     if not url or eager.get("status") in ("pending", "processing"):

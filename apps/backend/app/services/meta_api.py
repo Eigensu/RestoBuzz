@@ -1,5 +1,8 @@
+import asyncio
 import httpx
+import ipaddress
 import mimetypes
+import socket
 from urllib.parse import urlsplit
 from app.config import settings
 from app.core.logging import get_logger
@@ -361,6 +364,69 @@ MAX_MEDIA_BYTES_BY_TYPE = {
 MAX_MEDIA_BYTES = 16 * 1024 * 1024  # fallback for unrecognised content types
 
 
+# A media URL is operator-supplied — the template editor and the campaign
+# wizard both offer a "paste a URL" box next to the uploader — and the backend
+# fetches it server-side before handing the bytes to Meta. Without a
+# destination check that is an SSRF primitive: an admin could point it at
+# loopback, a private range, or a cloud metadata address and have whatever
+# came back uploaded to Meta. Every hop is therefore resolved and checked
+# before it is requested, and redirects are followed by hand so a public URL
+# cannot bounce the fetch onto a private one.
+#
+# What this does NOT close: a name that resolves to a public address for the
+# check and a private one for the connection a moment later (DNS rebinding).
+# Pinning the socket to the validated address would need a custom transport
+# and breaks TLS hostname verification, so it is deliberately left out.
+_MAX_MEDIA_REDIRECTS = 3
+_ALLOWED_MEDIA_SCHEMES = ("http", "https")
+
+
+async def _resolve_host(host: str) -> list[str]:
+    """Every address `host` resolves to. Its own function so tests can stub it."""
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise MetaAPIError(
+            "media_url_rejected", f"Could not resolve media host '{host}'"
+        ) from e
+    return [info[4][0] for info in infos]
+
+
+async def _assert_public_media_url(url: str) -> None:
+    """Reject anything that is not an http(s) URL on a publicly routable address."""
+    try:
+        parts = urlsplit(url)
+        scheme, host = parts.scheme, parts.hostname
+    except ValueError as e:  # e.g. an unterminated IPv6 literal
+        raise MetaAPIError("media_url_rejected", f"Malformed media URL: {e}") from e
+
+    if scheme not in _ALLOWED_MEDIA_SCHEMES:
+        raise MetaAPIError(
+            "media_url_rejected",
+            f"Media URL must be http or https, not '{scheme or url[:32]}'",
+        )
+
+    if not host:
+        raise MetaAPIError("media_url_rejected", "Media URL has no host")
+
+    for addr in await _resolve_host(host):
+        try:
+            # is_global is False for loopback, private, link-local (including
+            # the 169.254.169.254 metadata address), carrier-NAT, reserved and
+            # unspecified addresses — one check covers every range worth
+            # blocking. An address we cannot even parse is refused too, rather
+            # than waved through on the assumption it is harmless.
+            allowed = ipaddress.ip_address(addr.split("%")[0]).is_global
+        except ValueError:
+            allowed = False
+        if not allowed:
+            raise MetaAPIError(
+                "media_url_rejected",
+                f"Media host '{host}' resolves to the non-public address {addr}",
+            )
+
+
 async def _fetch_media_bytes(
     client: httpx.AsyncClient, media_url: str
 ) -> tuple[bytes, str]:
@@ -369,38 +435,67 @@ async def _fetch_media_bytes(
     Returns (content, content_type). Shared by create_media_handle_from_url
     and create_reusable_media_id, which both fetch a source media URL before
     handing the bytes to a different Meta upload endpoint.
+
+    Both callers pass a client with redirects disabled; each hop is validated
+    and followed here instead. Every rejection is a MetaAPIError, including the
+    httpx.InvalidURL a malformed URL raises — it does not derive from
+    httpx.RequestError, so left bare it escapes both callers' handlers and
+    500s campaign creation instead of falling back to the plain link.
     """
-    async with client.stream("GET", media_url) as fetch_resp:
-        if fetch_resp.status_code != 200:
-            raise MetaAPIError(
-                "media_fetch_failed",
-                f"Unable to fetch media from URL (status {fetch_resp.status_code})",
-            )
+    url = media_url
+    for _ in range(_MAX_MEDIA_REDIRECTS + 1):
+        await _assert_public_media_url(url)
 
-        # MIME tokens are case-insensitive, so normalise before the cap
-        # lookup — "IMAGE/PNG" would otherwise miss the image entry and fall
-        # through to the widest ceiling.
-        content_type = (
-            fetch_resp.headers.get("content-type", "application/octet-stream")
-            .split(";")[0]
-            .strip()
-            .lower()
-        )
-        max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
-            content_type.split("/")[0], MAX_MEDIA_BYTES
-        )
+        try:
+            async with client.stream("GET", url) as fetch_resp:
+                if httpx.codes.is_redirect(fetch_resp.status_code):
+                    location = fetch_resp.headers.get("location")
+                    if not location:
+                        raise MetaAPIError(
+                            "media_fetch_failed",
+                            f"Media URL answered {fetch_resp.status_code} "
+                            "with no redirect target",
+                        )
+                    url = str(fetch_resp.url.join(location))
+                    continue
 
-        content = b""
-        async for chunk in fetch_resp.aiter_bytes():
-            content += chunk
-            if len(content) > max_bytes:
-                raise MetaAPIError(
-                    "media_too_large",
-                    f"{content_type} media exceeds the "
-                    f"{max_bytes // (1024 * 1024)} MB limit",
+                if fetch_resp.status_code != 200:
+                    raise MetaAPIError(
+                        "media_fetch_failed",
+                        f"Unable to fetch media from URL (status {fetch_resp.status_code})",
+                    )
+
+                # MIME tokens are case-insensitive, so normalise before the cap
+                # lookup — "IMAGE/PNG" would otherwise miss the image entry and
+                # fall through to the widest ceiling.
+                content_type = (
+                    fetch_resp.headers.get("content-type", "application/octet-stream")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
+                )
+                max_bytes = MAX_MEDIA_BYTES_BY_TYPE.get(
+                    content_type.split("/")[0], MAX_MEDIA_BYTES
                 )
 
-    return content, content_type
+                content = b""
+                async for chunk in fetch_resp.aiter_bytes():
+                    content += chunk
+                    if len(content) > max_bytes:
+                        raise MetaAPIError(
+                            "media_too_large",
+                            f"{content_type} media exceeds the "
+                            f"{max_bytes // (1024 * 1024)} MB limit",
+                        )
+
+                return content, content_type
+        except httpx.InvalidURL as e:
+            raise MetaAPIError("media_url_rejected", f"Malformed media URL: {e}") from e
+
+    raise MetaAPIError(
+        "media_fetch_failed",
+        f"Media URL redirected more than {_MAX_MEDIA_REDIRECTS} times",
+    )
 
 
 async def create_media_handle_from_url(
@@ -415,7 +510,7 @@ async def create_media_handle_from_url(
         # A header video is up to 16 MB, downloaded here and then re-uploaded
         # to Meta in the same window, so this needs more headroom than a plain
         # API call.
-        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=False) as client:
             content, content_type = await _fetch_media_bytes(client, media_url)
 
             ext = mimetypes.guess_extension(content_type) or ".bin"
@@ -509,7 +604,7 @@ async def create_reusable_media_id(
     try:
         # Same headroom as create_media_handle_from_url: a 16 MB download
         # followed by a 16 MB upload, on one client.
-        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=False) as client:
             content, content_type = await _fetch_media_bytes(client, media_url)
 
             ext = mimetypes.guess_extension(content_type) or ".bin"
