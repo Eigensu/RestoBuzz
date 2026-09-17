@@ -20,7 +20,19 @@ from app.services.cloudinary_service import (
 
 @pytest.fixture
 def patched_client(monkeypatch):
-    """Route every AsyncClient created inside meta_api through a mock transport."""
+    """Route every AsyncClient created inside meta_api through a mock transport.
+
+    Also stubs host resolution: _fetch_media_bytes now checks that a media URL
+    resolves to a public address before requesting it, and these fixtures use
+    hosts that deliberately do not resolve. Real DNS in a unit test would be
+    both slow and non-hermetic, so it answers with a public address here — the
+    checks themselves are covered in test_media_url_ssrf.py.
+    """
+
+    async def public_address(host):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(meta_api, "_resolve_host", public_address)
 
     def install(handler):
         original = httpx.AsyncClient

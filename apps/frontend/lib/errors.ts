@@ -149,19 +149,41 @@ const ERROR_TYPE_MAP: Record<string, new (message: string) => AppError> = {
   resend_api_error: ServerError,
 };
 
+export class PayloadTooLargeError extends AppError {
+  constructor(message: string) {
+    super(message, "payload_too_large", 413);
+  }
+}
+
 interface ApiErrorResponse {
   status?: number;
-  data?: { detail?: string; type?: string };
+  data?: { detail?: string; type?: string } | string | null;
 }
+
+// Status-specific fallbacks for responses that never reach our backend (a
+// platform proxy rejecting the request outright, e.g. Vercel's own 413 for a
+// request over its 4.5MB serverless body cap) — these never carry our
+// {detail, type} JSON shape, so without this the generic branch below would
+// hide what actually happened.
+const STATUS_FALLBACK_MESSAGE: Partial<Record<number, string>> = {
+  413: "That file is too large for the server to accept.",
+  502: "The server is temporarily unreachable (bad gateway). Try again shortly.",
+  503: "The server is temporarily unavailable. Try again shortly.",
+  504: "The request timed out waiting on the server. Try again.",
+};
 
 /**
  * Converts any thrown value (axios error, plain Error, unknown) into a typed
  * AppError subclass. Safe to use in every catch block.
  */
 function fromApiResponse(response: ApiErrorResponse): AppError {
-  const { detail, type } = response.data ?? {};
+  const data = typeof response.data === "object" && response.data !== null ? response.data : undefined;
+  const { detail, type } = data ?? {};
   const status = response.status ?? 500;
-  const message = detail ?? "An unexpected error occurred";
+  const message =
+    detail ??
+    STATUS_FALLBACK_MESSAGE[status] ??
+    `Request failed with status ${status}. Please try again or contact support if this persists.`;
 
   if (type && ERROR_TYPE_MAP[type]) return new ERROR_TYPE_MAP[type](message);
 
@@ -176,6 +198,8 @@ function fromApiResponse(response: ApiErrorResponse): AppError {
       return new NotFoundError(message);
     case 409:
       return new ConflictError(message);
+    case 413:
+      return new PayloadTooLargeError(message);
     default:
       return new ServerError(message);
   }

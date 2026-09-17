@@ -33,6 +33,14 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger = get_logger(__name__)
     logger.info("backend_startup", version="1.0.0", status="loading_indexes")
+    # File uploads are the one browser call that does not go through the
+    # frontend's same-origin /api rewrite — Vercel caps a proxied body at
+    # 4.5MB, well under the 16MB template-media limit, so they are sent
+    # straight here and are a genuine cross-origin request. CORS is
+    # load-bearing for uploads in a way it was not before, so log what is
+    # actually configured: a missing origin then shows up in the deploy log
+    # instead of as an unexplained upload failure in someone's browser.
+    logger.info("cors_configured", origins=_origins, origin_regex=_origin_regex)
     await init_indexes()
     logger.info("backend_startup_complete")
     yield
@@ -55,10 +63,12 @@ app.add_middleware(CorrelationIdMiddleware)
 # Enhanced CORS: If '*' is in origins, allow any origin but disable credentials to avoid
 # insecure wildcard configuration. For specific origins, credentials remain enabled.
 _origins = settings.cors_origins_list
+_origin_regex = settings.cors_origin_regex or None
 if "*" in _origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_origins,
+        allow_origin_regex=_origin_regex,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -67,6 +77,7 @@ else:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_origins,
+        allow_origin_regex=_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -74,7 +85,24 @@ else:
 
 
 @app.exception_handler(AppError)
-async def app_error_handler(_request: Request, exc: AppError):
+async def app_error_handler(request: Request, exc: AppError):
+    # An AppError is a deliberate rejection, but until now it left no server-side
+    # trace at all: the access log showed "POST /api/media/upload 400" and the
+    # reason existed only in the operator's browser. That is the whole diagnostic
+    # trail for every validation failure, so record why we said no. 401s are
+    # excluded — the token-refresh cycle produces them constantly and the reason
+    # is never interesting.
+    if exc.status_code != 401:
+        log = get_logger(__name__)
+        emit = log.error if exc.status_code >= 500 else log.warning
+        emit(
+            "request_rejected",
+            path=request.url.path,
+            method=request.method,
+            status=exc.status_code,
+            error_type=exc.error_type,
+            error=exc.message,
+        )
     return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
 

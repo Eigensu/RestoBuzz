@@ -1,7 +1,7 @@
 import axios from "axios";
 import { parseApiError } from "./errors";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const isBrowser = globalThis.window !== undefined;
 
@@ -16,9 +16,21 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Same-origin `/api` calls are proxied by Vercel's Next.js rewrite (see
+// next.config.ts), and Vercel caps a proxied request body at 4.5MB on every
+// plan — it answers 413 before the backend ever sees the request. File uploads
+// can exceed that (our own template-media limit is 16MB), so they go straight
+// to the backend; every other call keeps using the proxy.
+const DIRECT_API_URL = `${API_URL}/api`;
+
 // ── Request: attach current access token and restaurant ID ────────────────
 api.interceptors.request.use((config) => {
   if (isBrowser) {
+    // 0. File uploads bypass the Vercel proxy (see DIRECT_API_URL above)
+    if (config.data instanceof FormData) {
+      config.baseURL = DIRECT_API_URL;
+    }
+
     // 1. Authorization
     const token = volatileAccessToken ?? localStorage.getItem("access_token");
     if (token) {
@@ -59,7 +71,14 @@ api.interceptors.response.use(
     const original = error.config;
 
     if (error.response?.status !== 401 || original._retry) {
-      console.error("API Error Logged:", error.response?.status, error.response?.data || error.message);
+      console.error(
+        "API Error:",
+        original?.method?.toUpperCase(),
+        `${original?.baseURL ?? ""}${original?.url ?? ""}`,
+        "->",
+        error.response?.status ?? "(no response)",
+        error.response?.data || error.message,
+      );
       throw parseApiError(error);
     }
     original._retry = true;

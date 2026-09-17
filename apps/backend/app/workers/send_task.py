@@ -249,6 +249,7 @@ async def _do_send(
             phone_id=wa_phone_id,
             access_token=wa_access_token,
             media_type=msg.get("media_type"),
+            media_id=msg.get("media_id"),
         )
     except MetaAPIError as e:
         await _handle_meta_error(task, db, msg, message_log_id, e)

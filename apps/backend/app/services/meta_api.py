@@ -1,5 +1,9 @@
+import asyncio
 import httpx
+import ipaddress
 import mimetypes
+import socket
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from app.config import settings
 from app.core.logging import get_logger
@@ -97,15 +101,20 @@ def _build_payload(
     media_url: str | None,
     language: str = "en",
     media_type: str | None = None,
+    media_id: str | None = None,
 ) -> dict:
     components = []
 
-    if media_url:
-        kind = _resolve_media_kind(media_url, media_type)
+    if media_id or media_url:
+        kind = _resolve_media_kind(media_url or "", media_type)
+        # A media_id (uploaded once to Meta for the whole campaign) is
+        # preferred over a link: Meta serves it from its own storage for
+        # every recipient instead of re-fetching the source URL each time.
+        media_param = {"id": media_id} if media_id else {"link": media_url}
         components.append(
             {
                 "type": "header",
-                "parameters": [{"type": kind, kind: {"link": media_url}}],
+                "parameters": [{"type": kind, kind: media_param}],
             }
         )
 
@@ -148,6 +157,7 @@ async def send_template_message(
     phone_id: str | None = None,
     access_token: str | None = None,
     media_type: str | None = None,
+    media_id: str | None = None,
 ) -> tuple[str, str]:
     """Returns (wa_message_id, endpoint_used).
 
@@ -186,7 +196,7 @@ async def send_template_message(
         ]
 
     payload = _build_payload(
-        to, template_name, variables, media_url, language, media_type
+        to, template_name, variables, media_url, language, media_type, media_id
     )
     last_error = None
 
@@ -355,26 +365,110 @@ MAX_MEDIA_BYTES_BY_TYPE = {
 MAX_MEDIA_BYTES = 16 * 1024 * 1024  # fallback for unrecognised content types
 
 
-async def create_media_handle_from_url(
-    media_url: str,
-    app_id: str,
-    token: str,
-) -> str:
-    """Download media and create a template upload handle (header_handle) via Graph uploads."""
-    app_id = await _resolve_app_id(token, app_id)
+# A media URL is operator-supplied — the template editor and the campaign
+# wizard both offer a "paste a URL" box next to the uploader — and the backend
+# fetches it server-side before handing the bytes to Meta. Without a
+# destination check that is an SSRF primitive: an admin could point it at
+# loopback, a private range, or a cloud metadata address and have whatever
+# came back uploaded to Meta. Every hop is therefore resolved and checked
+# before it is requested, and redirects are followed by hand so a public URL
+# cannot bounce the fetch onto a private one.
+#
+# What this does NOT close: a name that resolves to a public address for the
+# check and a private one for the connection a moment later (DNS rebinding).
+# Pinning the socket to the validated address would need a custom transport
+# and breaks TLS hostname verification, so it is deliberately left out.
+_MAX_MEDIA_REDIRECTS = 3
+_ALLOWED_MEDIA_SCHEMES = ("http", "https")
 
+
+async def _resolve_host(host: str) -> list[str]:
+    """Every address `host` resolves to. Its own function so tests can stub it."""
+    loop = asyncio.get_running_loop()
     try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            async with client.stream("GET", media_url) as fetch_resp:
+        infos = await loop.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise MetaAPIError(
+            "media_url_rejected", f"Could not resolve media host '{host}'"
+        ) from e
+    return [info[4][0] for info in infos]
+
+
+async def _assert_public_media_url(url: str) -> None:
+    """Reject anything that is not an http(s) URL on a publicly routable address."""
+    try:
+        parts = urlsplit(url)
+        scheme, host = parts.scheme, parts.hostname
+    except ValueError as e:  # e.g. an unterminated IPv6 literal
+        raise MetaAPIError("media_url_rejected", f"Malformed media URL: {e}") from e
+
+    if scheme not in _ALLOWED_MEDIA_SCHEMES:
+        raise MetaAPIError(
+            "media_url_rejected",
+            f"Media URL must be http or https, not '{scheme or url[:32]}'",
+        )
+
+    if not host:
+        raise MetaAPIError("media_url_rejected", "Media URL has no host")
+
+    for addr in await _resolve_host(host):
+        try:
+            # is_global is False for loopback, private, link-local (including
+            # the 169.254.169.254 metadata address), carrier-NAT, reserved and
+            # unspecified addresses — one check covers every range worth
+            # blocking. An address we cannot even parse is refused too, rather
+            # than waved through on the assumption it is harmless.
+            allowed = ipaddress.ip_address(addr.split("%")[0]).is_global
+        except ValueError:
+            allowed = False
+        if not allowed:
+            raise MetaAPIError(
+                "media_url_rejected",
+                f"Media host '{host}' resolves to the non-public address {addr}",
+            )
+
+
+async def _fetch_media_bytes(
+    client: httpx.AsyncClient, media_url: str
+) -> tuple[bytes, str]:
+    """Stream media_url, enforcing the per-type size cap while downloading.
+
+    Returns (content, content_type). Shared by create_media_handle_from_url
+    and create_reusable_media_id, which both fetch a source media URL before
+    handing the bytes to a different Meta upload endpoint.
+
+    Both callers pass a client with redirects disabled; each hop is validated
+    and followed here instead. Every rejection is a MetaAPIError, including the
+    httpx.InvalidURL a malformed URL raises — it does not derive from
+    httpx.RequestError, so left bare it escapes both callers' handlers and
+    500s campaign creation instead of falling back to the plain link.
+    """
+    url = media_url
+    for _ in range(_MAX_MEDIA_REDIRECTS + 1):
+        await _assert_public_media_url(url)
+
+        try:
+            async with client.stream("GET", url) as fetch_resp:
+                if httpx.codes.is_redirect(fetch_resp.status_code):
+                    location = fetch_resp.headers.get("location")
+                    if not location:
+                        raise MetaAPIError(
+                            "media_fetch_failed",
+                            f"Media URL answered {fetch_resp.status_code} "
+                            "with no redirect target",
+                        )
+                    url = str(fetch_resp.url.join(location))
+                    continue
+
                 if fetch_resp.status_code != 200:
                     raise MetaAPIError(
                         "media_fetch_failed",
                         f"Unable to fetch media from URL (status {fetch_resp.status_code})",
                     )
 
-                # MIME tokens are case-insensitive, so normalise before the
-                # cap lookup — "IMAGE/PNG" would otherwise miss the image entry
-                # and fall through to the widest ceiling.
+                # MIME tokens are case-insensitive, so normalise before the cap
+                # lookup — "IMAGE/PNG" would otherwise miss the image entry and
+                # fall through to the widest ceiling.
                 content_type = (
                     fetch_resp.headers.get("content-type", "application/octet-stream")
                     .split(";")[0]
@@ -394,6 +488,31 @@ async def create_media_handle_from_url(
                             f"{content_type} media exceeds the "
                             f"{max_bytes // (1024 * 1024)} MB limit",
                         )
+
+                return content, content_type
+        except httpx.InvalidURL as e:
+            raise MetaAPIError("media_url_rejected", f"Malformed media URL: {e}") from e
+
+    raise MetaAPIError(
+        "media_fetch_failed",
+        f"Media URL redirected more than {_MAX_MEDIA_REDIRECTS} times",
+    )
+
+
+async def create_media_handle_from_url(
+    media_url: str,
+    app_id: str,
+    token: str,
+) -> str:
+    """Download media and create a template upload handle (header_handle) via Graph uploads."""
+    app_id = await _resolve_app_id(token, app_id)
+
+    try:
+        # A header video is up to 16 MB, downloaded here and then re-uploaded
+        # to Meta in the same window, so this needs more headroom than a plain
+        # API call.
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=False) as client:
+            content, content_type = await _fetch_media_bytes(client, media_url)
 
             ext = mimetypes.guess_extension(content_type) or ".bin"
             filename = f"template_header{ext}"
@@ -462,6 +581,88 @@ async def create_media_handle_from_url(
                 )
 
             return str(handle)
+    except httpx.RequestError as e:
+        raise MetaAPIError("network_error", str(e)) from e
+
+
+# Meta keeps media uploaded to /{phone_id}/media for 30 days and then deletes
+# it. A media id is therefore only safe for a send that happens well inside
+# that window — and unlike a link, an id that has expired has no fallback at
+# send time: every message in the campaign fails. The margin absorbs a campaign
+# that sits in the queue, or is paused and resumed, after its scheduled time.
+META_MEDIA_RETENTION_DAYS = 30
+_MEDIA_ID_SAFE_MARGIN_DAYS = 5
+_MEDIA_ID_SAFE_DAYS = META_MEDIA_RETENTION_DAYS - _MEDIA_ID_SAFE_MARGIN_DAYS
+
+
+def media_id_is_safe_for(scheduled_at: datetime | None, now: datetime) -> bool:
+    """Whether a reusable media id will still exist when this campaign sends.
+
+    An immediate campaign always qualifies. A scheduled one qualifies only if
+    it goes out inside the retention window, with margin to spare.
+    """
+    if scheduled_at is None:
+        return True
+    if scheduled_at.tzinfo is None:
+        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+    return scheduled_at - now <= timedelta(days=_MEDIA_ID_SAFE_DAYS)
+
+
+async def create_reusable_media_id(
+    media_url: str,
+    phone_id: str,
+    token: str,
+) -> str:
+    """Upload media to Meta's own servers once, returning a reusable media id.
+
+    A campaign otherwise sends the same source `link` (e.g. a Cloudinary URL)
+    to Meta once per recipient, which means Meta re-fetches that URL for every
+    single message. Uploading it here — once, before fan-out — and referencing
+    `{"id": media_id}` in each recipient's header instead lets Meta serve the
+    media from its own storage for the whole campaign, so the source URL is
+    only fetched once regardless of recipient count.
+
+    The id is scoped to the `phone_id` it was uploaded against, so it must
+    only be reused for sends going out through that same phone number.
+    """
+    try:
+        # Same headroom as create_media_handle_from_url: a 16 MB download
+        # followed by a 16 MB upload, on one client.
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=False) as client:
+            content, content_type = await _fetch_media_bytes(client, media_url)
+
+            ext = mimetypes.guess_extension(content_type) or ".bin"
+            filename = f"campaign_media{ext}"
+
+            upload_url = f"{META_BASE}/{phone_id}/media"
+            headers = {"Authorization": f"Bearer {token}"}
+            data = {"messaging_product": "whatsapp"}
+            files = {"file": (filename, content, content_type)}
+
+            resp = await client.post(
+                upload_url, headers=headers, data=data, files=files
+            )
+            try:
+                result = resp.json()
+            except Exception as esc:
+                raise MetaAPIError(
+                    "parse_error", "Failed to parse media upload response"
+                ) from esc
+
+            if resp.status_code not in (200, 201):
+                error = result.get("error", {})
+                raise MetaAPIError(
+                    str(error.get("code", "unknown")),
+                    error.get("message", str(result)),
+                )
+
+            media_id = result.get("id")
+            if not media_id:
+                raise MetaAPIError(
+                    "media_id_missing",
+                    "Media upload completed but response did not include an id",
+                )
+            return str(media_id)
     except httpx.RequestError as e:
         raise MetaAPIError("network_error", str(e)) from e
 
