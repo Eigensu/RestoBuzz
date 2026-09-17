@@ -43,6 +43,7 @@ from app.models.message import (
 from app.services.meta_api import (
     send_template_message,
     create_reusable_media_id,
+    media_id_is_safe_for,
     MetaAPIError,
 )
 from app.services.ecard_service import build_card_url
@@ -514,8 +515,17 @@ async def create_campaign(
     # that same phone_id (see send_template_message's fallback-chain branch).
     # If the upload fails, fall back to the link so campaign creation doesn't
     # break for a media-hosting hiccup.
+    # A scheduled campaign far enough out would send against media Meta has
+    # already deleted, and an expired id — unlike a link — has no fallback at
+    # send time, so the whole campaign fails. Those keep the link.
     media_id = None
-    if body.media_url and not body.personalization and wa_phone_id and _token:
+    if (
+        body.media_url
+        and not body.personalization
+        and wa_phone_id
+        and _token
+        and media_id_is_safe_for(body.scheduled_at, now)
+    ):
         try:
             media_id = await create_reusable_media_id(
                 body.media_url, wa_phone_id, _token

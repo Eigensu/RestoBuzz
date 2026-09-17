@@ -3,6 +3,7 @@ import httpx
 import ipaddress
 import mimetypes
 import socket
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from app.config import settings
 from app.core.logging import get_logger
@@ -582,6 +583,29 @@ async def create_media_handle_from_url(
             return str(handle)
     except httpx.RequestError as e:
         raise MetaAPIError("network_error", str(e)) from e
+
+
+# Meta keeps media uploaded to /{phone_id}/media for 30 days and then deletes
+# it. A media id is therefore only safe for a send that happens well inside
+# that window — and unlike a link, an id that has expired has no fallback at
+# send time: every message in the campaign fails. The margin absorbs a campaign
+# that sits in the queue, or is paused and resumed, after its scheduled time.
+META_MEDIA_RETENTION_DAYS = 30
+_MEDIA_ID_SAFE_MARGIN_DAYS = 5
+_MEDIA_ID_SAFE_DAYS = META_MEDIA_RETENTION_DAYS - _MEDIA_ID_SAFE_MARGIN_DAYS
+
+
+def media_id_is_safe_for(scheduled_at: datetime | None, now: datetime) -> bool:
+    """Whether a reusable media id will still exist when this campaign sends.
+
+    An immediate campaign always qualifies. A scheduled one qualifies only if
+    it goes out inside the retention window, with margin to spare.
+    """
+    if scheduled_at is None:
+        return True
+    if scheduled_at.tzinfo is None:
+        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+    return scheduled_at - now <= timedelta(days=_MEDIA_ID_SAFE_DAYS)
 
 
 async def create_reusable_media_id(

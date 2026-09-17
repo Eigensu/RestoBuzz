@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # Do NOT include "*" in production; set this explicitly per environment
     cors_origins: str = "http://localhost:3000"
 
+    # Optional regex for origins that cannot be listed literally because they
+    # change per deployment — Vercel gives every preview build its own
+    # hostname. Empty by default: nothing matches unless it is set.
+    cors_origin_regex: str = ""
+
     # Seed Data (Optional, used by init_db.py)
     admin_email: str = "admin@example.com"
     admin_password: str = ""
