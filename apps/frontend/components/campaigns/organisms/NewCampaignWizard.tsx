@@ -470,7 +470,15 @@ export function NewCampaignWizard() {
           )}
         </div>
 
-        {step > 0 && <WizardRightPanel step={step} preflight={preflight} />}
+        {step > 0 && (
+          <WizardRightPanel 
+            step={step} 
+            preflight={preflight}
+            template={selectedTemplate}
+            variables={variables}
+            mediaUrl={mediaUrl}
+          />
+        )}
       </div>
 
       {/* Navigation */}
