@@ -16,7 +16,7 @@ export const MEDIA_CONFIG = {
   VIDEO: {
     label: "Media Video",
     accept: "video/mp4,video/3gpp",
-    hint: "Click to upload · MP4, 3GP · max 16MB",
+    hint: "Click to upload · MP4, 3GP (H.264/AAC) · max 16MB",
     urlPlaceholder: "Or paste a video URL",
     Icon: Video,
   },

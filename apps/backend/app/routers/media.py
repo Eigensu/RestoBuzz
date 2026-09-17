@@ -1,9 +1,12 @@
 import uuid
 from fastapi import APIRouter, Depends, UploadFile, File
+from starlette.concurrency import run_in_threadpool
 from app.dependencies import require_role
 from app.core.errors import InvalidFileFormatError, ValidationError
 from app.services.cloudinary_service import (
     upload_media_result,
+    upload_whatsapp_video,
+    UnplayableVideoError,
     MAX_IMAGE_BYTES,
     MAX_VIDEO_BYTES,
     MAX_PDF_BYTES,
@@ -45,7 +48,18 @@ async def upload_image(
     ext = (file.filename or "media").rsplit(".", 1)[-1]
     public_id = f"whatsapp-media/{uuid.uuid4().hex}.{ext}"
 
-    url, cloudinary_public_id = upload_media_result(
-        content, public_id, resource_type=resource_type
-    )
+    # The Cloudinary SDK is synchronous, and a video that has to be re-encoded
+    # holds its connection open for as long as that takes — off the event loop,
+    # or one header upload stalls every other request in the process.
+    if resource_type == "video":
+        try:
+            url, cloudinary_public_id = await run_in_threadpool(
+                upload_whatsapp_video, content, public_id
+            )
+        except UnplayableVideoError as e:
+            raise ValidationError(str(e)) from e
+    else:
+        url, cloudinary_public_id = await run_in_threadpool(
+            upload_media_result, content, public_id, resource_type
+        )
     return {"url": url, "public_id": cloudinary_public_id}

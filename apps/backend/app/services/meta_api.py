@@ -367,10 +367,8 @@ async def _fetch_media_bytes(
     """Stream media_url, enforcing the per-type size cap while downloading.
 
     Returns (content, content_type). Shared by create_media_handle_from_url
-    and create_reusable_media_id, which both fetch a source media URL (often
-    a freshly re-encoded Cloudinary video, possibly still transcoding on its
-    first-ever fetch) before handing the bytes to a different Meta upload
-    endpoint.
+    and create_reusable_media_id, which both fetch a source media URL before
+    handing the bytes to a different Meta upload endpoint.
     """
     async with client.stream("GET", media_url) as fetch_resp:
         if fetch_resp.status_code != 200:
@@ -414,10 +412,9 @@ async def create_media_handle_from_url(
     app_id = await _resolve_app_id(token, app_id)
 
     try:
-        # A freshly-uploaded video may still be an on-demand (not yet
-        # generated) Cloudinary transformation — its first-ever fetch can
-        # block on the transcode itself, so this needs more headroom than a
-        # plain file download.
+        # A header video is up to 16 MB, downloaded here and then re-uploaded
+        # to Meta in the same window, so this needs more headroom than a plain
+        # API call.
         async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
             content, content_type = await _fetch_media_bytes(client, media_url)
 
@@ -510,8 +507,8 @@ async def create_reusable_media_id(
     only be reused for sends going out through that same phone number.
     """
     try:
-        # Same headroom as create_media_handle_from_url: this may be the
-        # first-ever fetch of a not-yet-generated Cloudinary transform.
+        # Same headroom as create_media_handle_from_url: a 16 MB download
+        # followed by a 16 MB upload, on one client.
         async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
             content, content_type = await _fetch_media_bytes(client, media_url)
 
