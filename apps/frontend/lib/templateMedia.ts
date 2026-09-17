@@ -15,8 +15,12 @@ export const MEDIA_CONFIG = {
   },
   VIDEO: {
     label: "Media Video",
-    accept: "video/mp4,video/3gpp",
-    hint: "Click to upload · MP4, 3GP (H.264/AAC) · max 16MB",
+    // "video/*", not a list of exact types: Android's file pickers honour the
+    // accept attribute and will not let you choose a clip whose type they
+    // report differently, so a narrow list silently blocks selection and no
+    // request is ever made. The backend re-encodes whatever arrives.
+    accept: "video/*",
+    hint: "Click to upload · any video, converted for WhatsApp · max 16MB",
     urlPlaceholder: "Or paste a video URL",
     Icon: Video,
   },
