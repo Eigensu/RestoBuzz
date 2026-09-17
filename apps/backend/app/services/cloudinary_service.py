@@ -16,20 +16,24 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024     # 5 MB
 MAX_VIDEO_BYTES = 16 * 1024 * 1024    # 16 MB (WhatsApp template video header cap)
 MAX_PDF_BYTES = 16 * 1024 * 1024      # 16 MB
 
-# What WhatsApp's own decoders accept. Source clips (exported by CapCut,
-# Premiere, phone cameras, etc.) often use a codec, H.264 profile or pixel
-# format that Android's hardware decoders reject outright even though iOS's
-# VideoToolbox plays them fine — "This video is not available because something
-# is wrong with the video file", for Android recipients only. Nothing upstream
-# catches it: the browser accept filter and /media/upload both go on the
-# OS-reported MIME type, and Meta validates the MIME type and the size but not
-# the codecs, so it ingests the file and renders its thumbnail server-side
-# before delivering something the handset cannot open.
+# Diagnostic only — these decide what gets logged, never whether a video is
+# re-encoded. A file can satisfy all three and still be unplayable on Android,
+# because the codec name says nothing about the H.264 profile, level or pixel
+# format, and nothing here can see where the moov atom sits. Gating on them is
+# what let an unplayable video through in production.
+#
+# Nothing upstream catches it either: the browser accept filter and
+# /media/upload both go on the OS-reported MIME type, and Meta validates the
+# MIME type and the size but not the encoding, so it ingests the file and
+# renders its thumbnail server-side before delivering something the handset
+# cannot open.
 WHATSAPP_VIDEO_CODECS = {"h264", "avc1"}
 WHATSAPP_AUDIO_CODECS = {"aac"}
 WHATSAPP_VIDEO_FORMATS = {"mp4", "3gp"}
 
-# Applied only to a video that fails the probe below.
+# Applied to every uploaded video. Re-encoding normalises the profile, the
+# pixel format and the moov placement together — the three things that decide
+# whether Android will play it and that no probe here can rule out.
 #
 # No explicit "faststart" flag: that's not a real Cloudinary flag name (it
 # rejects the upload with "Eager Invalid flag in transformation: faststart"
@@ -93,11 +97,12 @@ def upload_media_result(
 
 
 def whatsapp_video_defects(result: dict) -> list[str]:
-    """Name the parts of an uploaded video that WhatsApp cannot decode.
+    """Name the parts of an uploaded video that WhatsApp plainly cannot decode.
 
     Reads Cloudinary's probe of the stored file, not the MIME type the browser
-    claimed. A stream Cloudinary could not identify is left alone rather than
-    guessed at, so an unreadable probe never rejects a file that plays.
+    claimed. An empty list does NOT mean the file is playable — it means
+    nothing is wrong at the level a codec name can express. This is for the
+    log; the re-encode happens either way.
     """
     defects: list[str] = []
 
@@ -119,81 +124,72 @@ def whatsapp_video_defects(result: dict) -> list[str]:
 
 
 def upload_whatsapp_video(content: bytes, public_id: str) -> tuple[str, str]:
-    """Upload a header video and return a (secure_url, public_id) WhatsApp plays.
+    """Upload a header video, re-encode it, and return the (secure_url, public_id).
 
-    Cloudinary probes every video it stores and reports the container and the
-    video and audio codecs in the upload response. A file that already matches
-    what WhatsApp decodes is delivered untouched; anything else is re-encoded
-    and the derived URL is returned in its place, so what Meta fetches at send
-    time is always a file the recipient can open.
+    Every video is re-encoded, not just the ones that look wrong. Android's
+    hardware decoders reject a file for its H.264 profile, level or pixel
+    format, none of which the codec name tells you: a 10-bit High 10, a 4:2:2
+    or a 4:4:4 stream all report `codec == "h264"`, and all of them play on
+    iOS and fail on Android with "something is wrong with the video file".
+    moov placement is not reported at all. Gating the re-encode on a codec
+    probe therefore passes exactly the files that need it, which is what it
+    did in production — so the probe now only explains the decision in the
+    log, it does not make it.
 
     The re-encode is requested synchronously. An `eager_async` upload returns
     the derived URL before the file behind it exists, and Cloudinary does not
     build a *video* derivative on demand the way it does an image — it answers
     423 while the transcode is still queued, so a campaign created in that
-    window sends a link Meta cannot fetch. Waiting is affordable because only a
-    non-conforming file waits at all: the common case returns after the plain
-    upload, having transcoded nothing.
+    window sends a link Meta cannot fetch. The transform caps the output at
+    1280 wide with q_auto, which is what keeps the wait affordable: the source
+    is re-encoded down, not at whatever resolution it arrived in.
 
     Raises UnplayableVideoError when the re-encode cannot produce a compliant
     file — better a failure the operator sees at upload than a campaign that
     reaches every recipient broken.
     """
-    result = cloudinary.uploader.upload(
-        content,
-        public_id=public_id,
-        resource_type="video",
-        overwrite=True,
-        timeout=_VIDEO_CALL_TIMEOUT,
-    )
-    stored_public_id = result["public_id"]
-
-    defects = whatsapp_video_defects(result)
-    if not defects:
-        return result["secure_url"], stored_public_id
-
-    logger.warning(
-        "whatsapp_video_transcode",
-        public_id=stored_public_id,
-        defects=defects,
-    )
-    summary = ", ".join(defects)
-
     try:
-        derived = cloudinary.uploader.explicit(
-            stored_public_id,
-            type="upload",
+        result = cloudinary.uploader.upload(
+            content,
+            public_id=public_id,
             resource_type="video",
+            overwrite=True,
             eager=_VIDEO_EAGER_TRANSFORM,
             eager_async=False,
             timeout=_VIDEO_CALL_TIMEOUT,
         )
     except Exception as exc:
         raise UnplayableVideoError(
-            f"This video uses {summary} and converting it failed. {_REENCODE_ADVICE}"
+            f"Converting this video failed or took too long. {_REENCODE_ADVICE}"
         ) from exc
 
-    # A timed-out transcode surfaces as an SDK error above; this is the other
-    # shape — Cloudinary answering with a derived asset it has not finished.
-    eager = next(iter(derived.get("eager") or []), {})
+    stored_public_id = result["public_id"]
+    source = result.get("video") or {}
+    logger.info(
+        "whatsapp_video_transcoded",
+        public_id=stored_public_id,
+        source_codec=source.get("codec"),
+        source_profile=source.get("profile"),
+        source_pix_format=source.get("pix_format"),
+        source_level=source.get("level"),
+        # Empty for a file that was already nominally conforming — which is
+        # most of them, and says nothing about whether Android could play it.
+        defects=whatsapp_video_defects(result),
+    )
+
+    eager = next(iter(result.get("eager") or []), {})
     url = eager.get("secure_url")
     if not url or eager.get("status") in ("pending", "processing"):
         raise UnplayableVideoError(
-            f"This video uses {summary} and is taking too long to convert. "
-            f"{_REENCODE_ADVICE}"
+            f"This video is still converting. {_REENCODE_ADVICE}"
         )
 
     size = eager.get("bytes")
     if isinstance(size, int) and size > MAX_VIDEO_BYTES:
         raise UnplayableVideoError(
-            f"This video uses {summary}, and converting it produced a file over "
-            f"the {MAX_VIDEO_BYTES // (1024 * 1024)} MB WhatsApp limit. "
+            f"Converting this video produced a file over the "
+            f"{MAX_VIDEO_BYTES // (1024 * 1024)} MB WhatsApp limit. "
             "Shorten it or lower its resolution, then upload it again."
         )
 
-    logger.info(
-        "whatsapp_video_transcoded",
-        public_id=stored_public_id,
-        bytes=size,
-    )
     return url, stored_public_id
