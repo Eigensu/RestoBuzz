@@ -4,7 +4,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import StreamingResponse
 from app.database import get_db
-from app.dependencies import get_db as _get_db
+from app.dependencies import get_db as _get_db, validate_restaurant_access
 from app.core.security import decode_token
 
 router = APIRouter(tags=["sse"])
@@ -40,13 +40,15 @@ async def campaign_stream(
     token: str = Query(...),
     db=Depends(_get_db),
 ):
-    await _user_from_token(token, db)
+    current_user = await _user_from_token(token, db)
+    initial_doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
+    if not initial_doc:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    await validate_restaurant_access(current_user, initial_doc["restaurant_id"], db)
 
     async def event_generator():
         # First resolve the root ID for the chain
-        initial_doc = await db.campaign_jobs.find_one({"_id": ObjectId(campaign_id)})
-        if not initial_doc:
-            return
         root_oid_str = initial_doc.get("parent_campaign_id")
         root_oid = ObjectId(root_oid_str) if root_oid_str else initial_doc["_id"]
 

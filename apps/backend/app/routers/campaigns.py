@@ -1026,7 +1026,21 @@ async def get_campaign(
 
     # Aggregate counts across the entire retry chain
     root_oid = to_object_id(doc.get("parent_campaign_id") or doc["_id"])
-    chain_cursor = db.campaign_jobs.find(_retry_chain_filter(root_oid))
+    chain_jobs = [c async for c in db.campaign_jobs.find(_retry_chain_filter(root_oid))]
+    chain_job_ids = [c["_id"] for c in chain_jobs]
+    
+    meta_failed_count = 0
+    if chain_job_ids:
+        meta_failed_agg = await db.message_logs.aggregate([
+            {"$match": {
+                "job_id": {"$in": chain_job_ids},
+                "status": "failed",
+                "error_code": {"$regex": r"^\d+$"}
+            }},
+            {"$group": {"_id": None, "count": {"$sum": 1}}}
+        ]).to_list(length=1)
+        if meta_failed_agg:
+            meta_failed_count = meta_failed_agg[0]["count"]
     
     agg_sent = 0
     agg_delivered = 0
@@ -1034,7 +1048,7 @@ async def get_campaign(
     agg_failed = 0
     root_total = doc.get("total_count", 0)
 
-    async for cdoc in chain_cursor:
+    for cdoc in chain_jobs:
         agg_sent += cdoc.get("sent_count", 0)
         agg_delivered += cdoc.get("delivered_count", 0)
         agg_read += cdoc.get("read_count", 0)
@@ -1049,6 +1063,7 @@ async def get_campaign(
     doc["read_count"] = agg_read
     doc["failed_count"] = agg_failed
     doc["total_count"] = root_total
+    doc["meta_failed_count"] = meta_failed_count
 
     return _serialize_campaign(doc)
 

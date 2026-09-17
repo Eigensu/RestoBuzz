@@ -1,11 +1,15 @@
-import type { PreflightResult } from "@/types";
+import type { PreflightResult, Template } from "@/types";
+import { WizardTemplatePreview } from "./WizardTemplatePreview";
 
 interface WizardRightPanelProps {
   step: number;
   preflight: PreflightResult | null;
+  template?: Template | null;
+  variables?: Record<string, string>;
+  mediaUrl?: string;
 }
 
-export function WizardRightPanel({ step, preflight }: Readonly<WizardRightPanelProps>) {
+export function WizardRightPanel({ step, preflight, template, variables = {}, mediaUrl = "" }: Readonly<WizardRightPanelProps>) {
   return (
     <div className="hidden lg:flex w-80 shrink-0 flex-col gap-4">
       {step === 1 && (
@@ -105,6 +109,7 @@ export function WizardRightPanel({ step, preflight }: Readonly<WizardRightPanelP
       )}
 
       {step === 3 && (
+        <>
         <div className="bg-white rounded-xl border p-5 space-y-3">
           <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
             Before you launch
@@ -145,6 +150,16 @@ export function WizardRightPanel({ step, preflight }: Readonly<WizardRightPanelP
             ))}
           </div>
         </div>
+        {template && (
+          <div className="flex-1 min-h-[400px]">
+            <WizardTemplatePreview
+              template={template}
+              variables={variables}
+              mediaUrl={mediaUrl}
+            />
+          </div>
+        )}
+        </>
       )}
     </div>
   );
