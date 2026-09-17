@@ -159,37 +159,72 @@ def upload_whatsapp_video(content: bytes, public_id: str) -> tuple[str, str]:
             timeout=_VIDEO_CALL_TIMEOUT,
         )
     except Exception as exc:
+        # The SDK's own message is the only thing that says *why* — an invalid
+        # transformation flag, a timeout, a plan limit, a 420. Replacing it with
+        # advice and logging nothing is exactly how an invalid "faststart" flag
+        # reached production looking like a generic upload failure.
+        logger.exception(
+            "whatsapp_video_upload_failed",
+            public_id=public_id,
+            source_bytes=len(content),
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
         raise UnplayableVideoError(
             f"Converting this video failed or took too long. {_REENCODE_ADVICE}"
         ) from exc
 
     stored_public_id = result["public_id"]
     source = result.get("video") or {}
-    logger.info(
-        "whatsapp_video_transcoded",
-        public_id=stored_public_id,
-        source_codec=source.get("codec"),
-        source_profile=source.get("profile"),
-        source_pix_format=source.get("pix_format"),
-        source_level=source.get("level"),
+    # What the re-encode was given. Carried onto every outcome below, because
+    # when a video still will not play these are the fields that say why — and
+    # a codec name alone has already proved not to be enough.
+    probe = {
+        "public_id": stored_public_id,
+        "source_codec": source.get("codec"),
+        "source_profile": source.get("profile"),
+        "source_pix_format": source.get("pix_format"),
+        "source_level": source.get("level"),
+        "source_format": result.get("format"),
+        "source_bytes": result.get("bytes"),
+        "audio_codec": (result.get("audio") or {}).get("codec"),
         # Empty for a file that was already nominally conforming — which is
         # most of them, and says nothing about whether Android could play it.
-        defects=whatsapp_video_defects(result),
-    )
+        "defects": whatsapp_video_defects(result),
+    }
 
     eager = next(iter(result.get("eager") or []), {})
     url = eager.get("secure_url")
     if not url or eager.get("status") in ("pending", "processing"):
+        logger.error(
+            "whatsapp_video_transcode_unfinished",
+            **probe,
+            eager_status=eager.get("status"),
+            eager_fields=sorted(eager),
+        )
         raise UnplayableVideoError(
             f"This video is still converting. {_REENCODE_ADVICE}"
         )
 
     size = eager.get("bytes")
     if isinstance(size, int) and size > MAX_VIDEO_BYTES:
+        logger.error(
+            "whatsapp_video_transcode_too_large",
+            **probe,
+            transcoded_bytes=size,
+        )
         raise UnplayableVideoError(
             f"Converting this video produced a file over the "
             f"{MAX_VIDEO_BYTES // (1024 * 1024)} MB WhatsApp limit. "
             "Shorten it or lower its resolution, then upload it again."
         )
 
+    # delivered_url carries the transformation segment, so the log alone answers
+    # "was this file actually re-encoded?" without anyone opening the database.
+    logger.info(
+        "whatsapp_video_transcoded",
+        **probe,
+        transcoded_bytes=size,
+        delivered_url=url,
+    )
     return url, stored_public_id

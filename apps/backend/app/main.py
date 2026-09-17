@@ -85,7 +85,24 @@ else:
 
 
 @app.exception_handler(AppError)
-async def app_error_handler(_request: Request, exc: AppError):
+async def app_error_handler(request: Request, exc: AppError):
+    # An AppError is a deliberate rejection, but until now it left no server-side
+    # trace at all: the access log showed "POST /api/media/upload 400" and the
+    # reason existed only in the operator's browser. That is the whole diagnostic
+    # trail for every validation failure, so record why we said no. 401s are
+    # excluded — the token-refresh cycle produces them constantly and the reason
+    # is never interesting.
+    if exc.status_code != 401:
+        log = get_logger(__name__)
+        emit = log.error if exc.status_code >= 500 else log.warning
+        emit(
+            "request_rejected",
+            path=request.url.path,
+            method=request.method,
+            status=exc.status_code,
+            error_type=exc.error_type,
+            error=exc.message,
+        )
     return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
 

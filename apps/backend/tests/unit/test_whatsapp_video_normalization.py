@@ -235,3 +235,84 @@ async def test_image_upload_is_untouched_by_any_of_this(cloudinary_calls):
     assert response["public_id"] == "whatsapp-media/card"
     assert cloudinary_calls["upload"][0]["resource_type"] == "image"
     assert "eager" not in cloudinary_calls["upload"][0]
+
+
+# ── The diagnostics themselves ────────────────────────────────────────────────
+#
+# When this broke, the logs could not say why: the upload returned 200 and no
+# event was emitted at all, so "was it re-encoded?" could only be answered by
+# reading the database. These pin the fields that answer it.
+
+
+@pytest.fixture
+def logged(monkeypatch):
+    """Record what the service logs."""
+    events: list[tuple[str, str, dict]] = []
+
+    class _Recorder:
+        def __getattr__(self, level):
+            def log(event, **fields):
+                events.append((level, event, fields))
+
+            return log
+
+    monkeypatch.setattr(cloudinary_service, "logger", _Recorder())
+    return events
+
+
+def test_a_cloudinary_failure_records_the_underlying_reason(cloudinary_calls, logged):
+    """Swallowing the SDK's message is how an invalid flag reached production."""
+    cloudinary_calls["state"]["upload"] = RuntimeError("Eager Invalid flag: faststart")
+
+    with pytest.raises(UnplayableVideoError):
+        upload_whatsapp_video(b"data", "whatsapp-media/abc.mp4")
+
+    level, event, fields = logged[0]
+    assert event == "whatsapp_video_upload_failed"
+    assert level == "exception"
+    assert "faststart" in fields["error"]
+    assert fields["error_type"] == "RuntimeError"
+
+
+def test_success_records_what_went_in_and_what_came_out(cloudinary_calls, logged):
+    cloudinary_calls["state"]["upload"] = _probe(
+        profile="High 10", pix_format="yuv420p10le", level=51
+    )
+
+    upload_whatsapp_video(b"data", "whatsapp-media/abc.mp4")
+
+    _, event, fields = logged[0]
+    assert event == "whatsapp_video_transcoded"
+    # The fields a codec name could not give us.
+    assert fields["source_profile"] == "High 10"
+    assert fields["source_pix_format"] == "yuv420p10le"
+    assert fields["source_level"] == 51
+    # Answers "was it actually re-encoded?" from the log alone.
+    assert fields["delivered_url"] == DERIVED_URL
+
+
+def test_an_unfinished_transcode_is_recorded(cloudinary_calls, logged):
+    probe = _probe()
+    probe["eager"] = [{"secure_url": DERIVED_URL, "status": "pending"}]
+    cloudinary_calls["state"]["upload"] = probe
+
+    with pytest.raises(UnplayableVideoError):
+        upload_whatsapp_video(b"data", "whatsapp-media/abc.mp4")
+
+    level, event, fields = logged[0]
+    assert event == "whatsapp_video_transcode_unfinished"
+    assert level == "error"
+    assert fields["eager_status"] == "pending"
+
+
+def test_an_oversized_transcode_is_recorded(cloudinary_calls, logged):
+    probe = _probe()
+    probe["eager"] = [{"secure_url": DERIVED_URL, "bytes": MAX_VIDEO_BYTES + 1}]
+    cloudinary_calls["state"]["upload"] = probe
+
+    with pytest.raises(UnplayableVideoError):
+        upload_whatsapp_video(b"data", "whatsapp-media/abc.mp4")
+
+    _, event, fields = logged[0]
+    assert event == "whatsapp_video_transcode_too_large"
+    assert fields["transcoded_bytes"] == MAX_VIDEO_BYTES + 1
