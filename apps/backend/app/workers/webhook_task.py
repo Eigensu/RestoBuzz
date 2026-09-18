@@ -445,8 +445,9 @@ async def _process_inbound_message(
         # still honoured. Guarded because a webhook carrying neither identifier
         # would otherwise write a null-keyed suppression row.
         if contact_key:
-            await add_suppression(db, contact_key, reason="opt_out")
-            logger.info("auto_suppressed", contact_key=contact_key)
+            normalized_key = normalize_phone(contact_key) or contact_key
+            await add_suppression(db, normalized_key, reason="opt_out")
+            logger.info("auto_suppressed", contact_key=normalized_key)
         else:
             logger.warning("stop_keyword_without_identifier", wa_id=wa_id)
     else:
