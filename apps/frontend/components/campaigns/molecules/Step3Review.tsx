@@ -1,3 +1,5 @@
+import { useMemo, useState, useRef, useEffect } from "react";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { absoluteIST } from "@/lib/date";
 import type { Template, PreflightResult } from "@/types";
@@ -66,6 +68,62 @@ export function Step3Review({
   retryUntil,
   setRetryUntil,
 }: Readonly<Step3ReviewProps>) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const lastAutoName = useRef("");
+  const lastFirstSuggestion = useRef<string | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const suggestions = useMemo(() => {
+    const baseName = selectedTemplate?.name?.trim() || "Campaign";
+    
+    const prettyTemplate = baseName.replace(/[_-]+/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+
+    const dateToUse = (sendMode === "scheduled" && scheduledAt) ? scheduledAt : new Date();
+    const istDate = new Date(dateToUse.getTime() + (5.5 * 60 * 60 * 1000));
+    const dNum = istDate.getUTCDate();
+    const mNum = istDate.getUTCMonth();
+    const yNum = istDate.getUTCFullYear();
+
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const fullMonths = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    
+    const shortMonth = months[mNum];
+    const longMonth = fullMonths[mNum];
+
+    const opts = [
+      `${prettyTemplate} - ${dNum} ${shortMonth}`,
+      `${prettyTemplate} Campaign`,
+      `${prettyTemplate} - ${longMonth} ${yNum}`,
+      `${longMonth} - ${prettyTemplate}`,
+      `${prettyTemplate} Promotion`
+    ];
+    
+    return Array.from(new Set(opts)).slice(0, 5);
+  }, [selectedTemplate, sendMode, scheduledAt]);
+
+  useEffect(() => {
+    if (suggestions.length > 0) {
+      const first = suggestions[0];
+      if (first !== lastFirstSuggestion.current) {
+        if (!campaignName || campaignName === lastAutoName.current) {
+          setCampaignName(first);
+          lastAutoName.current = first;
+        }
+        lastFirstSuggestion.current = first;
+      }
+    }
+  }, [suggestions, campaignName, setCampaignName]);
+
   const minDatetime = toDatetimeLocalMin();
 
   function handleDatetimeChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -116,24 +174,56 @@ export function Step3Review({
     <div className="space-y-5">
       <h2 className="font-medium">Schedule &amp; Review</h2>
 
-      {/* Campaign Name */}
-      <div className="max-w-md">
-        <label
-          htmlFor="campaign-name"
-          className="text-sm font-medium mb-1 block"
-        >
-          Campaign Name
-        </label>
+      {/* Campaign Name & Suggestions */}
+      <div className="w-full max-w-md shrink-0 relative" ref={dropdownRef}>
+        <div className="flex items-center justify-between mb-1">
+          <label
+            htmlFor="campaign-name"
+            className="text-sm font-medium block"
+          >
+            Campaign Name
+          </label>
+          
+          <span className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-widest cursor-default select-none">
+            <Sparkles className="w-3 h-3" /> Auto-Suggest
+          </span>
+        </div>
+        
         <input
           id="campaign-name"
           value={campaignName}
           onChange={(e) => setCampaignName(e.target.value)}
+          onFocus={() => setDropdownOpen(true)}
+          onClick={() => setDropdownOpen(true)}
           className={cn(INPUT_CLS, "py-2")}
           placeholder="e.g. Summer Promo 2026"
+          autoComplete="off"
         />
+
+        {dropdownOpen && (
+          <div className="absolute left-0 right-0 top-full mt-1 w-full bg-white border border-gray-200 shadow-xl rounded-lg overflow-hidden z-10 py-1">
+            {suggestions.map((suggestion, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onMouseDown={(e) => {
+                  // Prevent default to keep input focus if desired, though closing dropdown implies we can blur.
+                  // Using onMouseDown ensures it fires before any blur events.
+                  e.preventDefault();
+                  setCampaignName(suggestion);
+                  lastAutoName.current = suggestion;
+                  setDropdownOpen(false);
+                }}
+                className="w-full text-left text-xs font-medium text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 px-3 py-2 transition"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Unsubscribe footer */}
+            {/* Unsubscribe footer */}
       <label className="flex items-center gap-2 cursor-pointer">
         <input
           type="checkbox"
